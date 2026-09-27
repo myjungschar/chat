@@ -82,19 +82,19 @@
 
       <button id="login-btn" onclick="login()">Einloggen</button>
       <button type="button" id="forgot-password-btn" class="link-btn" onclick="showForgotScreen()">Passwort vergessen?</button>
-      <button type="button" class="link-btn about-toggle-btn" onclick="toggleAboutInline()">Wer wir sind ⋯</button>
+      <button type="button" class="about-toggle-btn" onclick="toggleAboutInline()">Wer wir sind...</button>
     </div>
 
     <!-- Eigene Karte unter der Login-Karte, erscheint erst nach Klick auf "Wer wir sind" -->
-    <div id="about-card" class="card about-card" style="display: none;">
-      <p class="about-heading">Über uns</p>
-      <p class="about-text">
-        Wir sind die Jungschar der Evangeliums-Christen-Baptisten Gemeinde Gifhorn (ECBG e.V.).
-        Dieser Chat ist unser gemeinsamer Treffpunkt für Infos, Termine und Austausch.
-      </p>
-      <p class="about-text">
-        <a href="https://www.ecbg.de/" target="_blank" rel="noopener noreferrer">ECBG Gifhorn</a>
-      </p>
+    <div id="about-card" class="card about-card">
+      <div class="about-card-inner">
+        <p class="about-heading">Über uns</p>
+        <p class="about-text">
+          Wir sind die Jungschar der
+          <a href="https://www.ecbg.de/" target="_blank" rel="noopener noreferrer"><strong>Evangeliums-Christen-Baptisten Gemeinde Gifhorn (ECBG e.V.)</strong></a>.
+          Dieser Chat ist unser gemeinsamer Treffpunkt für Infos, Termine und Austausch.
+        </p>
+      </div>
     </div>
 
     <!-- BEREICH 1b: PASSWORT VERGESSEN (Benutzername eingeben, Link geht an hinterlegte E-Mail) -->

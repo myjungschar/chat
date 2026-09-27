@@ -93,13 +93,53 @@ body.light-theme {
   flex-shrink: 0;
 }
 
-/* ===== "Wer wir sind": öffnet eine eigene kleine Karte unter der Login-Karte ===== */
+/* ===== "Wer wir sind": eigener, dezenter Link-Stil, anders als "Passwort vergessen?" ===== */
 .about-toggle-btn {
-  margin-top: 2px;
+  display: block;
+  width: auto;
+  margin: 10px auto 0;
+  padding: 4px 2px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  transition: color 0.15s ease, border-color 0.15s ease;
 }
 
+.about-toggle-btn:hover {
+  background: transparent;
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Eigene Karte unter der Login-Karte, klappt sanft auf/zu (Höhe, Deckkraft und Abstand animiert) -
+   ein Grid mit variabler Zeilenhöhe ist der einzige Weg, "auto" weich zu animieren */
 .about-card {
+  display: grid;
+  grid-template-rows: 0fr;
+  padding: 0;
+  margin-top: 0;
+  opacity: 0;
+  transition: grid-template-rows 0.3s ease, opacity 0.25s ease, margin-top 0.3s ease, padding 0.3s ease;
+}
+
+.about-card.open {
+  grid-template-rows: 1fr;
   margin-top: 14px;
+  opacity: 1;
+}
+
+.about-card-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.about-card.open .about-card-inner {
+  padding: 22px;
 }
 
 .about-heading {
@@ -109,18 +149,19 @@ body.light-theme {
 }
 
 .about-text {
-  margin-bottom: 10px;
+  margin-bottom: 0;
   font-size: 14px;
   line-height: 1.5;
   color: var(--text-secondary);
 }
 
-.about-text:last-child {
-  margin-bottom: 0;
-}
-
 .about-text a {
   color: var(--accent);
+  text-decoration: none;
+}
+
+.about-text a:hover {
+  text-decoration: underline;
 }
 
 .app-container {

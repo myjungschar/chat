@@ -102,8 +102,7 @@ function syncThemeSwitches(wantsDark) {
 
 // "Wer wir sind" zeigt/versteckt die eigene Karte "Über uns" direkt unter der Login-Karte
 function toggleAboutInline() {
-  const card = document.getElementById('about-card')
-  card.style.display = card.style.display === 'none' ? 'block' : 'none'
+  document.getElementById('about-card').classList.toggle('open')
 }
 
 applyStoredTheme()
@@ -157,6 +156,9 @@ function showScreen(id) {
   // Login/Passwort-Bildschirme bleiben immer eine kleine Karte in der Mitte, auch am Handy,
   // und nur dort zeigt sich die kleine Leiste oben rechts (Hell/Dunkel, "Wer sind wir")
   document.body.classList.toggle('auth-screen', AUTH_SCREENS.includes(id))
+  // "Wer wir sind" gehört nur zum Login selbst - verlässt man den Bildschirm, ist die Karte wirklich weg,
+  // nicht nur unsichtbar im Hintergrund
+  if (id !== 'login-bereich') document.getElementById('about-card').classList.remove('open')
 
   if (split) {
     // Nur die eigene Seite austauschen, die andere bleibt stehen
@@ -226,7 +228,7 @@ function showLogin() {
   peerMarks = {}
   pollsMap = {}
 
-  document.getElementById('about-card').style.display = 'none'
+  document.getElementById('about-card').classList.remove('open')
   document.getElementById('username').value = ''
   document.getElementById('password').value = ''
   showScreen('login-bereich')
