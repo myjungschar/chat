@@ -102,7 +102,8 @@ function syncThemeSwitches(wantsDark) {
 
 // "Wer wir sind" zeigt/versteckt die eigene Karte "Über uns" direkt unter der Login-Karte
 function toggleAboutInline() {
-  document.getElementById('about-card').classList.toggle('open')
+  const aboutCard = document.getElementById('about-card')
+  if (aboutCard) aboutCard.classList.toggle('open')
 }
 
 applyStoredTheme()
@@ -158,7 +159,10 @@ function showScreen(id) {
   document.body.classList.toggle('auth-screen', AUTH_SCREENS.includes(id))
   // "Wer wir sind" gehört nur zum Login selbst - verlässt man den Bildschirm, ist die Karte wirklich weg,
   // nicht nur unsichtbar im Hintergrund
-  if (id !== 'login-bereich') document.getElementById('about-card').classList.remove('open')
+  if (id !== 'login-bereich') {
+    const aboutCard = document.getElementById('about-card')
+    if (aboutCard) aboutCard.classList.remove('open')
+  }
 
   if (split) {
     // Nur die eigene Seite austauschen, die andere bleibt stehen
@@ -228,7 +232,8 @@ function showLogin() {
   peerMarks = {}
   pollsMap = {}
 
-  document.getElementById('about-card').classList.remove('open')
+  const aboutCard = document.getElementById('about-card')
+  if (aboutCard) aboutCard.classList.remove('open')
   document.getElementById('username').value = ''
   document.getElementById('password').value = ''
   showScreen('login-bereich')

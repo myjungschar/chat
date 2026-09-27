@@ -93,27 +93,32 @@ body.light-theme {
   flex-shrink: 0;
 }
 
-/* ===== "Wer wir sind": eigener, dezenter Link-Stil, anders als "Passwort vergessen?" ===== */
-.about-toggle-btn {
-  display: block;
-  width: auto;
-  margin: 10px auto 0;
-  padding: 4px 2px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: 0.02em;
-  text-decoration: none;
-  border-bottom: 1px solid transparent;
-  border-radius: 0;
-  transition: color 0.15s ease, border-color 0.15s ease;
+/* ===== "Wer wir sind": kleiner Info-Button unten rechts in der Login-Karte ===== */
+#login-bereich {
+  position: relative;
+  padding-bottom: 44px; /* Platz für den Info-Button unten rechts, damit er nichts überlappt */
 }
 
-.about-toggle-btn:hover {
+.info-corner-btn {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  width: auto;
   background: transparent;
+  border: 1px solid var(--accent);
   color: var(--accent);
-  border-bottom-color: var(--accent);
+  padding: 6px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+}
+
+.info-corner-btn:hover {
+  color: #93c5fd;
+  background-color: rgba(255, 255, 255, 0.08);
+  transform: scale(1.1);
 }
 
 /* Eigene Karte unter der Login-Karte, klappt sanft auf/zu (Höhe, Deckkraft und Abstand animiert) -
@@ -1404,6 +1409,12 @@ body.split-view #admin-contacts-bereich {
 body.split-view #conversation-bereich {
   grid-column: 2;
   border-width: 0;
+}
+
+/* "Über uns" gehört nur zum Login-Bildschirm, der in der PC-Ansicht nie zu sehen ist - ohne
+   diese Zeile zählt sie trotzdem als Gitter-Feld mit und verschiebt die ganze Spalten-Aufteilung */
+body.split-view #about-card {
+  display: none;
 }
 
 body.split-view .chat-header,
