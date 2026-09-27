@@ -76,44 +76,34 @@ function applyStoredTheme() {
   const stored = localStorage.getItem('theme')
   const isLight = stored === 'light'
   document.body.classList.toggle('light-theme', isLight)
-  const toggle = document.getElementById('dark-mode-toggle')
-  if (toggle) toggle.checked = !isLight
-  updateThemePillIcon()
+  syncThemeSwitches(!isLight)
 }
 
 function toggleDarkMode() {
   const toggle = document.getElementById('dark-mode-toggle')
-  const wantsDark = toggle.checked
+  setTheme(toggle.checked)
+}
+
+// Der Schalter oben rechts auf dem Login-Bildschirm - derselbe wie in den Einstellungen, nur
+// ohne dass man sich dafür erst einloggen und dorthin navigieren muss
+function setTheme(wantsDark) {
   document.body.classList.toggle('light-theme', !wantsDark)
   localStorage.setItem('theme', wantsDark ? 'dark' : 'light')
-  updateThemePillIcon()
+  syncThemeSwitches(wantsDark)
 }
 
-// Die kleine Pille oben rechts auf dem Login-Bildschirm - schaltet dieselbe Einstellung wie in
-// den Einstellungen, nur ohne dass man sich dafür erst einloggen und dorthin navigieren muss
-function toggleThemePill() {
-  const wantsDark = document.body.classList.contains('light-theme')
-  document.body.classList.toggle('light-theme', !wantsDark)
-  localStorage.setItem('theme', wantsDark ? 'dark' : 'light')
-  const toggle = document.getElementById('dark-mode-toggle')
-  if (toggle) toggle.checked = wantsDark
-  updateThemePillIcon()
+// Hält beide Schalter (Login-Bildschirm + Einstellungen) auf demselben Stand
+function syncThemeSwitches(wantsDark) {
+  const settingsToggle = document.getElementById('dark-mode-toggle')
+  const loginToggle = document.getElementById('theme-switch-input')
+  if (settingsToggle) settingsToggle.checked = wantsDark
+  if (loginToggle) loginToggle.checked = wantsDark
 }
 
-// Zeigt an, wohin ein Tipp auf die Pille umschalten würde (Mond = wechselt zu dunkel, Sonne = zu hell)
-function updateThemePillIcon() {
-  const btn = document.getElementById('theme-pill-btn')
-  if (!btn) return
-  const isLight = document.body.classList.contains('light-theme')
-  btn.textContent = isLight ? '🌙' : '☀️'
-}
-
-function openAboutModal() {
-  document.getElementById('about-modal').style.display = 'flex'
-}
-
-function closeAboutModal() {
-  document.getElementById('about-modal').style.display = 'none'
+// "Wer wir sind" zeigt/versteckt die eigene Karte "Über uns" direkt unter der Login-Karte
+function toggleAboutInline() {
+  const card = document.getElementById('about-card')
+  card.style.display = card.style.display === 'none' ? 'block' : 'none'
 }
 
 applyStoredTheme()
@@ -236,6 +226,7 @@ function showLogin() {
   peerMarks = {}
   pollsMap = {}
 
+  document.getElementById('about-card').style.display = 'none'
   document.getElementById('username').value = ''
   document.getElementById('password').value = ''
   showScreen('login-bereich')

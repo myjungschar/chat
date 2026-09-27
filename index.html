@@ -9,6 +9,8 @@
   <!-- App-Verhalten auf iPads / Mobilgeräten -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="JungscharChat">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-title" content="JungscharChat">
 
   <!-- Beschreibungen & Metadaten für Google -->
   <meta name="description" content="Der offizielle JungscharChat für Gifhorn. Melde dich an und schreibe mit deinen Freunden.">
@@ -52,17 +54,17 @@
 </head>
 <body>
 
-  <!-- Kleine schwebende Leiste oben rechts, nur auf den Login-Bildschirmen sichtbar -->
-  <div id="auth-topbar">
-    <button type="button" id="theme-pill-btn" class="pill-btn" onclick="toggleThemePill()" aria-label="Hellen/dunklen Modus umschalten">🌙</button>
-    <button type="button" class="pill-btn" onclick="openAboutModal()">Wer sind wir</button>
-  </div>
-
   <div class="app-container">
 
     <!-- BEREICH 1: LOGIN -->
     <div id="login-bereich" class="card" style="display: none;">
-      <h2>JungscharChat Login</h2>
+      <div class="login-heading-row">
+        <h2>JungscharChat Login</h2>
+        <label class="switch theme-switch" aria-label="Hellen/dunklen Modus umschalten">
+          <input type="checkbox" id="theme-switch-input" onchange="setTheme(this.checked)">
+          <span class="switch-slider"></span>
+        </label>
+      </div>
       <p>Melde dich an, um mitzuschreiben.</p>
 
       <div class="input-group">
@@ -80,6 +82,19 @@
 
       <button id="login-btn" onclick="login()">Einloggen</button>
       <button type="button" id="forgot-password-btn" class="link-btn" onclick="showForgotScreen()">Passwort vergessen?</button>
+      <button type="button" class="link-btn about-toggle-btn" onclick="toggleAboutInline()">Wer wir sind ⋯</button>
+    </div>
+
+    <!-- Eigene Karte unter der Login-Karte, erscheint erst nach Klick auf "Wer wir sind" -->
+    <div id="about-card" class="card about-card" style="display: none;">
+      <p class="about-heading">Über uns</p>
+      <p class="about-text">
+        Wir sind die Jungschar der Evangeliums-Christen-Baptisten Gemeinde Gifhorn (ECBG e.V.).
+        Dieser Chat ist unser gemeinsamer Treffpunkt für Infos, Termine und Austausch.
+      </p>
+      <p class="about-text">
+        <a href="https://www.ecbg.de/" target="_blank" rel="noopener noreferrer">ECBG Gifhorn</a>
+      </p>
     </div>
 
     <!-- BEREICH 1b: PASSWORT VERGESSEN (Benutzername eingeben, Link geht an hinterlegte E-Mail) -->
@@ -359,23 +374,6 @@
       <ul id="poll-voters-list" class="info-list"></ul>
       <div class="modal-actions">
         <button type="button" class="modal-cancel" onclick="closePollVotersModal()">Schließen</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Pop-up "Wer sind wir": kurzer Info-Text mit Link zur Gemeinde-Webseite -->
-  <div id="about-modal" class="modal-overlay" style="display: none;" onclick="closeAboutModal()">
-    <div class="modal-box" onclick="event.stopPropagation()">
-      <p class="info-title">Wer sind wir</p>
-      <p class="about-text">
-        Wir sind die Jungschar der Evangeliums-Christen-Baptisten Gemeinde Gifhorn (ECBG e.V.).
-        Dieser Chat ist unser gemeinsamer Treffpunkt für Infos, Termine und Austausch.
-      </p>
-      <p class="about-text">
-        <a href="https://www.ecbg.de/" target="_blank" rel="noopener noreferrer">ECBG Gifhorn</a>
-      </p>
-      <div class="modal-actions">
-        <button type="button" class="modal-cancel" onclick="closeAboutModal()">Schließen</button>
       </div>
     </div>
   </div>

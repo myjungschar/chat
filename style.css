@@ -58,6 +58,8 @@ body.light-theme {
   margin: 0;
   padding: 0;
   font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  /* Sorgt dafür, dass beim Umschalten Hell/Dunkel alles weich überblendet statt hart umzuspringen */
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
 body {
@@ -74,39 +76,36 @@ body.light-theme {
   background: radial-gradient(circle at top, #ffffff 0%, var(--bg-app) 55%);
 }
 
-/* ===== Kleine Leiste oben rechts, nur auf den Login-Bildschirmen ===== */
-#auth-topbar {
-  display: none;
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  z-index: 30;
-  gap: 8px;
-}
-
-body.auth-screen #auth-topbar {
+/* ===== Hell/Dunkel-Umschalter oben rechts in der Login-Karte, auf Höhe der Überschrift =====
+   Eine Pille mit zwei Kugeln: eine helle, eine dunkle, die aktive ist per Rahmen markiert */
+.login-heading-row {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.pill-btn {
-  width: auto;
-  padding: 7px 14px;
-  background: var(--bg-panel-raised);
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 500;
+.login-heading-row h2 {
+  margin-bottom: 0;
 }
 
-.pill-btn:hover {
-  background: var(--bg-input);
+.theme-switch {
+  flex-shrink: 0;
 }
 
-#theme-pill-btn {
-  padding: 7px 10px;
+/* ===== "Wer wir sind": öffnet eine eigene kleine Karte unter der Login-Karte ===== */
+.about-toggle-btn {
+  margin-top: 2px;
+}
+
+.about-card {
+  margin-top: 14px;
+}
+
+.about-heading {
+  margin-bottom: 10px;
   font-size: 15px;
-  line-height: 1;
+  font-weight: 600;
 }
 
 .about-text {
@@ -114,6 +113,10 @@ body.auth-screen #auth-topbar {
   font-size: 14px;
   line-height: 1.5;
   color: var(--text-secondary);
+}
+
+.about-text:last-child {
+  margin-bottom: 0;
 }
 
 .about-text a {
