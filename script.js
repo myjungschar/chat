@@ -236,6 +236,7 @@ function showLogin() {
   if (aboutCard) aboutCard.classList.remove('open')
   document.getElementById('username').value = ''
   document.getElementById('password').value = ''
+  refreshPasswordToggles()
   showScreen('login-bereich')
 }
 
@@ -806,14 +807,6 @@ async function login() {
   }
 
   await enterApp(data.user)
-}
-
-function togglePasswordVisibility() {
-  const input = document.getElementById('password')
-  const btn = document.querySelector('.toggle-password')
-  const willShow = input.type === 'password'
-  input.type = willShow ? 'text' : 'password'
-  btn.setAttribute('aria-label', willShow ? 'Passwort verbergen' : 'Passwort anzeigen')
 }
 
 function showForgotScreen() {
@@ -2300,15 +2293,51 @@ function openPasswordChange() {
   document.getElementById('old-password').value = ''
   document.getElementById('new-password').value = ''
   document.getElementById('repeat-password').value = ''
+  refreshPasswordToggles()
+}
+
+// ===== Passwort-Auge =====
+// Deine beiden SVGs (visible.svg / invisible.svg), direkt eingebaut. So übernehmen sie die Textfarbe
+// (auch im dunklen Modus) und brauchen keine extra Datei.
+const EYE_VISIBLE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="20" height="20" aria-hidden="true"><g transform="translate(0,96) scale(0.1,-0.1)" fill="currentColor" stroke="none"><path d="M360 764 c-93 -25 -162 -64 -231 -133 -101 -102 -158 -241 -101 -249 14 -2 24 3 28 15 24 72 68 146 112 190 224 224 599 148 718 -146 19 -45 27 -56 46 -56 59 0 -1 145 -101 245 -129 127 -306 178 -471 134z"/><path d="M405 601 c-125 -58 -155 -207 -61 -309 111 -122 326 -35 326 132 0 25 -5 57 -11 73 -24 64 -109 123 -179 123 -19 0 -53 -9 -75 -19z m130 -55 c104 -44 98 -200 -10 -241 -45 -18 -88 -12 -125 18 -75 58 -62 186 23 222 41 18 69 18 112 1z"/></g></svg>'
+const EYE_INVISIBLE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="20" height="20" aria-hidden="true"><g transform="translate(0,96) scale(0.1,-0.1)" fill="currentColor" stroke="none"><path d="M456 502 c-380 -381 -404 -410 -352 -420 13 -3 52 29 126 103 l108 108 29 -21 c78 -56 189 -47 249 20 67 73 73 190 13 254 -19 20 -18 20 29 67 l47 47 46 -38 c61 -50 106 -110 135 -179 19 -47 27 -58 46 -58 20 0 23 5 21 33 -2 58 -52 143 -128 218 l-73 72 65 63 c43 43 63 71 61 84 -8 55 -40 29 -422 -353z m139 -12 c36 -69 5 -156 -65 -184 -51 -20 -55 -20 -108 5 l-44 22 93 93 c52 52 97 94 101 94 4 0 14 -13 23 -30z"/><path d="M360 764 c-93 -25 -162 -64 -231 -133 -101 -102 -158 -241 -101 -249 14 -2 24 3 28 15 71 210 254 337 460 319 66 -5 73 -4 93 18 l23 24 -52 11 c-68 15 -153 13 -220 -5z"/><path d="M405 601 c-69 -31 -130 -123 -114 -170 2 -5 48 35 103 90 83 83 95 99 75 99 -13 0 -42 -9 -64 -19z"/></g></svg>'
+
+// Passt Auge und Feld an: Auge nur sichtbar, wenn etwas im Feld steht.
+// Passwort verborgen -> "visible"-Icon (Klick zeigt es), Passwort sichtbar -> "invisible"-Icon (Klick verbirgt es).
+function updatePasswordToggle(input) {
+  const btn = input.closest('.password-field')?.querySelector('.toggle-password')
+  if (!btn) return
+
+  // Feld leer: Passwort wieder verbergen und Auge ausblenden
+  if (input.value === '') {
+    input.type = 'password'
+    btn.style.display = 'none'
+    return
+  }
+
+  const isShown = input.type !== 'password'
+  btn.style.display = ''
+  btn.innerHTML = isShown ? EYE_INVISIBLE_SVG : EYE_VISIBLE_SVG
+  btn.setAttribute('aria-label', isShown ? 'Passwort verbergen' : 'Passwort anzeigen')
+}
+
+// Nach programmatischem Leeren der Felder (Logout, Passwort geändert, ...) aufrufen
+function refreshPasswordToggles() {
+  document.querySelectorAll('.password-field input').forEach(updatePasswordToggle)
 }
 
 // Zeigt/versteckt den Inhalt eines Passwortfelds über das zugehörige Augen-Symbol
 function toggleFieldVisibility(inputId, btn) {
   const input = document.getElementById(inputId)
-  const willShow = input.type === 'password'
-  input.type = willShow ? 'text' : 'password'
-  btn.setAttribute('aria-label', willShow ? 'Passwort verbergen' : 'Passwort anzeigen')
+  input.type = input.type === 'password' ? 'text' : 'password'
+  updatePasswordToggle(input)
+  input.focus()
 }
+
+document.querySelectorAll('.password-field input').forEach(input => {
+  input.addEventListener('input', () => updatePasswordToggle(input))
+})
+refreshPasswordToggles()
 
 async function sendPasswordReset() {
   const username = document.getElementById('forgot-username').value.trim()
@@ -2421,6 +2450,7 @@ async function changePassword() {
     document.getElementById('old-password').value = ''
     document.getElementById('new-password').value = ''
     document.getElementById('repeat-password').value = ''
+    refreshPasswordToggles()
     alert('Passwort wurde geändert.')
     openSettings()
   }

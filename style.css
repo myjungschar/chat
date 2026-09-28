@@ -1094,13 +1094,19 @@ img.emoji {
   width: auto;
   padding: 6px 8px;
   background: transparent;
-  font-size: 15px;
-  line-height: 1;
+  color: var(--text-secondary);
+  line-height: 0;
+  display: flex;
+  align-items: center;
+}
+
+.toggle-password svg {
+  display: block;
 }
 
 .toggle-password:hover {
   background: transparent;
-  opacity: 0.7;
+  color: var(--text-primary);
 }
 
 /* ===== Chatliste ===== */

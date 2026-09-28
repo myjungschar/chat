@@ -76,7 +76,7 @@
         <label for="password">Passwort</label>
         <div class="password-field">
           <input type="password" id="password" placeholder="••••••••" autocomplete="current-password">
-          <button type="button" class="toggle-password" onclick="togglePasswordVisibility()" aria-label="Passwort anzeigen">👁</button>
+          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('password', this)" aria-label="Passwort anzeigen"></button>
         </div>
       </div>
 
@@ -120,7 +120,10 @@
 
       <div class="input-group">
         <label for="reset-password">Neues Passwort</label>
-        <input type="password" id="reset-password" placeholder="Mindestens 6 Zeichen" autocomplete="new-password">
+        <div class="password-field">
+          <input type="password" id="reset-password" placeholder="Mindestens 6 Zeichen" autocomplete="new-password">
+          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('reset-password', this)" aria-label="Passwort anzeigen"></button>
+        </div>
       </div>
 
       <button id="reset-password-btn" onclick="completePasswordReset()">Passwort setzen</button>
@@ -232,7 +235,7 @@
         <label for="old-password">Aktuelles Passwort</label>
         <div class="password-field">
           <input type="password" id="old-password" autocomplete="current-password">
-          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('old-password', this)" aria-label="Passwort anzeigen">👁</button>
+          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('old-password', this)" aria-label="Passwort anzeigen"></button>
         </div>
       </div>
 
@@ -240,7 +243,7 @@
         <label for="new-password">Neues Passwort</label>
         <div class="password-field">
           <input type="password" id="new-password" placeholder="Mindestens 8 Zeichen, mit Buchstaben und Zahl" autocomplete="new-password">
-          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('new-password', this)" aria-label="Passwort anzeigen">👁</button>
+          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('new-password', this)" aria-label="Passwort anzeigen"></button>
         </div>
       </div>
 
@@ -248,7 +251,7 @@
         <label for="repeat-password">Neues Passwort wiederholen</label>
         <div class="password-field">
           <input type="password" id="repeat-password" autocomplete="new-password">
-          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('repeat-password', this)" aria-label="Passwort anzeigen">👁</button>
+          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('repeat-password', this)" aria-label="Passwort anzeigen"></button>
         </div>
       </div>
 
