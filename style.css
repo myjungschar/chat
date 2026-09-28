@@ -103,39 +103,57 @@ body.light-theme {
   position: absolute;
   bottom: 20px;
   right: 20px;
-  width: auto;
-  background: transparent;
-  border: 1px solid var(--accent);
+  width: 24px;
+  height: 24px;
+  /* Innen wie die Karte selbst, drumherum ein einfacher heller Ring, das "i" in derselben Farbe */
+  background: var(--bg-panel);
+  border: 1.5px solid var(--accent);
   color: var(--accent);
-  padding: 6px;
+  padding: 0;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+  transition: background-color 0.2s ease, transform 0.2s ease;
 }
 
 .info-corner-btn:hover {
-  color: #93c5fd;
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: var(--bg-input);
   transform: scale(1.1);
+}
+
+.info-text-i {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-style: italic; /* Macht das i leicht schräg/klassisch */
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1;
 }
 
 /* Eigene Karte unter der Login-Karte, klappt sanft auf/zu (Höhe, Deckkraft und Abstand animiert) -
    ein Grid mit variabler Zeilenhöhe ist der einzige Weg, "auto" weich zu animieren */
-.about-card {
+/* ".card.about-card" statt nur ".about-card": die Basisregel ".card" steht weiter unten in der Datei
+   und würde sonst den Innenabstand (padding: 0) und die Höhe wieder überschreiben */
+.card.about-card {
   display: grid;
   grid-template-rows: 0fr;
+  height: auto;
   padding: 0;
   margin-top: 0;
   opacity: 0;
-  transition: grid-template-rows 0.3s ease, opacity 0.25s ease, margin-top 0.3s ease, padding 0.3s ease;
+  transition: grid-template-rows 0.3s ease, opacity 0.25s ease, margin-top 0.3s ease;
 }
 
-.about-card.open {
+.card.about-card.open {
   grid-template-rows: 1fr;
   margin-top: 14px;
   opacity: 1;
+}
+
+/* Die Karte gehört nur zum Login. Überall sonst (Chatliste am Handy, PC-Ansicht) muss sie komplett
+   aus dem Layout raus - sonst nimmt sie Platz weg (am Handy sogar eine ganze Bildschirmhöhe) */
+body:not(.auth-screen) #about-card {
+  display: none;
 }
 
 .about-card-inner {
@@ -1409,12 +1427,6 @@ body.split-view #admin-contacts-bereich {
 body.split-view #conversation-bereich {
   grid-column: 2;
   border-width: 0;
-}
-
-/* "Über uns" gehört nur zum Login-Bildschirm, der in der PC-Ansicht nie zu sehen ist - ohne
-   diese Zeile zählt sie trotzdem als Gitter-Feld mit und verschiebt die ganze Spalten-Aufteilung */
-body.split-view #about-card {
-  display: none;
 }
 
 body.split-view .chat-header,
