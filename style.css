@@ -917,10 +917,19 @@ img.emoji {
 }
 
 #user-list {
-  list-style: none;
-  max-height: 180px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  font-size: 14px;
+}
+
+.settings-menu li.blocked .user-name {
+  color: var(--text-secondary);
+}
+
+#user-detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .user-row {
@@ -1423,16 +1432,27 @@ body.split-view .card {
 
 body.split-view #list-bereich,
 body.split-view #settings-bereich,
-body.split-view #email-change-bereich,
-body.split-view #password-change-bereich,
+body.split-view #users-bereich,
 body.split-view #admin-contacts-bereich {
   grid-column: 1;
   border-width: 0 1px 0 0;
 }
 
-body.split-view #conversation-bereich {
+body.split-view #conversation-bereich,
+body.split-view #email-change-bereich,
+body.split-view #password-change-bereich,
+body.split-view #user-detail-bereich,
+body.split-view #new-user-bereich {
   grid-column: 2;
   border-width: 0;
+}
+
+/* Unterseiten der Einstellungen rechts: Inhalt nicht endlos breit, Zurück-Pfeil unnötig */
+body.split-view #email-change-bereich .back-btn,
+body.split-view #password-change-bereich .back-btn,
+body.split-view #user-detail-bereich .back-btn,
+body.split-view #new-user-bereich .back-btn {
+  display: none;
 }
 
 body.split-view .chat-header,
@@ -1443,6 +1463,7 @@ body.split-view .chat-input-area {
 
 /* Listen und Nachrichtenverlauf füllen die volle Höhe und scrollen für sich */
 body.split-view #chat-list,
+body.split-view #user-list,
 body.split-view #admin-contacts-list {
   flex: 1;
   min-height: 0;
@@ -1683,4 +1704,240 @@ body.split-view.chat-open #chat-placeholder {
 
 .modal-confirm.poll-confirm:hover {
   background: var(--accent-hover);
+}
+
+/* ===== Unterseiten (E-Mail/Passwort ändern, Nutzer): eine Karte in der Mitte, wie beim Login -
+   am PC mittig im rechten Fenster, am Handy mittig auf der Seite ===== */
+.card.subpage {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 15px;
+  overflow-y: auto;
+}
+
+.subpage > .form-card {
+  width: 100%;
+  max-width: 460px;
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 22px;
+}
+
+/* Einstellungsliste: Dunkler Modus als ganz normale Zeile, ohne doppelte Linie */
+#settings-bereich .toggle-row {
+  margin-top: 0;
+  padding: 14px 4px;
+  border-top: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 15px;
+}
+
+/* Passwort-Regeln und Übereinstimmung unter den Feldern */
+.pw-rules {
+  list-style: none;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.pw-rules li::before {
+  content: '○ ';
+}
+
+.pw-rules li.ok {
+  color: var(--success);
+}
+
+.pw-rules li.ok::before {
+  content: '✓ ';
+}
+
+.pw-match {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.pw-match.ok {
+  color: var(--success);
+}
+
+.pw-match.bad {
+  color: var(--danger);
+}
+
+/* Nutzer-Karte: Junge/Mädchen wählen, Sperren und Löschen nebeneinander */
+.gender-choice,
+.user-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.gender-btn {
+  flex: 1;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+}
+
+.gender-btn.junge.active {
+  background: #4a90e2;
+  border-color: #4a90e2;
+  color: #fff;
+}
+
+.gender-btn.maedchen.active {
+  background: #e0526f;
+  border-color: #e0526f;
+  color: #fff;
+}
+
+.user-actions {
+  margin-top: 6px;
+}
+
+.user-actions button {
+  flex: 1;
+}
+
+.user-actions .block-btn {
+  background: transparent;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.user-actions .unblock-btn {
+  background: transparent;
+  border: 1px solid var(--success);
+  color: var(--success);
+}
+
+.user-actions .delete-btn {
+  background: var(--danger);
+  color: #fff;
+}
+
+
+/* ===== Eigene Pop-ups (Meldungen und Bestätigungsfenster) ===== */
+#toast-container {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(92vw, 420px);
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-left: 4px solid var(--danger);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  font-size: 14px;
+  line-height: 1.4;
+  cursor: pointer;
+  pointer-events: auto;
+  animation: toast-in 0.2s ease-out;
+}
+
+.toast-success {
+  border-left-color: var(--success);
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+
+.toast-success .toast-icon {
+  background: var(--success);
+}
+
+.toast-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.toast-out {
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 15px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.confirm-dialog {
+  width: 100%;
+  max-width: 380px;
+  padding: 22px;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  animation: toast-in 0.15s ease-out;
+}
+
+.confirm-dialog p {
+  margin-bottom: 18px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.confirm-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.confirm-buttons button {
+  flex: 1;
+  width: auto;
+}
+
+.confirm-cancel {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+}
+
+.confirm-ok.danger {
+  background: var(--danger);
+  color: #fff;
 }

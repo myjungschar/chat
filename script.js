@@ -136,8 +136,9 @@ async function init() {
 // und rechts steht der geöffnete Chat. Login-Bildschirme bleiben immer einspaltig.
 const desktopQuery = window.matchMedia('(min-width: 900px)')
 const AUTH_SCREENS = ['login-bereich', 'forgot-bereich', 'reset-bereich']
-const LEFT_SCREENS = ['list-bereich', 'settings-bereich', 'email-change-bereich', 'password-change-bereich', 'admin-contacts-bereich']
-const RIGHT_SCREENS = ['conversation-bereich']
+const LEFT_SCREENS = ['list-bereich', 'settings-bereich', 'users-bereich', 'admin-contacts-bereich']
+// Rechts: Chat oder die Unterseiten der Einstellungen (am Handy sind das eigene volle Seiten)
+const RIGHT_SCREENS = ['conversation-bereich', 'email-change-bereich', 'password-change-bereich', 'user-detail-bereich', 'new-user-bereich']
 
 function isSplitView() {
   return document.body.classList.contains('split-view')
@@ -145,6 +146,10 @@ function isSplitView() {
 
 function isConversationVisible() {
   return document.getElementById('conversation-bereich').style.display !== 'none'
+}
+
+function isRightVisible() {
+  return RIGHT_SCREENS.some(id => document.getElementById(id).style.display !== 'none')
 }
 
 function isListVisible() {
@@ -175,24 +180,24 @@ function showScreen(id) {
 
   // Immer flex-Spalte (auch am Handy) - das lässt Liste bzw. Nachrichtenverlauf über die volle Höhe scrollen
   document.getElementById(id).style.display = 'flex'
-  document.body.classList.toggle('chat-open', isConversationVisible())
+  document.body.classList.toggle('chat-open', isRightVisible())
 }
 
 // Fenster wird über/unter die 900px-Grenze gezogen: Ansicht passend neu aufbauen
 function onLayoutChange() {
   if (!currentUser) return // Login-Ansichten sind immer einspaltig
 
-  const convOpen = isConversationVisible()
+  const rightOpen = RIGHT_SCREENS.find(id => document.getElementById(id).style.display !== 'none')
   const leftOpen = LEFT_SCREENS.find(id => document.getElementById(id).style.display !== 'none')
 
   if (desktopQuery.matches) {
     // Handy -> PC: Liste links dazuholen, falls vorher nur der Chat zu sehen war
     showScreen(leftOpen || 'list-bereich')
     if (!leftOpen) renderChatList()
-    if (convOpen) showScreen('conversation-bereich')
+    if (rightOpen) showScreen(rightOpen)
   } else {
     // PC -> Handy: nur eins von beidem behalten, und zwar den offenen Chat
-    showScreen(convOpen ? 'conversation-bereich' : (leftOpen || 'list-bereich'))
+    showScreen(rightOpen || leftOpen || 'list-bereich')
   }
   markActiveListItem()
 }
@@ -210,6 +215,9 @@ function hideAllScreens() {
   document.getElementById('email-change-bereich').style.display = 'none'
   document.getElementById('password-change-bereich').style.display = 'none'
   document.getElementById('admin-contacts-bereich').style.display = 'none'
+  document.getElementById('users-bereich').style.display = 'none'
+  document.getElementById('user-detail-bereich').style.display = 'none'
+  document.getElementById('new-user-bereich').style.display = 'none'
   document.getElementById('conversation-bereich').style.display = 'none'
   document.body.classList.remove('chat-open')
 }
@@ -253,14 +261,14 @@ async function enterApp(user) {
     .single()
 
   if (error || !profile) {
-    alert('Dein Profil konnte nicht geladen werden.')
+    showToast('Dein Profil konnte nicht geladen werden.')
     await supabaseClient.auth.signOut()
     showLogin()
     return
   }
 
   if (profile.is_blocked) {
-    alert('Dein Zugang wurde gesperrt. Bitte wende dich an die Leitung.')
+    showToast('Dein Zugang wurde gesperrt. Bitte wende dich an die Leitung.')
     await supabaseClient.auth.signOut()
     showLogin()
     return
@@ -756,11 +764,20 @@ async function openConversation(title) {
   if (desktopQuery.matches && !isAdmin()) document.getElementById('message-input').focus()
 }
 
+// Am PC: geöffnete Einstellungs-Unterseiten rechts wieder schließen (ein offener Chat bleibt stehen)
+function closeSettingsPanels() {
+  RIGHT_SCREENS.filter(id => id !== 'conversation-bereich').forEach(id => {
+    document.getElementById(id).style.display = 'none'
+  })
+  document.body.classList.toggle('chat-open', isRightVisible())
+}
+
 // Zurück zur Chatliste (wird vom Zurück-Pfeil im HTML als showList() aufgerufen)
 function showList() {
   // Am Handy verlässt man dabei den Chat; am PC bleibt er rechts einfach offen
   if (!desktopQuery.matches) stopListening()
   showScreen('list-bereich')
+  closeSettingsPanels()
   // Erst den Chat als gelesen markieren, dann die Liste laden - sonst zählt sie Nachrichten,
   // die man gerade im offenen Chat gesehen hat, noch als ungelesen
   markCurrentRoomRead().then(() => renderChatList()) // Namen und Vorschauen könnten sich zwischenzeitlich geändert haben
@@ -772,7 +789,7 @@ async function login() {
   const password = document.getElementById('password').value
 
   if (!username || !password) {
-    alert('Bitte Benutzername und Passwort eingeben!')
+    showToast('Bitte Benutzername und Passwort eingeben!')
     return
   }
 
@@ -786,7 +803,7 @@ async function login() {
 
   if (lookupError || !email) {
     loginBtn.disabled = false
-    alert('Nutzername nicht gefunden.')
+    showToast('Nutzername nicht gefunden.')
     return
   }
 
@@ -799,9 +816,9 @@ async function login() {
 
   if (error) {
     if (error.message.includes('Email not confirmed')) {
-      alert('Das Konto wurde noch nicht bestätigt.')
+      showToast('Das Konto wurde noch nicht bestätigt.')
     } else {
-      alert('Falsches Passwort.')
+      showToast('Falsches Passwort.')
     }
     return
   }
@@ -1917,10 +1934,10 @@ async function handleSendError(error) {
     .single()
 
   if (profile && profile.is_blocked) {
-    alert('Dein Zugang wurde gesperrt.')
+    showToast('Dein Zugang wurde gesperrt.')
     await logout()
   } else {
-    alert('Fehler beim Senden: ' + error.message)
+    showToast('Fehler beim Senden: ' + error.message)
   }
 }
 
@@ -2218,9 +2235,9 @@ async function saveEditedMessage(newText) {
     .select()
 
   if (error) {
-    alert('Bearbeiten fehlgeschlagen: ' + error.message)
+    showToast('Bearbeiten fehlgeschlagen: ' + error.message)
   } else if (!data || data.length === 0) {
-    alert('Bearbeiten nicht erlaubt.')
+    showToast('Bearbeiten nicht erlaubt.')
   } else {
     updateMessageElement(data[0])
     cancelEditingMessage()
@@ -2258,9 +2275,9 @@ function deleteMessage(id) {
       .select()
 
     if (error) {
-      alert('Löschen fehlgeschlagen: ' + error.message)
+      showToast('Löschen fehlgeschlagen: ' + error.message)
     } else if (!data || data.length === 0) {
-      alert('Löschen nicht erlaubt.')
+      showToast('Löschen nicht erlaubt.')
     } else {
       removeMessageElement(id)
     }
@@ -2272,14 +2289,7 @@ function deleteMessage(id) {
 function openSettings() {
   if (!desktopQuery.matches) stopListening() // am PC bleibt der Chat rechts offen
   showScreen('settings-bereich')
-
-  const adminSection = document.getElementById('admin-settings-section')
-  if (isAdmin()) {
-    adminSection.style.display = 'block'
-    loadUsers()
-  } else {
-    adminSection.style.display = 'none'
-  }
+  document.getElementById('menu-users').style.display = isAdmin() ? 'flex' : 'none'
 }
 
 function openEmailChange() {
@@ -2324,6 +2334,28 @@ function updatePasswordToggle(input) {
 // Nach programmatischem Leeren der Felder (Logout, Passwort geändert, ...) aufrufen
 function refreshPasswordToggles() {
   document.querySelectorAll('.password-field input').forEach(updatePasswordToggle)
+  updatePasswordRules()
+  updatePasswordMatch()
+}
+
+// Regeln unter dem neuen Passwort: erscheinen beim Tippen, erfüllte Punkte werden grün
+function updatePasswordRules() {
+  const pw = document.getElementById('new-password').value
+  const list = document.querySelector('[data-rules-for="new-password"]')
+  list.style.display = pw ? '' : 'none'
+  const ok = { length: pw.length >= 8, letter: /[a-zA-Z]/.test(pw), digit: /[0-9]/.test(pw) }
+  list.querySelectorAll('li').forEach(li => li.classList.toggle('ok', ok[li.dataset.rule]))
+}
+
+// Unter der Wiederholung: stimmt sie mit dem neuen Passwort überein?
+function updatePasswordMatch() {
+  const pw = document.getElementById('new-password').value
+  const repeat = document.getElementById('repeat-password').value
+  const hint = document.getElementById('pw-match')
+  hint.style.display = repeat ? '' : 'none'
+  const same = repeat === pw
+  hint.textContent = same ? '✓ Passwörter stimmen überein' : 'Passwörter stimmen noch nicht überein'
+  hint.className = 'pw-match ' + (same ? 'ok' : 'bad')
 }
 
 // Zeigt/versteckt den Inhalt eines Passwortfelds über das zugehörige Augen-Symbol
@@ -2337,13 +2369,15 @@ function toggleFieldVisibility(inputId, btn) {
 document.querySelectorAll('.password-field input').forEach(input => {
   input.addEventListener('input', () => updatePasswordToggle(input))
 })
+document.getElementById('new-password').addEventListener('input', () => { updatePasswordRules(); updatePasswordMatch() })
+document.getElementById('repeat-password').addEventListener('input', updatePasswordMatch)
 refreshPasswordToggles()
 
 async function sendPasswordReset() {
   const username = document.getElementById('forgot-username').value.trim()
 
   if (!username) {
-    alert('Bitte trage deinen Benutzernamen ein.')
+    showToast('Bitte trage deinen Benutzernamen ein.')
     return
   }
 
@@ -2355,7 +2389,7 @@ async function sendPasswordReset() {
 
   if (lookupError || !email) {
     btn.disabled = false
-    alert('Dieser Benutzername ist uns nicht bekannt.')
+    showToast('Dieser Benutzername ist uns nicht bekannt.')
     return
   }
 
@@ -2366,9 +2400,9 @@ async function sendPasswordReset() {
   btn.disabled = false
 
   if (error) {
-    alert('Fehler: ' + error.message)
+    showToast('Fehler: ' + error.message)
   } else {
-    alert('Ein Link zum Zurücksetzen wurde an die hinterlegte E-Mail-Adresse geschickt. Bitte auch den Spam-Ordner prüfen.')
+    showToast('Ein Link zum Zurücksetzen wurde an die hinterlegte E-Mail-Adresse geschickt. Bitte auch den Spam-Ordner prüfen.', 'success')
     showLogin()
   }
 }
@@ -2380,7 +2414,7 @@ async function changeEmail() {
   const newEmail = input.value.trim()
 
   if (!newEmail) {
-    alert('Bitte eine neue E-Mail-Adresse eingeben.')
+    showToast('Bitte eine neue E-Mail-Adresse eingeben.')
     return
   }
 
@@ -2392,10 +2426,10 @@ async function changeEmail() {
   btn.disabled = false
 
   if (error) {
-    alert('Fehler beim Ändern: ' + error.message)
+    showToast('Fehler beim Ändern: ' + error.message)
   } else {
     input.value = ''
-    alert('Prüf-Link wurde an die neue Adresse geschickt. Erst nach dem Bestätigen gilt die Änderung.')
+    showToast('Prüf-Link wurde an die neue Adresse geschickt. Erst nach dem Bestätigen gilt die Änderung.', 'success')
     openSettings()
   }
 }
@@ -2411,17 +2445,17 @@ async function changePassword() {
   const repeatPassword = document.getElementById('repeat-password').value
 
   if (!oldPassword) {
-    alert('Bitte dein aktuelles Passwort eingeben.')
+    showToast('Bitte dein aktuelles Passwort eingeben.')
     return
   }
 
   if (!isStrongPassword(newPassword)) {
-    alert('Das neue Passwort muss mindestens 8 Zeichen haben, mit Buchstaben und einer Zahl.')
+    showToast('Das neue Passwort muss mindestens 8 Zeichen haben, mit Buchstaben und einer Zahl.')
     return
   }
 
   if (newPassword !== repeatPassword) {
-    alert('Die Wiederholung stimmt nicht mit dem neuen Passwort überein.')
+    showToast('Die Wiederholung stimmt nicht mit dem neuen Passwort überein.')
     return
   }
 
@@ -2436,7 +2470,7 @@ async function changePassword() {
 
   if (checkError) {
     btn.disabled = false
-    alert('Das aktuelle Passwort ist falsch.')
+    showToast('Das aktuelle Passwort ist falsch.')
     return
   }
 
@@ -2445,13 +2479,13 @@ async function changePassword() {
   btn.disabled = false
 
   if (error) {
-    alert('Fehler beim Ändern: ' + error.message)
+    showToast('Fehler beim Ändern: ' + error.message)
   } else {
     document.getElementById('old-password').value = ''
     document.getElementById('new-password').value = ''
     document.getElementById('repeat-password').value = ''
     refreshPasswordToggles()
-    alert('Passwort wurde geändert.')
+    showToast('Passwort wurde geändert.', 'success')
     openSettings()
   }
 }
@@ -2463,7 +2497,7 @@ async function completePasswordReset() {
   const newPassword = input.value
 
   if (newPassword.length < 6) {
-    alert('Das Passwort muss mindestens 6 Zeichen haben.')
+    showToast('Das Passwort muss mindestens 6 Zeichen haben.')
     return
   }
 
@@ -2475,19 +2509,27 @@ async function completePasswordReset() {
   btn.disabled = false
 
   if (error) {
-    alert('Fehler beim Setzen des Passworts: ' + error.message)
+    showToast('Fehler beim Setzen des Passworts: ' + error.message)
     return
   }
 
   recoveryMode = false
-  alert('Passwort gesetzt. Du bist jetzt eingeloggt.')
+  showToast('Passwort gesetzt. Du bist jetzt eingeloggt.', 'success')
 
   const { data: { user } } = await supabaseClient.auth.getUser()
   if (user) await enterApp(user)
   else showLogin()
 }
 
-// 10. Admin: Nutzerverwaltung
+// 10. Admin: Nutzerverwaltung - Liste A bis Z, Klick auf einen Namen öffnet rechts die Einstellungen der Person
+function openUserManagement() {
+  if (!isAdmin()) return
+  if (!desktopQuery.matches) stopListening()
+  showScreen('users-bereich')
+  if (desktopQuery.matches) closeSettingsPanels()
+  loadUsers()
+}
+
 async function loadUsers() {
   const list = document.getElementById('user-list')
 
@@ -2505,35 +2547,23 @@ async function loadUsers() {
 
   users
     .filter(u => u.id !== currentUser.id)
+    .sort((x, y) => (x.display_name || '').localeCompare(y.display_name || '', 'de', { sensitivity: 'base' }))
     .forEach(u => {
       const row = document.createElement('li')
-      row.className = 'user-row' + (u.is_blocked ? ' blocked' : '')
+      if (u.is_blocked) row.classList.add('blocked')
+      row.dataset.userId = u.id
 
       const name = document.createElement('span')
       name.className = 'user-name'
-      name.textContent = u.display_name || 'Ohne Namen'
+      name.textContent = (u.display_name || 'Ohne Namen') + (u.is_blocked ? ' (gesperrt)' : '')
       row.appendChild(name)
 
-      const genderToggle = document.createElement('div')
-      genderToggle.className = 'gender-toggle'
-      genderToggle.innerHTML = `
-        <button type="button" class="gender-option${u.gender === 'junge' ? ' active' : ''}" data-value="junge">Junge</button>
-        <button type="button" class="gender-option${u.gender === 'maedchen' ? ' active' : ''}" data-value="maedchen">Mädchen</button>
-      `
-      genderToggle.querySelectorAll('.gender-option').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const isActive = btn.classList.contains('active')
-          setGender(u.id, isActive ? null : btn.dataset.value)
-        })
-      })
-      row.appendChild(genderToggle)
+      const arrow = document.createElement('span')
+      arrow.className = 'settings-arrow'
+      arrow.textContent = '›'
+      row.appendChild(arrow)
 
-      const btn = document.createElement('button')
-      btn.className = u.is_blocked ? 'unblock-btn' : 'block-btn'
-      btn.textContent = u.is_blocked ? 'Entsperren' : 'Sperren'
-      btn.addEventListener('click', () => setBlocked(u, !u.is_blocked))
-      row.appendChild(btn)
-
+      row.addEventListener('click', () => openUserDetail(u))
       list.appendChild(row)
     })
 
@@ -2542,13 +2572,64 @@ async function loadUsers() {
   }
 }
 
-async function setGender(userId, gender) {
+// Einstellungen einer einzelnen Person (Geschlecht, Sperren)
+function openUserDetail(u) {
+  showScreen('user-detail-bereich')
+  renderUserDetail(u)
+}
+
+function renderUserDetail(u) {
+  document.getElementById('user-detail-title').textContent = u.display_name || 'Ohne Namen'
+  const box = document.getElementById('user-detail-content')
+  box.innerHTML = `
+    <div class="input-group">
+      <label>Geschlecht</label>
+      <div class="gender-choice">
+        <button type="button" class="gender-btn junge${u.gender === 'junge' ? ' active' : ''}" data-value="junge">Junge</button>
+        <button type="button" class="gender-btn maedchen${u.gender === 'maedchen' ? ' active' : ''}" data-value="maedchen">Mädchen</button>
+      </div>
+    </div>
+    <div class="user-actions">
+      <button type="button" class="${u.is_blocked ? 'unblock-btn' : 'block-btn'}" id="user-block-btn">${u.is_blocked ? 'Entsperren' : 'Sperren'}</button>
+      <button type="button" class="delete-btn" id="user-delete-btn">Nutzer löschen</button>
+    </div>
+  `
+  box.querySelectorAll('.gender-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      // Nochmal auf die gewählte Option drücken hebt die Auswahl wieder auf
+      setGender(u, btn.classList.contains('active') ? null : btn.dataset.value)
+    })
+  })
+  document.getElementById('user-block-btn').addEventListener('click', () => setBlocked(u, !u.is_blocked))
+  document.getElementById('user-delete-btn').addEventListener('click', () => deleteUser(u))
+}
+
+// Nutzer endgültig löschen - läuft über die Edge Function "delete-user" (braucht den geheimen Schlüssel)
+async function deleteUser(user) {
+  if (!isAdmin()) return
+  const name = user.display_name || 'diesen Nutzer'
+  if (!(await askConfirm(name + ' wirklich löschen? Das Konto kann nicht wiederhergestellt werden.', { okText: 'Löschen', danger: true }))) return
+
+  const { error } = await supabaseClient.functions.invoke('delete-user', { body: { userId: user.id } })
+  if (error) {
+    showToast('Löschen fehlgeschlagen: ' + error.message)
+    return
+  }
+  openUserManagement()
+}
+
+async function setGender(user, gender) {
   const { error } = await supabaseClient
     .from('profiles')
     .update({ gender: gender || null })
-    .eq('id', userId)
+    .eq('id', user.id)
 
-  if (error) alert('Fehler: ' + error.message)
+  if (error) {
+    showToast('Fehler: ' + error.message)
+  } else {
+    user.gender = gender || null
+    renderUserDetail(user)
+  }
   loadUsers()
 }
 
@@ -2556,7 +2637,7 @@ async function setBlocked(user, blocked) {
   if (!isAdmin()) return
   const name = user.display_name || 'diesen Nutzer'
   const question = blocked ? name + ' sperren?' : name + ' wieder entsperren?'
-  if (!confirm(question)) return
+  if (!(await askConfirm(question, { okText: blocked ? 'Sperren' : 'Entsperren', danger: blocked }))) return
 
   const { data, error } = await supabaseClient
     .from('profiles')
@@ -2565,11 +2646,47 @@ async function setBlocked(user, blocked) {
     .select()
 
   if (error) {
-    alert('Fehler: ' + error.message)
+    showToast('Fehler: ' + error.message)
   } else if (!data || data.length === 0) {
-    alert('Änderung nicht erlaubt.')
+    showToast('Änderung nicht erlaubt.')
+  } else {
+    user.is_blocked = blocked
+    renderUserDetail(user)
   }
 
+  loadUsers()
+}
+
+// Neuen Nutzer per E-Mail einladen. Die eigentliche Arbeit macht eine Supabase Edge Function
+// ("invite-user"), weil das Anlegen von Konten nicht im Browser passieren darf.
+function openNewUser() {
+  showScreen('new-user-bereich')
+  document.getElementById('new-user-email').value = ''
+  document.getElementById('new-user-email').focus()
+}
+
+async function inviteUser() {
+  if (!isAdmin()) return
+  const input = document.getElementById('new-user-email')
+  const btn = document.getElementById('invite-user-btn')
+  const email = input.value.trim()
+
+  if (!email || !email.includes('@')) {
+    showToast('Bitte eine gültige E-Mail-Adresse eingeben.')
+    return
+  }
+
+  btn.disabled = true
+  const { error } = await supabaseClient.functions.invoke('invite-user', { body: { email } })
+  btn.disabled = false
+
+  if (error) {
+    showToast('Einladung konnte nicht gesendet werden: ' + error.message)
+    return
+  }
+
+  input.value = ''
+  showToast('Einladung an ' + email + ' gesendet.', 'success')
   loadUsers()
 }
 
@@ -2577,6 +2694,92 @@ async function setBlocked(user, blocked) {
 async function logout() {
   await supabaseClient.auth.signOut()
   showLogin()
+}
+
+// ===== Eigene Pop-ups statt alert()/confirm() =====
+// Meldung oben am Bildschirm: type 'error' (rot, Standard) oder 'success' (grün).
+// Verschwindet nach einigen Sekunden von selbst, ein Klick schließt sie sofort.
+function showToast(message, type = 'error') {
+  let box = document.getElementById('toast-container')
+  if (!box) {
+    box = document.createElement('div')
+    box.id = 'toast-container'
+    box.setAttribute('aria-live', 'polite')
+    document.body.appendChild(box)
+  }
+
+  // Gleiche Meldung schon sichtbar: nicht doppelt anzeigen
+  const existing = Array.from(box.children).find(t => t.dataset.msg === message)
+  if (existing) existing.remove()
+
+  // Höchstens drei Meldungen gleichzeitig
+  while (box.children.length >= 3) box.firstChild.remove()
+
+  const toast = document.createElement('div')
+  toast.className = 'toast ' + (type === 'success' ? 'toast-success' : 'toast-error')
+  toast.dataset.msg = message
+  toast.setAttribute('role', type === 'success' ? 'status' : 'alert')
+
+  const icon = document.createElement('span')
+  icon.className = 'toast-icon'
+  icon.textContent = type === 'success' ? '✓' : '!'
+  const text = document.createElement('span')
+  text.className = 'toast-text'
+  text.textContent = message
+  toast.append(icon, text)
+
+  const close = () => {
+    toast.classList.add('toast-out')
+    setTimeout(() => toast.remove(), 200)
+  }
+  toast.addEventListener('click', close)
+  box.appendChild(toast)
+  setTimeout(close, 3500 + message.length * 40) // längere Texte bleiben länger stehen
+}
+
+// Bestätigungsfenster in der Mitte. Gibt true (bestätigt) oder false (abgebrochen) zurück:
+// if (!(await askConfirm('Wirklich löschen?', { okText: 'Löschen', danger: true }))) return
+function askConfirm(message, { okText = 'OK', cancelText = 'Abbrechen', danger = false } = {}) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div')
+    overlay.className = 'confirm-overlay'
+
+    const dialog = document.createElement('div')
+    dialog.className = 'confirm-dialog'
+    dialog.setAttribute('role', 'alertdialog')
+    dialog.setAttribute('aria-modal', 'true')
+
+    const text = document.createElement('p')
+    text.textContent = message
+
+    const buttons = document.createElement('div')
+    buttons.className = 'confirm-buttons'
+    const cancelBtn = document.createElement('button')
+    cancelBtn.type = 'button'
+    cancelBtn.className = 'confirm-cancel'
+    cancelBtn.textContent = cancelText
+    const okBtn = document.createElement('button')
+    okBtn.type = 'button'
+    okBtn.className = danger ? 'confirm-ok danger' : 'confirm-ok'
+    okBtn.textContent = okText
+    buttons.append(cancelBtn, okBtn)
+
+    dialog.append(text, buttons)
+    overlay.appendChild(dialog)
+    document.body.appendChild(overlay)
+    cancelBtn.focus() // Vorauswahl ist "Abbrechen", damit man nicht aus Versehen bestätigt
+
+    const finish = result => {
+      document.removeEventListener('keydown', onKey)
+      overlay.remove()
+      resolve(result)
+    }
+    const onKey = e => { if (e.key === 'Escape') finish(false) }
+    document.addEventListener('keydown', onKey)
+    cancelBtn.addEventListener('click', () => finish(false))
+    okBtn.addEventListener('click', () => finish(true))
+    overlay.addEventListener('click', e => { if (e.target === overlay) finish(false) })
+  })
 }
 
 // Enter-Taste
@@ -2594,5 +2797,6 @@ onEnter('username', login)
 onEnter('password', login)
 onEnter('forgot-username', sendPasswordReset)
 onEnter('reset-password', completePasswordReset)
+onEnter('new-user-email', inviteUser)
 
 init()

@@ -180,6 +180,10 @@
           <span>Passwort ändern</span>
           <span class="settings-arrow">›</span>
         </li>
+        <li id="menu-users" style="display: none;" onclick="openUserManagement()">
+          <span>Nutzer verwalten</span>
+          <span class="settings-arrow">›</span>
+        </li>
       </ul>
 
       <div class="toggle-row">
@@ -190,15 +194,68 @@
         </label>
       </div>
 
-      <div id="admin-settings-section" style="display: none;">
-        <h3>Nutzer verwalten</h3>
-        <ul id="user-list"></ul>
-      </div>
+    </div>
+
+    <!-- BEREICH 3b: NUTZER VERWALTEN (Liste, A bis Z) -->
+    <div id="users-bereich" class="card" style="display: none;">
+
+      <header class="chat-header">
+        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen">←</button>
+        <div class="user-info">
+          <span>Nutzer verwalten</span>
+        </div>
+      </header>
+
+      <ul class="settings-menu">
+        <li onclick="openNewUser()">
+          <span>＋ Neuen Nutzer hinzufügen</span>
+          <span class="settings-arrow">›</span>
+        </li>
+      </ul>
+      <ul id="user-list" class="settings-menu"></ul>
 
     </div>
 
+    <!-- BEREICH 3b2: EINZELNER NUTZER (öffnet sich rechts) -->
+    <div id="user-detail-bereich" class="card subpage" style="display: none;">
+      <div class="form-card">
+
+      <header class="chat-header">
+        <button class="back-btn" onclick="openUserManagement()" aria-label="Zurück zur Nutzerliste">←</button>
+        <div class="user-info">
+          <span id="user-detail-title">Nutzer</span>
+        </div>
+      </header>
+
+      <div id="user-detail-content"></div>
+
+      </div>
+    </div>
+
+    <!-- BEREICH 3b3: NEUEN NUTZER EINLADEN (öffnet sich rechts) -->
+    <div id="new-user-bereich" class="card subpage" style="display: none;">
+      <div class="form-card">
+
+      <header class="chat-header">
+        <button class="back-btn" onclick="openUserManagement()" aria-label="Zurück zur Nutzerliste">←</button>
+        <div class="user-info">
+          <span>Neuen Nutzer hinzufügen</span>
+        </div>
+      </header>
+
+      <div class="input-group">
+        <label for="new-user-email">E-Mail-Adresse</label>
+        <input type="email" id="new-user-email" placeholder="name@adresse.de" autocomplete="off">
+      </div>
+
+      <button id="invite-user-btn" onclick="inviteUser()">Einladung senden</button>
+      <p class="settings-hint">Die Person bekommt einen Link per E-Mail und vergibt darüber ihr eigenes Passwort.</p>
+      </div>
+    </div>
+
     <!-- BEREICH 3c: E-MAIL ÄNDERN (eigene Unterseite) -->
-    <div id="email-change-bereich" class="card" style="display: none;">
+    <div id="email-change-bereich" class="card subpage" style="display: none;">
+      <div class="form-card">
 
       <header class="chat-header">
         <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen">←</button>
@@ -219,10 +276,12 @@
 
       <button id="change-email-btn" onclick="changeEmail()">E-Mail ändern</button>
       <p class="settings-hint">Du bekommst einen Bestätigungslink an die neue Adresse. Erst danach gilt die Änderung.</p>
+      </div>
     </div>
 
     <!-- BEREICH 3d: PASSWORT ÄNDERN (eigene Unterseite) -->
-    <div id="password-change-bereich" class="card" style="display: none;">
+    <div id="password-change-bereich" class="card subpage" style="display: none;">
+      <div class="form-card">
 
       <header class="chat-header">
         <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen">←</button>
@@ -242,9 +301,14 @@
       <div class="input-group">
         <label for="new-password">Neues Passwort</label>
         <div class="password-field">
-          <input type="password" id="new-password" placeholder="Mindestens 8 Zeichen, mit Buchstaben und Zahl" autocomplete="new-password">
+          <input type="password" id="new-password" autocomplete="new-password">
           <button type="button" class="toggle-password" onclick="toggleFieldVisibility('new-password', this)" aria-label="Passwort anzeigen"></button>
         </div>
+        <ul class="pw-rules" data-rules-for="new-password" style="display: none;">
+          <li data-rule="length">Mindestens 8 Zeichen</li>
+          <li data-rule="letter">Mindestens ein Buchstabe</li>
+          <li data-rule="digit">Mindestens eine Zahl</li>
+        </ul>
       </div>
 
       <div class="input-group">
@@ -253,9 +317,11 @@
           <input type="password" id="repeat-password" autocomplete="new-password">
           <button type="button" class="toggle-password" onclick="toggleFieldVisibility('repeat-password', this)" aria-label="Passwort anzeigen"></button>
         </div>
+        <p id="pw-match" class="pw-match" style="display: none;"></p>
       </div>
 
       <button id="change-password-btn" onclick="changePassword()">Passwort ändern</button>
+      </div>
     </div>
 
     <!-- BEREICH 3e: ADMIN-EINBLICK - Einzelchat-Partner einer Person (rein lesend) -->
