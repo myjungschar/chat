@@ -1075,6 +1075,8 @@ function buildPollCard(row, poll) {
     msgElement.appendChild(opt)
   })
 
+  attachPollMenuTriggers(msgElement, poll)
+
   const foot = document.createElement('p')
   foot.className = 'poll-foot'
   const parts = []
@@ -1144,6 +1146,78 @@ function attachPollOptionVoters(optBtn, optionText, getVoterIds) {
   optBtn.addEventListener('click', (e) => {
     if (longPressFired) { e.stopImmediatePropagation(); e.preventDefault(); longPressFired = false }
   }, true)
+}
+
+// Rechtsklick/langes Tippen irgendwo auf der Umfrage (außer auf einer einzelnen Option) öffnet
+// ein Menü. Antworten, Reagieren und Bearbeiten gibt es bei Umfragen (noch) nicht - dafür bräuchte
+// es zusätzliche Spalten/Tabellen in Supabase. Löschen geht schon: eigene Umfrage oder als Admin.
+function attachPollMenuTriggers(msgElement, poll) {
+  function isExcluded(target) {
+    return target.closest('.poll-option')
+  }
+
+  msgElement.addEventListener('contextmenu', (e) => {
+    if (isExcluded(e.target)) return
+    e.preventDefault()
+    openPollMenu(msgElement, poll)
+  })
+
+  let pressTimer = null
+  msgElement.addEventListener('touchstart', (e) => {
+    if (isExcluded(e.target)) return
+    pressTimer = setTimeout(() => {
+      pressTimer = null
+      openPollMenu(msgElement, poll)
+    }, 450)
+  }, { passive: true })
+
+  ;['touchmove', 'touchend', 'touchcancel'].forEach(evt => {
+    msgElement.addEventListener(evt, () => clearTimeout(pressTimer))
+  })
+}
+
+function openPollMenu(anchorEl, poll) {
+  closeMessageMenu()
+
+  const canDelete = poll.created_by === currentUser.id || isAdmin()
+  if (!canDelete) return // (noch) nichts, was man hier tun könnte
+
+  const menu = document.createElement('div')
+  menu.className = 'msg-menu'
+  menu.addEventListener('click', (e) => e.stopPropagation())
+
+  const delItem = document.createElement('button')
+  delItem.className = 'msg-menu-item danger'
+  delItem.textContent = 'Umfrage löschen'
+  delItem.addEventListener('click', () => {
+    closeMessageMenu()
+    deletePoll(poll.id)
+  })
+  menu.appendChild(delItem)
+
+  document.body.appendChild(menu)
+  positionFloatingMenu(menu, anchorEl)
+  openMenuEl = menu
+}
+
+function deletePoll(pollId) {
+  showConfirmModal('Diese Umfrage wirklich löschen?', async () => {
+    const { data, error } = await supabaseClient
+      .from('polls')
+      .delete()
+      .eq('id', pollId)
+      .select()
+
+    if (error) {
+      showToast('Löschen fehlgeschlagen: ' + error.message)
+    } else if (!data || data.length === 0) {
+      showToast('Löschen nicht erlaubt.')
+    } else {
+      delete pollsMap[pollId]
+      const el = document.querySelector(`#chat-box [data-poll-id="${pollId}"]`)
+      if (el) el.remove()
+    }
+  })
 }
 
 function refreshPollCard(pollId) {
@@ -1851,6 +1925,8 @@ function closeMessageMenu() {
 }
 
 document.addEventListener('click', closeMessageMenu)
+// 'scroll' bubbelt nicht - mit capture:true trifft das trotzdem den Chatverlauf beim Scrollen
+document.addEventListener('scroll', closeMessageMenu, true)
 
 // Öffnet das Drei-Punkte-Menü neben einer Nachricht
 // Öffnet das Nachrichtenmenü nicht mehr über einen eigenen Button, sondern per Rechtsklick
@@ -1978,11 +2054,49 @@ function openMessageMenu(anchorEl, msg, options) {
       picker.appendChild(btn)
     })
     menu.appendChild(picker)
+    positionFloatingMenu(menu, anchorEl)
   }
 
   showMainOptions()
-  anchorEl.appendChild(menu)
+  document.body.appendChild(menu)
+  positionFloatingMenu(menu, anchorEl)
   openMenuEl = menu
+}
+
+// Platziert ein frei schwebendes Menü neben seinem Auslöser, innerhalb des Bildschirms:
+// seitlich wie bisher (eigene Nachrichten links vom Text, fremde rechts), und senkrecht so,
+// dass es nie über den unteren oder oberen Bildschirmrand hinausragt und unlesbar wird
+function positionFloatingMenu(menu, anchorEl) {
+  const rect = anchorEl.getBoundingClientRect()
+  const isOwn = anchorEl.classList.contains('own')
+  const margin = 8
+
+  const menuRect = menu.getBoundingClientRect()
+  let left, top
+
+  // Zuerst versuchen, das Menü seitlich NEBEN die Blase zu setzen (eigene Nachrichten: links davon,
+  // fremde: rechts davon) - so verdeckt es die Nachricht nie. Erst wenn seitlich zu wenig Platz ist
+  // (z.B. schmaler Handy-Bildschirm), weicht es stattdessen nach unten oder oben aus.
+  if (isOwn && rect.left - margin * 2 >= menuRect.width) {
+    left = rect.left - menuRect.width - margin
+    top = rect.top
+  } else if (!isOwn && window.innerWidth - rect.right - margin * 2 >= menuRect.width) {
+    left = rect.right + margin
+    top = rect.top
+  } else {
+    // Kein Platz seitlich: unter die Nachricht setzen, oder darüber, falls unten nicht genug Raum ist
+    left = isOwn ? rect.right - menuRect.width : rect.left
+    top = (rect.bottom + margin + menuRect.height <= window.innerHeight - margin)
+      ? rect.bottom + margin
+      : rect.top - menuRect.height - margin
+  }
+
+  left = Math.min(Math.max(left, margin), window.innerWidth - menuRect.width - margin)
+  top = Math.min(Math.max(top, margin), window.innerHeight - menuRect.height - margin)
+
+  menu.style.position = 'fixed'
+  menu.style.left = left + 'px'
+  menu.style.top = top + 'px'
 }
 
 // 6. Neue Nachricht senden (Gruppe oder Einzelchat)

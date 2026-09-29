@@ -668,23 +668,14 @@ input:focus-visible {
 }
 
 .msg-menu {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  z-index: 20;
+  position: fixed; /* Position setzt positionFloatingMenu() in JS, abhängig vom verfügbaren Platz */
+  z-index: 10002;
   min-width: 140px;
   background: var(--bg-panel-raised);
   border: 1px solid var(--border-subtle);
   border-radius: 10px;
   box-shadow: var(--shadow-card);
   overflow: hidden;
-}
-
-/* Bei fremden (linken) Nachrichten öffnet das Menü nach rechts statt nach links,
-   sonst ragt es bei kurzen Nachrichten am linken Bildschirmrand hinaus und wird abgeschnitten */
-.msg.other .msg-menu {
-  left: 6px;
-  right: auto;
 }
 
 .msg-menu-item {
@@ -1704,6 +1695,38 @@ body.split-view.chat-open #chat-placeholder {
   float: none;
   display: flex;
   justify-content: flex-end;
+}
+
+/* Eigene (blaue) Umfragen: die Optionen bekamen sonst die normale Eingabefeld-Farbe, die auf Blau
+   wie ein Fremdkörper wirkt - hier stattdessen ein durchscheinendes Weiß, passend zur Blase */
+.msg.own .poll-option {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--bubble-own-text);
+}
+
+.msg.own .poll-option:not(:disabled):hover {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.msg.own .poll-option.mine {
+  border-color: rgba(255, 255, 255, 0.85);
+}
+
+.msg.own .poll-option-fill {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.msg.own .poll-option.leading .poll-option-fill {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.msg.own .poll-option-check {
+  color: var(--bubble-own-text);
+}
+
+.msg.own .poll-option-stat,
+.msg.own .poll-foot {
+  color: rgba(255, 255, 255, 0.75);
 }
 
 /* ===== Umfrage erstellen: Optionsfelder im Pop-up ===== */
