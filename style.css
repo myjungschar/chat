@@ -1941,3 +1941,10 @@ body.split-view.chat-open #chat-placeholder {
   background: var(--danger);
   color: #fff;
 }
+
+/* Windows/Edge blendet bei Passwortfeldern von sich aus ein Augen-Symbol ein - das gibt es
+   sonst doppelt neben unserem eigenen. Hier ausgeblendet. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
