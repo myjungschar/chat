@@ -1285,6 +1285,12 @@ img.emoji {
   padding: 0;
 }
 
+.info-empty {
+  padding: 8px 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
 .info-item {
   display: flex;
   align-items: center;
@@ -1569,35 +1575,18 @@ body.split-view.chat-open #chat-placeholder {
 }
 
 /* ===== Umfrage-Karte im Chat ===== */
-.poll-row {
-  display: flex;
-  justify-content: center;
-  margin: 6px 0;
+.poll-msg {
+  min-width: 240px;
+  max-width: 340px;
 }
 
-.poll-card {
-  width: 100%;
-  max-width: 320px;
-  padding: 12px 14px 10px;
-  background: var(--bubble-other);
-  color: var(--bubble-other-text);
-  border-radius: var(--radius-bubble);
-}
-
-.poll-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-  font-size: 12px;
+.poll-label {
+  margin: 0 0 2px;
+  font-size: 11px;
   font-weight: 700;
-  color: var(--accent);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-}
-
-.poll-icon {
-  font-size: 13px;
+  opacity: 0.65;
 }
 
 .poll-question {
@@ -1689,6 +1678,9 @@ body.split-view.chat-open #chat-placeholder {
   flex-shrink: 0;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.poll-option {
   cursor: pointer;
 }
 
@@ -1705,6 +1697,13 @@ body.split-view.chat-open #chat-placeholder {
 .poll-foot-voted {
   color: var(--success);
   font-weight: 600;
+}
+
+.poll-footer {
+  margin-top: 6px;
+  float: none;
+  display: flex;
+  justify-content: flex-end;
 }
 
 /* ===== Umfrage erstellen: Optionsfelder im Pop-up ===== */

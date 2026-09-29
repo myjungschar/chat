@@ -976,8 +976,9 @@ function insertPollRow(poll) {
   const chatBox = document.getElementById('chat-box')
   if (chatBox.querySelector(`[data-poll-id="${poll.id}"]`)) return
 
+  const isOwn = poll.created_by === perspectiveUserId()
   const row = document.createElement('div')
-  row.className = 'poll-row'
+  row.className = 'msg-row poll-row ' + (isOwn ? 'own' : 'other')
   row.dataset.pollId = poll.id
   row.dataset.createdAt = poll.created_at
   buildPollCard(row, poll)
@@ -993,6 +994,7 @@ function insertPollRow(poll) {
 // Der Inhalt einer Umfrage-Karte: Frage, Optionen mit Balken, Fußzeile
 function buildPollCard(row, poll) {
   row.innerHTML = ''
+  const isOwn = poll.created_by === perspectiveUserId()
   const authorName = (profileCache[poll.created_by] && profileCache[poll.created_by].name) || 'Jemand'
   const totalVoters = new Set(Object.values(poll.votesByOption).flat()).size
   const myVotes = new Set(
@@ -1001,18 +1003,36 @@ function buildPollCard(row, poll) {
       .map(([idx]) => Number(idx))
   )
 
-  const card = document.createElement('div')
-  card.className = 'poll-card'
+  if (!isOwn) {
+    const avatar = document.createElement('div')
+    avatar.className = 'msg-avatar'
+    avatar.style.background = avatarColor(poll.created_by)
+    avatar.textContent = initialsOf(authorName)
+    row.appendChild(avatar)
+  }
 
-  const head = document.createElement('div')
-  head.className = 'poll-head'
-  head.innerHTML = '<span class="poll-icon">📊</span><span>Umfrage</span>'
-  card.appendChild(head)
+  const msgElement = document.createElement('div')
+  msgElement.className = 'msg poll-msg ' + (isOwn ? 'own' : 'other')
+
+  if (!isOwn && currentRoom.type === 'group') {
+    const meta = document.createElement('div')
+    meta.className = 'msg-meta'
+    const authorEl = document.createElement('span')
+    authorEl.className = 'msg-author'
+    authorEl.textContent = authorName
+    meta.appendChild(authorEl)
+    msgElement.appendChild(meta)
+  }
+
+  const label = document.createElement('p')
+  label.className = 'poll-label'
+  label.textContent = 'Umfrage'
+  msgElement.appendChild(label)
 
   const question = document.createElement('p')
   question.className = 'poll-question'
   question.textContent = poll.question
-  card.appendChild(question)
+  msgElement.appendChild(question)
 
   // Führende Option(en) werden dezent hervorgehoben, sobald überhaupt abgestimmt wurde
   const maxCount = Math.max(0, ...poll.options.map((_, idx) => (poll.votesByOption[idx] || []).length))
@@ -1038,22 +1058,21 @@ function buildPollCard(row, poll) {
     check.textContent = '✓'
     opt.appendChild(check)
 
-    const label = document.createElement('span')
-    label.className = 'poll-option-label'
-    label.textContent = optionText
-    opt.appendChild(label)
+    const optLabel = document.createElement('span')
+    optLabel.className = 'poll-option-label'
+    optLabel.textContent = optionText
+    opt.appendChild(optLabel)
 
     const stat = document.createElement('span')
     stat.className = 'poll-option-stat'
     stat.textContent = count > 0 ? pct + '% · ' + count : ''
-    stat.addEventListener('click', (e) => {
-      e.stopPropagation()
-      if (count > 0) openPollVotersModal(optionText, poll.votesByOption[idx] || [])
-    })
     opt.appendChild(stat)
 
     opt.addEventListener('click', () => votePoll(poll.id, idx))
-    card.appendChild(opt)
+    // Rechtsklick (PC) oder langes Tippen (Handy) auf eine Option zeigt, wer sie gewählt hat
+    attachPollOptionVoters(opt, optionText, () => poll.votesByOption[idx] || [])
+
+    msgElement.appendChild(opt)
   })
 
   const foot = document.createElement('p')
@@ -1061,7 +1080,6 @@ function buildPollCard(row, poll) {
   const parts = []
   parts.push(totalVoters === 0 ? 'Noch keine Stimme' : totalVoters === 1 ? '1 Stimme' : totalVoters + ' Stimmen')
   if (poll.allow_multiple) parts.push('Mehrfachauswahl')
-  parts.push('von ' + authorName)
   const foot1 = document.createElement('span')
   foot1.textContent = parts.join(' · ')
   foot.appendChild(foot1)
@@ -1071,9 +1089,61 @@ function buildPollCard(row, poll) {
     done.textContent = '✓ Du hast abgestimmt'
     foot.appendChild(done)
   }
-  card.appendChild(foot)
+  msgElement.appendChild(foot)
 
-  row.appendChild(card)
+  // Fußzeile wie bei einer normalen Nachricht: Uhrzeit, bei eigenen Umfragen zusätzlich Häkchen
+  const footer = document.createElement('div')
+  footer.className = 'msg-footer poll-footer'
+  const timeEl = document.createElement('span')
+  timeEl.className = 'msg-time'
+  timeEl.textContent = formatTimeOnly(poll.created_at)
+  footer.appendChild(timeEl)
+
+  const canInfo = READ_RECEIPTS_ENABLED && isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
+  if (canInfo) {
+    const ticksEl = document.createElement('button')
+    ticksEl.type = 'button'
+    ticksEl.className = 'msg-ticks sent'
+    ticksEl.addEventListener('click', (e) => {
+      e.stopPropagation()
+      openMessageInfo(poll.created_at)
+    })
+    footer.appendChild(ticksEl)
+    row.classList.add('has-ticks')
+  }
+  msgElement.appendChild(footer)
+
+  row.appendChild(msgElement)
+  if (canInfo) updateTicks(row)
+}
+
+// Rechtsklick (PC) oder langes Tippen (Handy) auf eine Umfrage-Option: zeigt, wer sie gewählt hat
+function attachPollOptionVoters(optBtn, optionText, getVoterIds) {
+  let longPressFired = false
+  let pressTimer = null
+
+  optBtn.addEventListener('contextmenu', (e) => {
+    e.preventDefault()
+    openPollVotersModal(optionText, getVoterIds())
+  })
+
+  optBtn.addEventListener('touchstart', () => {
+    longPressFired = false
+    pressTimer = setTimeout(() => {
+      longPressFired = true
+      openPollVotersModal(optionText, getVoterIds())
+    }, 450)
+  }, { passive: true })
+
+  ;['touchmove', 'touchend', 'touchcancel'].forEach(evt => {
+    optBtn.addEventListener(evt, () => clearTimeout(pressTimer))
+  })
+
+  // Nach einem langen Tippen soll der Klick (der auf Touch-Geräten danach noch kommt) nicht
+  // zusätzlich noch eine Stimme abgeben
+  optBtn.addEventListener('click', (e) => {
+    if (longPressFired) { e.stopImmediatePropagation(); e.preventDefault(); longPressFired = false }
+  }, true)
 }
 
 function refreshPollCard(pollId) {
@@ -1126,6 +1196,13 @@ function openPollVotersModal(optionText, userIds) {
   document.getElementById('poll-voters-title').textContent = 'Stimmen für „' + optionText + '"'
   const list = document.getElementById('poll-voters-list')
   list.innerHTML = ''
+
+  if (userIds.length === 0) {
+    const hint = document.createElement('li')
+    hint.className = 'info-empty'
+    hint.textContent = 'Noch niemand hat diese Option gewählt.'
+    list.appendChild(hint)
+  }
 
   userIds
     .map(id => ({ id, name: (profileCache[id] && profileCache[id].name) || 'Unbekannt' }))
