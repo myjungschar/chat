@@ -1588,12 +1588,16 @@ body.split-view.chat-open #chat-placeholder {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
+  font-weight: 700;
+  color: var(--accent);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.05em;
+}
+
+.poll-icon {
+  font-size: 13px;
 }
 
 .poll-question {
@@ -1620,6 +1624,11 @@ body.split-view.chat-open #chat-placeholder {
   font-weight: 400;
   text-align: left;
   color: var(--text-primary);
+  transition: border-color 0.15s ease;
+}
+
+.poll-option:not(:disabled):hover {
+  border-color: var(--border-subtle);
 }
 
 .poll-option:disabled {
@@ -1629,6 +1638,31 @@ body.split-view.chat-open #chat-placeholder {
 
 .poll-option.mine {
   border-color: var(--accent);
+}
+
+.poll-option.leading .poll-option-fill {
+  background: var(--accent-soft);
+  opacity: 1;
+}
+
+.poll-option.leading .poll-option-label {
+  font-weight: 600;
+}
+
+.poll-option-check {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  width: 0;
+  overflow: hidden;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  transition: width 0.15s ease;
+}
+
+.poll-option.mine .poll-option-check {
+  width: 14px;
 }
 
 .poll-option-fill {
@@ -1659,9 +1693,18 @@ body.split-view.chat-open #chat-placeholder {
 }
 
 .poll-foot {
-  margin: 4px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+  margin: 6px 0 0;
   font-size: 11px;
   color: var(--text-secondary);
+}
+
+.poll-foot-voted {
+  color: var(--success);
+  font-weight: 600;
 }
 
 /* ===== Umfrage erstellen: Optionsfelder im Pop-up ===== */
@@ -1695,6 +1738,31 @@ body.split-view.chat-open #chat-placeholder {
 #poll-add-option-btn {
   display: inline-block;
   margin-bottom: 14px;
+}
+
+.poll-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.poll-modal-icon {
+  font-size: 20px;
+}
+
+.poll-option-number {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .modal-confirm.poll-confirm {

@@ -411,7 +411,10 @@
   <!-- Pop-up: neue Umfrage erstellen -->
   <div id="poll-modal" class="modal-overlay" style="display: none;" onclick="closePollModal()">
     <div class="modal-box" onclick="event.stopPropagation()">
-      <p class="info-title">Umfrage erstellen</p>
+      <div class="poll-modal-head">
+        <span class="poll-modal-icon">📊</span>
+        <p class="info-title">Umfrage erstellen</p>
+      </div>
 
       <div class="input-group">
         <label for="poll-question">Frage</label>

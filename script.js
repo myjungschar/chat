@@ -1006,7 +1006,7 @@ function buildPollCard(row, poll) {
 
   const head = document.createElement('div')
   head.className = 'poll-head'
-  head.innerHTML = '<span class="poll-icon">📊</span> Umfrage'
+  head.innerHTML = '<span class="poll-icon">📊</span><span>Umfrage</span>'
   card.appendChild(head)
 
   const question = document.createElement('p')
@@ -1014,20 +1014,29 @@ function buildPollCard(row, poll) {
   question.textContent = poll.question
   card.appendChild(question)
 
+  // Führende Option(en) werden dezent hervorgehoben, sobald überhaupt abgestimmt wurde
+  const maxCount = Math.max(0, ...poll.options.map((_, idx) => (poll.votesByOption[idx] || []).length))
+
   poll.options.forEach((optionText, idx) => {
     const count = (poll.votesByOption[idx] || []).length
     const pct = totalVoters > 0 ? Math.round((count / totalVoters) * 100) : 0
     const mine = myVotes.has(idx)
+    const leading = totalVoters > 0 && count === maxCount && count > 0
 
     const opt = document.createElement('button')
     opt.type = 'button'
-    opt.className = 'poll-option' + (mine ? ' mine' : '')
+    opt.className = 'poll-option' + (mine ? ' mine' : '') + (leading ? ' leading' : '')
     opt.disabled = !canUsePolls()
 
     const fill = document.createElement('div')
     fill.className = 'poll-option-fill'
     fill.style.width = pct + '%'
     opt.appendChild(fill)
+
+    const check = document.createElement('span')
+    check.className = 'poll-option-check'
+    check.textContent = '✓'
+    opt.appendChild(check)
 
     const label = document.createElement('span')
     label.className = 'poll-option-label'
@@ -1050,10 +1059,18 @@ function buildPollCard(row, poll) {
   const foot = document.createElement('p')
   foot.className = 'poll-foot'
   const parts = []
+  parts.push(totalVoters === 0 ? 'Noch keine Stimme' : totalVoters === 1 ? '1 Stimme' : totalVoters + ' Stimmen')
   if (poll.allow_multiple) parts.push('Mehrfachauswahl')
-  parts.push(totalVoters === 1 ? '1 Stimme' : totalVoters + ' Stimmen')
   parts.push('von ' + authorName)
-  foot.textContent = parts.join(' · ')
+  const foot1 = document.createElement('span')
+  foot1.textContent = parts.join(' · ')
+  foot.appendChild(foot1)
+  if (myVotes.size > 0) {
+    const done = document.createElement('span')
+    done.className = 'poll-foot-voted'
+    done.textContent = '✓ Du hast abgestimmt'
+    foot.appendChild(done)
+  }
   card.appendChild(foot)
 
   row.appendChild(card)
@@ -1198,6 +1215,11 @@ function addPollOption() {
   pollOptionCount++
   const group = document.createElement('div')
   group.className = 'input-group poll-option-input'
+
+  const number = document.createElement('span')
+  number.className = 'poll-option-number'
+  number.textContent = pollOptionCount
+  group.appendChild(number)
 
   const input = document.createElement('input')
   input.type = 'text'
