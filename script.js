@@ -289,6 +289,8 @@ async function enterApp(user) {
   await renderChatList()
   listenForListUpdates()
   startInboxChannel()
+
+  if (!isAdmin()) maybeAskEnablePush()
 }
 
 // Letzte Nachricht je Chat laden, für die Vorschau in der Liste
@@ -357,6 +359,7 @@ async function loadChatPreviews() {
   dmPreviews = newDmPreviews
   unreadCounts = newUnread
   readMarks = newMarks
+  updateAppBadge(Object.values(unreadCounts).reduce((sum, n) => sum + n, 0))
 }
 
 // ===== Zustellung: "diese Nachricht ist auf dem Gerät des Empfängers angekommen" =====
@@ -3109,5 +3112,80 @@ onEnter('password', login)
 onEnter('forgot-username', sendPasswordReset)
 onEnter('reset-password', completePasswordReset)
 onEnter('new-user-email', inviteUser)
+
+// ===== Push-Benachrichtigungen (kommen auch an, wenn die Seite gar nicht offen ist) =====
+// Öffentlicher VAPID-Schlüssel - passend zum privaten Gegenstück, das als Supabase-Secret hinterlegt ist
+const VAPID_PUBLIC_KEY = 'BIWDoDgxglJlPAOdWtaY5e3kjw-Q2Fg0DXnM4RsPqiwbxjhhOHIjB2_vHSE_TeYw2tN1JinxIhFCIg4eY27l66Q'
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const raw = atob(base64)
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)))
+}
+
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return null
+  try {
+    return await navigator.serviceWorker.register('sw.js')
+  } catch (err) {
+    console.error('Service Worker konnte nicht registriert werden:', err)
+    return null
+  }
+}
+
+// Fragt einmalig (pro Browser) nach, ob Benachrichtigungen aktiviert werden sollen
+async function maybeAskEnablePush() {
+  if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return
+  if (Notification.permission !== 'default') return // schon erlaubt, abgelehnt, oder schon gefragt
+  if (localStorage.getItem('pushPromptShown')) return
+  localStorage.setItem('pushPromptShown', '1')
+
+  const ok = await askConfirm(
+    'Benachrichtigungen aktivieren, damit du neue Nachrichten auch mitbekommst, wenn die Seite gerade nicht offen ist?',
+    { okText: 'Aktivieren', cancelText: 'Später' }
+  )
+  if (ok) await enablePushNotifications()
+}
+
+async function enablePushNotifications() {
+  try {
+    const permission = await Notification.requestPermission()
+    if (permission !== 'granted') return
+
+    const registration = await registerServiceWorker()
+    if (!registration) return
+
+    let subscription = await registration.pushManager.getSubscription()
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      })
+    }
+
+    const json = subscription.toJSON()
+    const { error } = await supabaseClient.from('push_subscriptions').upsert({
+      user_id: currentUser.id,
+      endpoint: json.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth
+    }, { onConflict: 'endpoint' })
+
+    if (error) console.error('Push-Abo konnte nicht gespeichert werden:', error)
+  } catch (err) {
+    console.error('Push-Benachrichtigungen konnten nicht aktiviert werden:', err)
+  }
+}
+
+// Kleiner Zahlen-Kreis auf dem App-Symbol (Homescreen/Taskleiste) - nur bei installierter App
+// sichtbar und nur in Browsern, die das unterstützen (Chrome/Edge, Safari ab iOS 16.4).
+function updateAppBadge(count) {
+  if (!('setAppBadge' in navigator)) return
+  if (count > 0) navigator.setAppBadge(count).catch(() => {})
+  else navigator.clearAppBadge?.().catch(() => {})
+}
+
+registerServiceWorker()
 
 init()
