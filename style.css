@@ -226,7 +226,8 @@ body:not(.auth-screen) #about-card {
   color: var(--text-secondary);
 }
 
-input {
+input,
+textarea {
   width: 100%;
   padding: 11px 13px;
   background: var(--bg-input);
@@ -237,11 +238,13 @@ input {
   transition: border-color 0.15s ease;
 }
 
-input::placeholder {
+input::placeholder,
+textarea::placeholder {
   color: #55636f;
 }
 
-input:focus-visible {
+input:focus-visible,
+textarea:focus-visible {
   outline: none;
   border-color: var(--accent);
 }
@@ -1013,16 +1016,39 @@ img.emoji {
 /* ===== Eingabezeile ===== */
 .chat-input-area {
   display: flex;
-  align-items: center;
+  align-items: flex-end; /* Feld wächst nach oben, die Knöpfe bleiben unten in gleichbleibendem Abstand */
   gap: 6px;
   position: relative;
 }
 
-.chat-input-area input {
+/* War ein <input>, ist jetzt ein <textarea>, damit es beim Tippen in die Höhe mitwachsen kann.
+   Die Höhe selbst setzt autoResizeMessageInput() in JS. */
+.chat-input-area textarea {
   flex: 1;
   min-width: 0;
+  max-height: 120px;
   border-radius: 20px;
-  padding-left: 16px;
+  padding: 9px 16px;
+  padding-right: 12px; /* etwas Luft, damit der Scrollbalken nicht direkt in der Rundung sitzt */
+  resize: none;
+  overflow-y: hidden;
+  line-height: 1.35;
+  font-family: inherit;
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: var(--border-subtle) transparent;
+}
+
+.chat-input-area textarea::-webkit-scrollbar {
+  width: 5px;
+}
+
+.chat-input-area textarea::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 999px;
+}
+
+.chat-input-area textarea::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .input-round-btn {
@@ -1038,6 +1064,16 @@ img.emoji {
   align-items: center;
   justify-content: center;
   line-height: 1;
+  transition: opacity 0.15s ease, transform 0.15s ease, width 0.15s ease, margin 0.15s ease;
+}
+
+/* Der "+"-Knopf verschwindet, sobald etwas im Feld steht - dafür ist dann eh kein Platz mehr nötig */
+#attach-btn.hidden-btn {
+  width: 0;
+  opacity: 0;
+  transform: scale(0.6);
+  pointer-events: none;
+  margin-left: -6px; /* füllt die durch gap entstandene Lücke, das Textfeld rückt nach */
 }
 
 .input-round-btn:hover {
@@ -2037,4 +2073,21 @@ body.split-view.chat-open #chat-placeholder {
 input[type="password"]::-ms-reveal,
 input[type="password"]::-ms-clear {
   display: none;
+}
+
+
+/* ===== Meldung bei fehlender Internetverbindung ===== */
+#offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10003;
+  padding: 8px 12px;
+  padding-top: calc(8px + env(safe-area-inset-top, 0px));
+  background: var(--danger);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
 }

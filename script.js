@@ -1557,6 +1557,7 @@ function insertEmojiInInput(emoji) {
   const pos = start + emoji.length
   input.focus()
   input.setSelectionRange(pos, pos)
+  autoResizeMessageInput()
 }
 
 // Reaktionen (Daumen hoch/runter) zu einer Liste von Nachrichten-IDs laden
@@ -2205,6 +2206,7 @@ async function sendMessage() {
     cancelReplyingTo()
     renderMessage(inserted)
     input.value = ''
+    autoResizeMessageInput()
     input.focus()
   }
 }
@@ -2497,6 +2499,7 @@ function startEditingMessage(id, oldText) {
   const input = document.getElementById('message-input')
   input.value = oldText
   input.focus()
+  autoResizeMessageInput()
   document.getElementById('edit-bar').style.display = 'flex'
   document.getElementById('send-btn').textContent = '✓'
 }
@@ -2504,6 +2507,7 @@ function startEditingMessage(id, oldText) {
 function cancelEditingMessage() {
   editingMessageId = null
   document.getElementById('message-input').value = ''
+  autoResizeMessageInput()
   document.getElementById('edit-bar').style.display = 'none'
   document.getElementById('send-btn').textContent = '➤'
 }
@@ -3069,7 +3073,7 @@ function askConfirm(message, { okText = 'OK', cancelText = 'Abbrechen', danger =
 // Enter-Taste
 function onEnter(id, fn) {
   document.getElementById(id).addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       fn()
     }
@@ -3077,6 +3081,29 @@ function onEnter(id, fn) {
 }
 
 onEnter('message-input', sendMessage)
+
+const MESSAGE_INPUT_MAX_HEIGHT = 120 // px - danach scrollt das Feld für sich weiter
+
+function autoResizeMessageInput() {
+  const input = document.getElementById('message-input')
+  input.style.height = 'auto'
+  const next = Math.min(input.scrollHeight, MESSAGE_INPUT_MAX_HEIGHT)
+  input.style.height = next + 'px'
+  input.style.overflowY = input.scrollHeight > MESSAGE_INPUT_MAX_HEIGHT ? 'auto' : 'hidden'
+
+  document.getElementById('attach-btn').classList.toggle('hidden-btn', input.value.trim() !== '')
+}
+
+document.getElementById('message-input').addEventListener('input', autoResizeMessageInput)
+autoResizeMessageInput()
+
+// ===== Meldung bei fehlender Internetverbindung =====
+function updateOfflineBanner() {
+  document.getElementById('offline-banner').style.display = navigator.onLine ? 'none' : 'block'
+}
+window.addEventListener('online', updateOfflineBanner)
+window.addEventListener('offline', updateOfflineBanner)
+updateOfflineBanner()
 onEnter('username', login)
 onEnter('password', login)
 onEnter('forgot-username', sendPasswordReset)
