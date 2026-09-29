@@ -413,7 +413,7 @@
     <div class="modal-box" onclick="event.stopPropagation()">
       <div class="poll-modal-head">
         <span class="poll-modal-icon">📊</span>
-        <p class="info-title">Umfrage erstellen</p>
+        <p class="info-title" id="poll-modal-title">Umfrage erstellen</p>
       </div>
 
       <div class="input-group">
@@ -436,7 +436,7 @@
 
       <div class="modal-actions">
         <button type="button" class="modal-cancel" onclick="closePollModal()">Abbrechen</button>
-        <button type="button" class="modal-confirm poll-confirm" onclick="submitPoll()">Erstellen</button>
+        <button type="button" class="modal-confirm poll-confirm" id="poll-submit-btn" onclick="submitPoll()">Erstellen</button>
       </div>
     </div>
   </div>

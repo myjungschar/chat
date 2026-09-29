@@ -470,9 +470,9 @@ function truncate(text, max) {
 // Baut den Inhalt eines Listeneintrags: Avatar, Name, Vorschau-Text, Uhrzeit, Ungelesen-Zähler
 function chatListItemHTML(avatarHTML, name, preview, unreadCount) {
   const previewText = preview ? truncate(preview.text, 34) : 'Noch keine Nachrichten'
-  const timeText = preview ? formatTime(preview.created_at) : ''
+  const timeText = preview ? formatChatListTime(preview.created_at) : 'Keine Nachrichten'
   const badge = unreadCount > 0
-    ? `<span class="unread-badge">${unreadCount > 9 ? '9+' : unreadCount}</span>`
+    ? `<span class="unread-badge">${unreadCount}</span>`
     : ''
   return `
     ${avatarHTML}
@@ -1179,12 +1179,24 @@ function attachPollMenuTriggers(msgElement, poll) {
 function openPollMenu(anchorEl, poll) {
   closeMessageMenu()
 
-  const canDelete = poll.created_by === currentUser.id || isAdmin()
-  if (!canDelete) return // (noch) nichts, was man hier tun könnte
+  const isOwn = poll.created_by === currentUser.id
+  const canDelete = isOwn || isAdmin()
+  if (!isOwn && !canDelete) return // (noch) nichts, was man hier tun könnte
 
   const menu = document.createElement('div')
   menu.className = 'msg-menu'
   menu.addEventListener('click', (e) => e.stopPropagation())
+
+  if (isOwn) {
+    const editItem = document.createElement('button')
+    editItem.className = 'msg-menu-item'
+    editItem.textContent = 'Umfrage bearbeiten'
+    editItem.addEventListener('click', () => {
+      closeMessageMenu()
+      openPollModal(poll)
+    })
+    menu.appendChild(editItem)
+  }
 
   const delItem = document.createElement('button')
   delItem.className = 'msg-menu-item danger'
@@ -1340,26 +1352,38 @@ function stopPollListening() {
   }
 }
 
-// ----- Umfrage erstellen (Pop-up) -----
+// ----- Umfrage erstellen/bearbeiten (Pop-up) -----
 let pollOptionCount = 0
+let editingPollId = null // null = neue Umfrage, sonst die id der gerade bearbeiteten
 
-function openPollModal() {
-  document.getElementById('poll-question').value = ''
-  document.getElementById('poll-multiple').checked = false
+function openPollModal(pollToEdit) {
+  editingPollId = pollToEdit ? pollToEdit.id : null
+
+  document.getElementById('poll-modal-title').textContent = pollToEdit ? 'Umfrage bearbeiten' : 'Umfrage erstellen'
+  document.getElementById('poll-submit-btn').textContent = pollToEdit ? 'Speichern' : 'Erstellen'
+  document.getElementById('poll-question').value = pollToEdit ? pollToEdit.question : ''
+  document.getElementById('poll-multiple').checked = pollToEdit ? !!pollToEdit.allow_multiple : false
   document.getElementById('poll-error').style.display = 'none'
   document.getElementById('poll-options').innerHTML = ''
   pollOptionCount = 0
-  addPollOption()
-  addPollOption()
+
+  if (pollToEdit && pollToEdit.options.length > 0) {
+    pollToEdit.options.forEach(text => addPollOption(text))
+  } else {
+    addPollOption()
+    addPollOption()
+  }
+
   document.getElementById('poll-modal').style.display = 'flex'
   applyEmojiImages(document.getElementById('poll-modal'))
 }
 
 function closePollModal() {
   document.getElementById('poll-modal').style.display = 'none'
+  editingPollId = null
 }
 
-function addPollOption() {
+function addPollOption(prefillText) {
   const container = document.getElementById('poll-options')
   if (container.children.length >= 10) return
 
@@ -1376,6 +1400,7 @@ function addPollOption() {
   input.type = 'text'
   input.placeholder = 'Option ' + pollOptionCount
   input.maxLength = 100
+  if (prefillText) input.value = prefillText
 
   group.appendChild(input)
 
@@ -1403,6 +1428,42 @@ async function submitPoll() {
 
   if (!question) { errorEl.textContent = 'Bitte eine Frage eingeben.'; errorEl.style.display = 'block'; return }
   if (options.length < 2) { errorEl.textContent = 'Mindestens 2 Optionen ausfüllen.'; errorEl.style.display = 'block'; return }
+
+  if (editingPollId) {
+    // Beim Bearbeiten: weniger Optionen als vorher = bisherige Stimmen auf den weggefallenen
+    // Plätzen würden auf die falsche, neue Option zeigen - deshalb werden Stimmen dann zurückgesetzt.
+    const existing = pollsMap[editingPollId]
+    const votesStillValid = existing && options.length >= existing.options.length
+      && existing.options.every((opt, i) => opt === options[i])
+
+    const update = {
+      question,
+      options,
+      allow_multiple: document.getElementById('poll-multiple').checked
+    }
+
+    const { data: updated, error } = await supabaseClient
+      .from('polls')
+      .update(update)
+      .eq('id', editingPollId)
+      .select()
+      .single()
+
+    if (error) {
+      errorEl.textContent = 'Konnte nicht gespeichert werden. Bitte nochmal versuchen.'
+      errorEl.style.display = 'block'
+      return
+    }
+
+    closePollModal()
+    const votesByOption = votesStillValid ? (existing.votesByOption || {}) : {}
+    if (!votesStillValid) {
+      await supabaseClient.from('poll_votes').delete().eq('poll_id', editingPollId)
+    }
+    pollsMap[updated.id] = { ...updated, votesByOption }
+    refreshPollCard(updated.id)
+    return
+  }
 
   const key = pollChatKey(currentRoom)
   const row = {
@@ -1544,6 +1605,16 @@ function formatTime(isoString) {
 // Nur die Uhrzeit, ohne Datum - das Datum steht ja schon im Trenner über der Nachricht
 function formatTimeOnly(isoString) {
   return new Date(isoString).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+}
+
+// Zeit-Anzeige für die Chatliste: heute nur die Uhrzeit, älter nur das Datum (ohne Uhrzeit dazu)
+function formatChatListTime(isoString) {
+  const d = new Date(isoString)
+  const now = new Date()
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+  }
+  return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
 }
 
 // Emojis als kleine Bilder statt als (unter Windows hässliche) Systemzeichen zeichnen.
