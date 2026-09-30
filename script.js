@@ -290,7 +290,7 @@ async function enterApp(user) {
   listenForListUpdates()
   startInboxChannel()
 
-  if (!isAdmin()) maybeAskEnablePush()
+  if (!isAdmin()) initPushForDevice()
 }
 
 // Letzte Nachricht je Chat laden, für die Vorschau in der Liste
@@ -2581,6 +2581,8 @@ function openSettings() {
   if (!desktopQuery.matches) stopListening() // am PC bleibt der Chat rechts offen
   showScreen('settings-bereich')
   document.getElementById('menu-users').style.display = isAdmin() ? 'flex' : 'none'
+  document.getElementById('push-toggle-row').style.display = isAdmin() ? 'none' : 'flex'
+  refreshPushToggleUI()
 }
 
 function openEmailChange() {
@@ -2983,6 +2985,13 @@ async function inviteUser() {
 
 // 11. Ausloggen
 async function logout() {
+  const confirmed = await askConfirm(
+    'Möchtest du dich wirklich abmelden? Du erhältst auf diesem Gerät erst wieder Benachrichtigungen, wenn du dich erneut anmeldest.',
+    { okText: 'Abmelden', cancelText: 'Abbrechen', danger: true }
+  )
+  if (!confirmed) return
+
+  await teardownPushSubscription() // vor dem Abmelden, solange die Berechtigung zum Löschen noch da ist
   await supabaseClient.auth.signOut()
   showLogin()
 }
@@ -3117,6 +3126,12 @@ onEnter('new-user-email', inviteUser)
 // Öffentlicher VAPID-Schlüssel - passend zum privaten Gegenstück, das als Supabase-Secret hinterlegt ist
 const VAPID_PUBLIC_KEY = 'BIWDoDgxglJlPAOdWtaY5e3kjw-Q2Fg0DXnM4RsPqiwbxjhhOHIjB2_vHSE_TeYw2tN1JinxIhFCIg4eY27l66Q'
 
+// Geräte-Einstellung (nicht Konto-Einstellung!): merkt sich pro Browser/Gerät, ob hier schon einmal
+// über Push entschieden wurde - '1' aktiviert, '0' bewusst deaktiviert, nichts = noch nie gefragt.
+// Bleibt beim Abmelden bestehen, damit sich das Gerät beim nächsten Login selbst wieder anmeldet,
+// ohne erneut nachzufragen. Mehrere Geräte gleichzeitig sind kein Problem, jedes hat sein eigenes Abo.
+const PUSH_DEVICE_FLAG = 'pushDeviceEnabled'
+
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
@@ -3134,27 +3149,54 @@ async function registerServiceWorker() {
   }
 }
 
-// Fragt einmalig (pro Browser) nach, ob Benachrichtigungen aktiviert werden sollen
-async function maybeAskEnablePush() {
-  if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return
-  if (Notification.permission !== 'default') return // schon erlaubt, abgelehnt, oder schon gefragt
-  if (localStorage.getItem('pushPromptShown')) return
-  localStorage.setItem('pushPromptShown', '1')
+function pushSupported() {
+  return 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window
+}
 
+// Läuft nach jedem Login. Entscheidet anhand der Geräte-Einstellung, ob still weitergemacht,
+// gefragt, oder gar nichts getan wird - und fragt dabei NIE erneut, wenn für dieses Gerät schon
+// einmal eine Entscheidung getroffen wurde.
+async function initPushForDevice() {
+  if (isAdmin() || !pushSupported()) return
+
+  const deviceFlag = localStorage.getItem(PUSH_DEVICE_FLAG)
+
+  if (deviceFlag === '1') {
+    // War auf diesem Gerät schon aktiviert (evtl. für einen anderen Account) - beim erneuten
+    // Anmelden automatisch wieder verbinden, ohne die Person nochmal zu fragen
+    if (Notification.permission === 'granted') {
+      await enablePushNotifications({ silent: true })
+    } else {
+      localStorage.removeItem(PUSH_DEVICE_FLAG) // Berechtigung wurde inzwischen extern entzogen
+    }
+    return
+  }
+
+  if (deviceFlag === '0') return // hier bewusst ausgeschaltet - nicht erneut fragen
+
+  // Noch nie auf diesem Gerät entschieden
   const ok = await askConfirm(
     'Benachrichtigungen aktivieren, damit du neue Nachrichten auch mitbekommst, wenn die Seite gerade nicht offen ist?',
     { okText: 'Aktivieren', cancelText: 'Später' }
   )
-  if (ok) await enablePushNotifications()
+  if (ok) {
+    await enablePushNotifications()
+  } else {
+    localStorage.setItem(PUSH_DEVICE_FLAG, '0')
+  }
 }
 
-async function enablePushNotifications() {
+async function enablePushNotifications({ silent = false } = {}) {
   try {
     const permission = await Notification.requestPermission()
-    if (permission !== 'granted') return
+    if (permission !== 'granted') {
+      if (!silent) showToast('Ohne Erlaubnis im Browser können keine Benachrichtigungen ankommen.')
+      refreshPushToggleUI()
+      return false
+    }
 
     const registration = await registerServiceWorker()
-    if (!registration) return
+    if (!registration) return false
 
     let subscription = await registration.pushManager.getSubscription()
     if (!subscription) {
@@ -3172,10 +3214,68 @@ async function enablePushNotifications() {
       auth: json.keys.auth
     }, { onConflict: 'endpoint' })
 
-    if (error) console.error('Push-Abo konnte nicht gespeichert werden:', error)
+    if (error) {
+      console.error('Push-Abo konnte nicht gespeichert werden:', error)
+      if (!silent) showToast('Push-Abo konnte nicht gespeichert werden.')
+      return false
+    }
+
+    localStorage.setItem(PUSH_DEVICE_FLAG, '1')
+    refreshPushToggleUI()
+    return true
   } catch (err) {
     console.error('Push-Benachrichtigungen konnten nicht aktiviert werden:', err)
+    if (!silent) showToast('Push-Benachrichtigungen konnten nicht aktiviert werden.')
+    return false
   }
+}
+
+// Meldet das aktuelle Gerät komplett ab: Browser-Abo kündigen und den Eintrag in Supabase löschen.
+// Rührt die Geräte-Einstellung (PUSH_DEVICE_FLAG) NICHT an - das entscheiden logout() und der
+// Einstellungen-Schalter jeweils selbst, je nachdem, ob es ein bewusstes Ausschalten war oder nicht.
+async function teardownPushSubscription() {
+  if (!('serviceWorker' in navigator)) return
+  const registration = await navigator.serviceWorker.getRegistration()
+  if (!registration) return
+
+  const subscription = await registration.pushManager.getSubscription()
+  if (!subscription) return
+
+  const endpoint = subscription.endpoint
+  try {
+    await subscription.unsubscribe()
+  } catch (err) {
+    console.error('Push-Abo konnte nicht gekündigt werden:', err)
+  }
+
+  const { error } = await supabaseClient.from('push_subscriptions').delete().eq('endpoint', endpoint)
+  if (error) console.error('Push-Eintrag konnte nicht gelöscht werden:', error)
+}
+
+// Schalter in den Einstellungen: manuelles Ein-/Ausschalten pro Gerät
+async function onPushToggleChanged() {
+  const toggle = document.getElementById('push-toggle')
+  if (toggle.checked) {
+    const ok = await enablePushNotifications()
+    toggle.checked = ok
+  } else {
+    await teardownPushSubscription()
+    localStorage.setItem(PUSH_DEVICE_FLAG, '0') // bewusst ausgeschaltet - hier nicht erneut fragen
+  }
+}
+
+// Setzt den Schalter in den Einstellungen auf den tatsächlichen Stand dieses Geräts
+async function refreshPushToggleUI() {
+  const toggle = document.getElementById('push-toggle')
+  if (!toggle) return
+  if (!pushSupported()) {
+    toggle.checked = false
+    toggle.disabled = true
+    return
+  }
+  const registration = await navigator.serviceWorker.getRegistration()
+  const subscription = registration ? await registration.pushManager.getSubscription() : null
+  toggle.checked = Notification.permission === 'granted' && !!subscription
 }
 
 // Kleiner Zahlen-Kreis auf dem App-Symbol (Homescreen/Taskleiste) - nur bei installierter App
