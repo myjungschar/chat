@@ -1,46 +1,75 @@
-// Follow this setup guide to integrate the Deno language server with your editor:
-// https://deno.land/manual/getting_started/setup_your_environment
-// This enables autocomplete, go to definition, etc.
+// Edge Function "invite-user": verschickt eine Einladungs-E-Mail an eine neue Person.
+// Aufruf aus der App: supabase.functions.invoke('invite-user', { body: { email } })
+//
+// WICHTIG: Die Vorlage von Supabase erlaubte hier nur "publishable" | "secret" (also API-Keys im
+// apikey-Header). Das Admin-JWT aus der App wurde damit abgewiesen -> 401 -> "non-2xx status code".
+// Hier ist es auf auth: "user" umgestellt: Es muss ein gültiges JWT eines angemeldeten Nutzers
+// im Authorization-Header kommen, und danach wird zusätzlich geprüft, ob dieser Nutzer Admin ist.
 
-// Setup type definitions for built-in Supabase Runtime APIs
 import "@supabase/functions-js/edge-runtime.d.ts";
 import { withSupabase } from "@supabase/server";
 
-console.log("Hello from Functions!");
+const json = (body: Record<string, unknown>, status = 200) =>
+  Response.json(body, { status });
 
-// This endpoint uses 'publishable' | 'secret' access, apiKey is required.
-// Use publishable for Client-facing, key-validated endpoints
-// Use secret for Server-to-server, internal calls
 export default {
-  fetch: withSupabase({ auth: ["publishable", "secret"] }, async (req, ctx) => {
-    // Called by another service with a secret key
-    // ctx.supabaseAdmin bypasses RLS — use for privileged operations
-    /*
-    if (ctx.authMode === "secret") {
-      const { user_id } = await req.json();
-      const { data } = await ctx.supabaseAdmin.auth.admin.getUserById(user_id);
-
-      return Response.json({
-        email: data?.user?.email,
-      });
+  fetch: withSupabase({ auth: "user" }, async (req, ctx) => {
+    if (req.method !== "POST") {
+      return json({ error: "Nur POST ist erlaubt." }, 405);
     }
-    */
 
-    const { name } = await req.json();
+    // 1. Wer ruft auf? (Identität kommt aus dem geprüften JWT, nicht aus dem Request-Body)
+    const callerId = ctx.userClaims?.id;
+    if (!callerId) {
+      return json({ error: "Nicht angemeldet." }, 401);
+    }
 
-    return Response.json({
-      message: `Hello ${name}!`,
+    // 2. Nur Admins dürfen einladen (Rolle steht in der Tabelle "profiles")
+    const { data: caller, error: callerError } = await ctx.supabaseAdmin
+      .from("profiles")
+      .select("role")
+      .eq("id", callerId)
+      .single();
+
+    if (callerError || caller?.role !== "admin") {
+      return json({ error: "Nur Admins dürfen Einladungen verschicken." }, 403);
+    }
+
+    // 3. E-Mail aus dem Body lesen und prüfen
+    let email = "";
+    try {
+      const body = await req.json();
+      email = String(body?.email ?? "").trim().toLowerCase();
+    } catch {
+      return json({ error: "Ungültige Anfrage." }, 400);
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return json({ error: "Bitte eine gültige E-Mail-Adresse angeben." }, 400);
+    }
+
+    // 4. Wohin soll der Link in der Mail führen? (Secret APP_URL)
+    const appUrl = Deno.env.get("APP_URL");
+    if (!appUrl) {
+      console.error("Secret APP_URL ist nicht gesetzt.");
+      return json({ error: "Serverfehler: APP_URL ist nicht gesetzt." }, 500);
+    }
+
+    // 5. Einladung verschicken. Das Konto wird dabei angelegt; needs_password markiert, dass die
+    //    Person noch ein eigenes Passwort setzen muss (die App sperrt den Chat bis dahin).
+    const { error } = await ctx.supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+      redirectTo: appUrl,
+      data: { needs_password: true },
     });
+
+    if (error) {
+      console.error("inviteUserByEmail fehlgeschlagen:", error);
+      const message = error.message ?? "Unbekannter Fehler";
+      if (/already (been )?registered|already exists/i.test(message)) {
+        return json({ error: "Diese E-Mail-Adresse ist bereits registriert." }, 409);
+      }
+      return json({ error: message }, 400);
+    }
+
+    return json({ ok: true });
   }),
 };
-
-/* To invoke locally:
-
-  1. Run `supabase start` (see: https://supabase.com/docs/reference/cli/supabase-start)
-  2. Make an HTTP request:
-
-  curl -i --location --request POST 'http://127.0.0.1:54321/functions/v1/invite-user' \
-    --header 'apiKey: sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH' \
-    --data '{"name":"Functions"}'
-
-*/

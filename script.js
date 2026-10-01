@@ -120,19 +120,30 @@ async function init() {
       recoveryMode = true
       showPasswordReset()
     } else if (event === 'SIGNED_IN' && inviteMode) {
-      showInviteSetup(session.user.id)
+      const inviteUserId = session.user.id
+      setTimeout(() => showInviteSetup(inviteUserId), 0)
     } else if (event === 'SIGNED_OUT' && !recoveryMode && !inviteMode) {
       setTimeout(showLogin, 0)
     }
   })
 
+  // Abgelaufener oder schon benutzter Link: Supabase hängt den Fehler an die Adresse (#error=...&error_code=otp_expired)
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+  const linkError = hashParams.get('error_code') || hashParams.get('error')
+
   const { data: { session } } = await supabaseClient.auth.getSession()
   if (recoveryMode || inviteMode) return // die Weiche oben zeigt bereits den passenden Bildschirm
+
+  if (linkError) history.replaceState(null, '', window.location.pathname + window.location.search)
 
   if (session) {
     await enterApp(session.user)
   } else {
     showLogin()
+  }
+
+  if (linkError) {
+    showToast('Der Link ist abgelaufen oder wurde schon benutzt. Bitte lass dir einen neuen Link schicken.')
   }
 }
 
@@ -277,6 +288,13 @@ async function showInviteSetup(userId) {
 
 // Chatliste anzeigen (Startbildschirm nach dem Login): lädt Profil + Nutzerliste
 async function enterApp(user) {
+  // Eingeladene Person, die noch kein eigenes Passwort gesetzt hat: nicht in den Chat - auch nicht nach
+  // einem Neuladen der Seite (dann ist der Link aus der Adresszeile schon weg, die Sitzung aber noch da).
+  if (user.user_metadata && user.user_metadata.needs_password === true) {
+    await showInviteSetup(user.id)
+    return
+  }
+
   const { data: profile, error } = await supabaseClient
     .from('profiles')
     .select('id, display_name, role, is_blocked, gender')
@@ -2832,7 +2850,11 @@ async function completePasswordReset() {
   const btn = document.getElementById('reset-password-btn')
   btn.disabled = true
 
-  const { error } = await supabaseClient.auth.updateUser({ password: newPassword })
+  // needs_password: false hebt die Sperre für eingeladene Nutzer dauerhaft auf
+  const { error } = await supabaseClient.auth.updateUser({
+    password: newPassword,
+    data: { needs_password: false }
+  })
 
   btn.disabled = false
 
@@ -2941,7 +2963,7 @@ async function deleteUser(user) {
 
   const { error } = await supabaseClient.functions.invoke('delete-user', { body: { userId: user.id } })
   if (error) {
-    showToast('Löschen fehlgeschlagen: ' + error.message)
+    showToast('Löschen fehlgeschlagen: ' + await readFunctionError(error))
     return
   }
   openUserManagement()
@@ -2994,6 +3016,18 @@ function openNewUser() {
   document.getElementById('new-user-email').focus()
 }
 
+// Edge Functions melden Fehler als "non-2xx" - der eigentliche Grund steckt im Antworttext
+async function readFunctionError(error) {
+  try {
+    const res = error && error.context
+    if (res && typeof res.json === 'function') {
+      const body = await res.json()
+      if (body && (body.error || body.message)) return body.error || body.message
+    }
+  } catch (e) { /* Antwort war kein JSON */ }
+  return error.message
+}
+
 async function inviteUser() {
   if (!isAdmin()) return
   const input = document.getElementById('new-user-email')
@@ -3006,11 +3040,27 @@ async function inviteUser() {
   }
 
   btn.disabled = true
-  const { error } = await supabaseClient.functions.invoke('invite-user', { body: { email } })
+
+  // Aktuelle Sitzung holen (erneuert den Token bei Bedarf) und das Admin-JWT ausdrücklich mitschicken
+  const { data: { session } } = await supabaseClient.auth.getSession()
+  if (!session) {
+    btn.disabled = false
+    showToast('Deine Sitzung ist abgelaufen. Bitte melde dich neu an.')
+    return
+  }
+
+  const { data, error } = await supabaseClient.functions.invoke('invite-user', {
+    body: { email },
+    headers: { Authorization: 'Bearer ' + session.access_token }
+  })
   btn.disabled = false
 
   if (error) {
-    showToast('Einladung konnte nicht gesendet werden: ' + error.message)
+    showToast('Einladung konnte nicht gesendet werden: ' + await readFunctionError(error))
+    return
+  }
+  if (data && data.error) {
+    showToast('Einladung konnte nicht gesendet werden: ' + data.error)
     return
   }
 
