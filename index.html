@@ -396,9 +396,16 @@
       <!-- Eingabefeld -->
       <div class="chat-input-area">
         <button type="button" id="emoji-toggle-btn" class="input-round-btn" onclick="toggleTextEmojiPicker(this, event)" aria-label="Emoji einfügen">😊</button>
-        <textarea id="message-input" placeholder="Nachricht" maxlength="300" rows="1"></textarea>
+        <textarea id="message-input" placeholder="Nachricht" maxlength="3000" rows="1"></textarea>
         <button type="button" id="attach-btn" class="input-round-btn" onclick="toggleAttachMenu(this, event)" aria-label="Anhängen">+</button>
         <button type="button" id="send-btn" class="input-round-btn send" onclick="sendMessage()" aria-label="Senden">➤</button>
+      </div>
+
+      <!-- Auswahl-Leiste: ersetzt das Eingabefeld, solange mehrere Nachrichten zum Löschen ausgewählt werden -->
+      <div id="select-bar" style="display: none;">
+        <button type="button" class="select-bar-cancel" onclick="exitSelectMode()">Abbrechen</button>
+        <span id="select-bar-count">0 ausgewählt</span>
+        <button type="button" id="select-bar-delete" class="select-bar-delete" onclick="deleteSelectedMessages()" disabled>Löschen</button>
       </div>
 
     </div>

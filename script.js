@@ -31,6 +31,8 @@ let pollsMap = {}           // poll_id -> Umfrage samt Stimmen, für den gerade 
 let pollsChannel = null     // Realtime: neue Umfragen und Stimmen im offenen Chat
 let messagesById = {}       // id -> ganze Nachricht, für die Antwort-Zitate
 let lastMessageDateKey = null // Tag der zuletzt gezeichneten Nachricht, für die Datums-Trenner
+let selectMode = false          // true, solange mehrere Nachrichten zum Löschen ausgewählt werden
+let selectedMessageIds = new Set() // IDs (als Text) der gerade ausgewählten Nachrichten
 let reactionMap = {}        // message_id -> { up, down, mine }, für den gerade offenen Chat
 
 // Welcher Chat ist gerade offen: die Gruppe oder ein Einzelchat mit einer bestimmten Person
@@ -338,7 +340,13 @@ async function enterApp(user) {
   listenForListUpdates()
   startInboxChannel()
 
-  if (!isAdmin()) initPushForDevice()
+  if (isAdmin()) {
+    // Der Admin bekommt nie Benachrichtigungen: Push-Abo dieses Geräts kündigen, Zahl auf dem App-Symbol entfernen
+    teardownPushSubscription()
+    updateAppBadge(0)
+  } else {
+    initPushForDevice()
+  }
 }
 
 // Letzte Nachricht je Chat laden, für die Vorschau in der Liste
@@ -969,6 +977,7 @@ async function loadMessages() {
     return
   }
 
+  exitSelectMode()
   const chatBox = document.getElementById('chat-box')
   chatBox.innerHTML = ''
 
@@ -1219,6 +1228,7 @@ function attachPollMenuTriggers(msgElement, poll) {
   }
 
   msgElement.addEventListener('contextmenu', (e) => {
+    if (selectMode) { e.preventDefault(); return }
     if (isExcluded(e.target)) return
     e.preventDefault()
     openPollMenu(msgElement, poll)
@@ -1226,7 +1236,7 @@ function attachPollMenuTriggers(msgElement, poll) {
 
   let pressTimer = null
   msgElement.addEventListener('touchstart', (e) => {
-    if (isExcluded(e.target)) return
+    if (selectMode || isExcluded(e.target)) return
     pressTimer = setTimeout(() => {
       pressTimer = null
       openPollMenu(msgElement, poll)
@@ -1290,6 +1300,7 @@ function deletePoll(pollId) {
       delete pollsMap[pollId]
       const el = document.querySelector(`#chat-box [data-poll-id="${pollId}"]`)
       if (el) el.remove()
+      cleanupDateSeparators()
     }
   })
 }
@@ -1809,6 +1820,8 @@ function renderMessage(msg) {
     lastMessageDateKey = key
   }
 
+  if (selectMode) makeRowSelectable(row)
+
   chatBox.appendChild(row)
   applyEmojiImages(row)
   if (nearBottom || isOwn) chatBox.scrollTop = chatBox.scrollHeight
@@ -2075,6 +2088,7 @@ function attachMessageMenuTriggers(msgElement, msg, options) {
   }
 
   msgElement.addEventListener('contextmenu', (e) => {
+    if (selectMode) { e.preventDefault(); return } // im Auswahlmodus gibt es kein Menü
     if (isExcluded(e.target)) return
     e.preventDefault()
     openMessageMenu(msgElement, msg, options)
@@ -2083,7 +2097,7 @@ function attachMessageMenuTriggers(msgElement, msg, options) {
   let pressTimer = null
 
   msgElement.addEventListener('touchstart', (e) => {
-    if (isExcluded(e.target)) return
+    if (selectMode || isExcluded(e.target)) return
     pressTimer = setTimeout(() => {
       pressTimer = null
       openMessageMenu(msgElement, msg, options)
@@ -2162,6 +2176,15 @@ function openMessageMenu(anchorEl, msg, options) {
     }
 
     if (options.canDelete) {
+      const selectItem = document.createElement('button')
+      selectItem.className = 'msg-menu-item'
+      selectItem.textContent = 'Auswählen'
+      selectItem.addEventListener('click', () => {
+        closeMessageMenu()
+        enterSelectMode(msg.id)
+      })
+      menu.appendChild(selectItem)
+
       const delItem = document.createElement('button')
       delItem.className = 'msg-menu-item danger'
       delItem.textContent = 'Löschen'
@@ -2320,6 +2343,7 @@ function listenForNewMessages() {
 }
 
 function stopListening() {
+  exitSelectMode()
   if (chatChannel) {
     supabaseClient.removeChannel(chatChannel)
     chatChannel = null
@@ -2378,10 +2402,151 @@ function belongsToCurrentRoom(row) {
   )
 }
 
-function removeMessageElement(id) {
+function removeMessageElement(id, cleanup = true) {
   const el = document.querySelector(`#chat-box [data-id="${id}"]`)
   if (el) el.remove()
+  if (cleanup) cleanupDateSeparators()
 }
+
+// Ein Datums-Trenner ("Gestern", "Heute", ...) bleibt nur, solange darunter noch mindestens eine
+// Nachricht oder Umfrage von diesem Tag steht. Wird nach jedem Löschen aufgerufen.
+function cleanupDateSeparators() {
+  const chatBox = document.getElementById('chat-box')
+  const children = Array.from(chatBox.children)
+
+  children.forEach((el, i) => {
+    if (!el.classList.contains('date-separator')) return
+    let hasRow = false
+    for (let j = i + 1; j < children.length; j++) {
+      if (children[j].classList.contains('date-separator')) break
+      if (children[j].classList.contains('msg-row')) { hasRow = true; break }
+    }
+    if (!hasRow) el.remove()
+  })
+
+  // Für den nächsten neuen Eintrag: Tag der letzten verbleibenden Nachricht merken
+  const rows = chatBox.querySelectorAll('.msg-row[data-created-at]')
+  lastMessageDateKey = rows.length ? dateKey(rows[rows.length - 1].dataset.createdAt) : null
+
+  if (chatBox.children.length === 0) showEmptyHint()
+}
+
+// ===== Mehrere Nachrichten auswählen und gemeinsam löschen =====
+// Nur Nachrichten, die man löschen darf (eigene, als Admin alle). Umfragen sind davon ausgenommen.
+function isRowDeletable(row) {
+  return !!row.dataset.id && !row.classList.contains('poll-row') &&
+    (isAdmin() || row.dataset.senderId === currentUser.id)
+}
+
+function makeRowSelectable(row) {
+  if (!isRowDeletable(row)) return
+  row.classList.add('selectable')
+  if (!row.querySelector('.select-dot')) {
+    const dot = document.createElement('span')
+    dot.className = 'select-dot'
+    row.appendChild(dot)
+  }
+}
+
+function enterSelectMode(firstId) {
+  closeMessageMenu()
+  if (typeof cancelReplyingTo === 'function') cancelReplyingTo()
+  if (typeof cancelEditingMessage === 'function') cancelEditingMessage()
+
+  selectMode = true
+  selectedMessageIds = new Set()
+
+  const chatBox = document.getElementById('chat-box')
+  chatBox.classList.add('select-mode')
+  chatBox.querySelectorAll('.msg-row').forEach(makeRowSelectable)
+
+  const bar = document.getElementById('select-bar')
+  const input = document.querySelector('.chat-input-area')
+  if (bar) bar.style.display = 'flex'
+  if (input) input.style.display = 'none' // die Auswahl-Leiste ersetzt das Eingabefeld
+
+  if (firstId !== undefined) toggleSelected(String(firstId))
+  else updateSelectBar()
+}
+
+function exitSelectMode() {
+  selectMode = false
+  selectedMessageIds = new Set()
+
+  const chatBox = document.getElementById('chat-box')
+  chatBox.classList.remove('select-mode')
+  chatBox.querySelectorAll('.msg-row.selectable, .msg-row.selected').forEach(row => row.classList.remove('selectable', 'selected'))
+  chatBox.querySelectorAll('.select-dot').forEach(dot => dot.remove())
+
+  const bar = document.getElementById('select-bar')
+  const input = document.querySelector('.chat-input-area')
+  if (bar) bar.style.display = 'none'
+  if (input) input.style.display = isAdmin() ? 'none' : 'flex' // beim Admin bleibt das Eingabefeld immer weg (nur lesen)
+}
+
+function toggleSelected(id) {
+  const row = document.querySelector(`#chat-box .msg-row[data-id="${id}"]`)
+  if (!row || !row.classList.contains('selectable')) return
+
+  if (selectedMessageIds.has(id)) {
+    selectedMessageIds.delete(id)
+    row.classList.remove('selected')
+  } else {
+    selectedMessageIds.add(id)
+    row.classList.add('selected')
+  }
+  updateSelectBar()
+}
+
+function updateSelectBar() {
+  const count = selectedMessageIds.size
+  const countEl = document.getElementById('select-bar-count')
+  const deleteBtn = document.getElementById('select-bar-delete')
+  if (countEl) countEl.textContent = count === 1 ? '1 ausgewählt' : count + ' ausgewählt'
+  if (deleteBtn) deleteBtn.disabled = count === 0
+}
+
+function deleteSelectedMessages() {
+  const ids = Array.from(selectedMessageIds)
+  if (ids.length === 0) return
+
+  const question = ids.length === 1 ? 'Diese Nachricht wirklich löschen?' : ids.length + ' Nachrichten wirklich löschen?'
+  showConfirmModal(question, async () => {
+    // .select() liefert die tatsächlich gelöschten Zeilen zurück (fehlende Berechtigung = nicht dabei)
+    const { data, error } = await supabaseClient
+      .from(currentTable())
+      .delete()
+      .in('id', ids)
+      .select()
+
+    if (error) {
+      showToast('Löschen fehlgeschlagen: ' + error.message)
+      return
+    }
+
+    const deleted = (data || []).map(r => String(r.id))
+    deleted.forEach(id => removeMessageElement(id, false))
+    cleanupDateSeparators()
+
+    if (deleted.length < ids.length) {
+      showToast((ids.length - deleted.length) + ' Nachricht(en) konnten nicht gelöscht werden.')
+    }
+    exitSelectMode()
+  })
+}
+
+// Im Auswahlmodus wählt ein Klick (oder Tippen) auf eine Nachricht sie aus/ab - Links, Reaktionen usw. sind dann aus
+document.getElementById('chat-box').addEventListener('click', (e) => {
+  if (!selectMode) return
+  e.preventDefault()
+  e.stopPropagation()
+  const row = e.target.closest('.msg-row')
+  if (row && row.classList.contains('selectable')) toggleSelected(row.dataset.id)
+}, true)
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && selectMode) exitSelectMode()
+})
 
 // Reaktion setzen, wechseln oder wieder entfernen (ein Klick auf die bereits aktive schaltet sie aus)
 async function toggleReaction(messageId, emoji) {
@@ -3291,6 +3456,7 @@ async function initPushForDevice() {
 }
 
 async function enablePushNotifications({ silent = false } = {}) {
+  if (isAdmin()) return false // Admin: nirgends und nie Push
   try {
     const permission = await Notification.requestPermission()
     if (permission !== 'granted') {
@@ -3359,6 +3525,7 @@ async function teardownPushSubscription() {
 // Schalter in den Einstellungen: manuelles Ein-/Ausschalten pro Gerät
 async function onPushToggleChanged() {
   const toggle = document.getElementById('push-toggle')
+  if (isAdmin()) { toggle.checked = false; return }
   if (toggle.checked) {
     const ok = await enablePushNotifications()
     toggle.checked = ok
@@ -3386,6 +3553,7 @@ async function refreshPushToggleUI() {
 // sichtbar und nur in Browsern, die das unterstützen (Chrome/Edge, Safari ab iOS 16.4).
 function updateAppBadge(count) {
   if (!('setAppBadge' in navigator)) return
+  if (isAdmin()) count = 0 // Admin: keine Zahl auf dem App-Symbol
   if (count > 0) navigator.setAppBadge(count).catch(() => {})
   else navigator.clearAppBadge?.().catch(() => {})
 }

@@ -2091,3 +2091,88 @@ input[type="password"]::-ms-clear {
   font-weight: 600;
   text-align: center;
 }
+
+/* ===== Mehrere Nachrichten auswählen und löschen ===== */
+#chat-box.select-mode {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.msg-row.selectable {
+  position: relative;
+  padding-left: 34px; /* Platz für den Auswahl-Punkt */
+  cursor: pointer;
+  border-radius: 12px;
+}
+
+.msg-row.selected {
+  background: var(--accent-soft);
+}
+
+.select-dot {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  border: 2px solid var(--text-secondary);
+  border-radius: 50%;
+}
+
+.msg-row.selected .select-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.msg-row.selected .select-dot::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 5px;
+  height: 10px;
+  border: solid var(--text-on-accent);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+#select-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-panel-raised);
+  border-radius: 12px;
+}
+
+#select-bar-count {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.select-bar-cancel {
+  width: auto;
+  padding: 8px 14px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.select-bar-cancel:hover {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.select-bar-delete {
+  width: auto;
+  padding: 8px 18px;
+  background: var(--danger);
+  font-size: 14px;
+}
+
+.select-bar-delete:hover {
+  background: var(--danger-hover);
+}
