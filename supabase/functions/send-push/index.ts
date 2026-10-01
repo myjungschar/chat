@@ -1,11 +1,11 @@
-// Supabase Edge Function "send-push"
-// Wird über einen Database Webhook aufgerufen, sobald eine neue Zeile in "messages" oder
-// "direct_messages" eingefügt wird, und verschickt dafür echte Web-Push-Benachrichtigungen -
-// auch an Geräte, bei denen die Seite gerade gar nicht offen ist.
+// Supabase Edge Function "invite-user"
+// Wird von der App aufgerufen, wenn ein Admin unter "Nutzer verwalten" → "Neuen Nutzer hinzufügen"
+// eine E-Mail-Adresse einträgt. Legt das Konto an und verschickt die Einladungs-Mail
+// (das in Supabase hinterlegte "Invite user"-Template, über euer eigenes SMTP verschickt).
 //
-// Einrichtung: siehe die Anleitung, die Levi dazu bekommen hat.
+// Die Person landet über den Link in der Mail wieder auf APP_URL, dort erkennt script.js
+// automatisch den Einladungs-Modus und zeigt "Neues Passwort setzen" mit ihrem Namen an.
 
-import webpush from "npm:web-push@3.6.7"
 import { createClient } from "npm:@supabase/supabase-js@2"
 
 const supabaseAdmin = createClient(
@@ -13,96 +13,44 @@ const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 )
 
-webpush.setVapidDetails(
-  "mailto:" + (Deno.env.get("VAPID_CONTACT_EMAIL") || "admin@example.com"),
-  Deno.env.get("VAPID_PUBLIC_KEY")!,
-  Deno.env.get("VAPID_PRIVATE_KEY")!
-)
-
 Deno.serve(async (req) => {
   try {
-    const payload = await req.json()
-    const record = payload.record
-
-    if (!record || !record.sender_id) {
-      return new Response("kein passender Datensatz", { status: 200 })
+    // Nur eingeloggte Admins dürfen das - die aufrufende Person über ihr eigenes Token prüfen
+    const authHeader = req.headers.get("Authorization") || ""
+    const jwt = authHeader.replace("Bearer ", "")
+    const { data: { user }, error: userErr } = await supabaseAdmin.auth.getUser(jwt)
+    if (userErr || !user) {
+      return new Response(JSON.stringify({ error: "Nicht angemeldet." }), { status: 401 })
     }
 
-    // Admin-Nachrichten lösen laut Vorgabe nie eine Push-Benachrichtigung aus
-    const { data: sender } = await supabaseAdmin
+    const { data: profile } = await supabaseAdmin
       .from("profiles")
-      .select("display_name, role")
-      .eq("id", record.sender_id)
+      .select("role")
+      .eq("id", user.id)
       .single()
 
-    if (!sender || sender.role === "admin") {
-      return new Response("Admin-Nachricht - keine Push-Meldung", { status: 200 })
+    if (!profile || profile.role !== "admin") {
+      return new Response(JSON.stringify({ error: "Nur der Admin darf Nutzer einladen." }), { status: 403 })
     }
 
-    // Zielgruppe bestimmen: einzelne Person (Direktnachricht) oder eine ganze Gruppe
-    let recipientIds: string[] = []
-
-    if (record.recipient_id) {
-      recipientIds = [record.recipient_id]
-    } else {
-      let query = supabaseAdmin
-        .from("profiles")
-        .select("id")
-        .neq("id", record.sender_id)
-        .neq("role", "admin")
-
-      if (record.group_key) query = query.eq("gender", record.group_key) // "junge" oder "maedchen"
-      const { data: members } = await query
-      recipientIds = (members || []).map((m) => m.id)
+    const { email } = await req.json()
+    if (!email || typeof email !== "string" || !email.includes("@")) {
+      return new Response(JSON.stringify({ error: "Ungültige E-Mail-Adresse." }), { status: 400 })
     }
 
-    if (recipientIds.length === 0) {
-      return new Response("keine Empfänger", { status: 200 })
-    }
+    const redirectTo = Deno.env.get("APP_URL") // z.B. https://levi.github.io/jungschar-chat/
 
-    const { data: subs } = await supabaseAdmin
-      .from("push_subscriptions")
-      .select("*")
-      .in("user_id", recipientIds)
-
-    if (!subs || subs.length === 0) {
-      return new Response("niemand hat Push aktiviert", { status: 200 })
-    }
-
-    const chatKey = record.group_key || (record.recipient_id ? "dm:" + record.sender_id : "main")
-    const bodyText = (record.text || "").slice(0, 120)
-    const notificationPayload = JSON.stringify({
-      title: sender.display_name || "Neue Nachricht",
-      body: bodyText,
-      tag: chatKey,
-      url: "./"
+    const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+      redirectTo
     })
 
-    const results = await Promise.allSettled(
-      subs.map((sub) =>
-        webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          notificationPayload
-        )
-      )
-    )
+    if (error) {
+      return new Response(JSON.stringify({ error: error.message }), { status: 400 })
+    }
 
-    // Abgelaufene/ungültige Abos (Gerät abgemeldet, Browser deinstalliert, ...) wieder entfernen
-    await Promise.all(
-      results.map((result, i) => {
-        if (result.status === "rejected") {
-          const statusCode = result.reason?.statusCode
-          if (statusCode === 404 || statusCode === 410) {
-            return supabaseAdmin.from("push_subscriptions").delete().eq("endpoint", subs[i].endpoint)
-          }
-        }
-        return Promise.resolve()
-      })
-    )
-
-    return new Response("ok", { status: 200 })
+    return new Response(JSON.stringify({ ok: true, userId: data.user.id }), { status: 200 })
   } catch (err) {
-    console.error("send-push Fehler:", err)
-    return new Response("Fehler: " + err, { status: 500 })
+    console.error("invite-user Fehler:", err)
+    return new Response(JSON.stringify({ error: String(err) }), { status: 500 })
   }
 })

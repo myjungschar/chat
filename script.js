@@ -10,6 +10,9 @@ let currentProfile = null   // Zeile aus "profiles" (display_name, role, is_bloc
 let profileCache = {}       // id -> display_name, für Realtime-Nachrichten und die Chatliste
 let chatChannel = null      // Realtime-Channel für die aktuell geöffnete Ansicht
 let recoveryMode = false    // true, solange ein "Passwort vergessen"-Link verarbeitet wird
+// true, wenn die Seite gerade über einen Einladungs-Link geöffnet wurde (neuer Nutzer, erster Login).
+// Muss VOR dem ersten await abgefragt werden, weil Supabase "type=invite" danach aus der Adresszeile entfernt.
+let inviteMode = window.location.hash.includes('type=invite')
 let groupPreviews = {}      // 'main'/'junge'/'maedchen' -> letzte Nachricht, für die Chatliste
 let dmPreviews = {}         // andere Nutzer-ID -> letzte Nachricht, für die Chatliste
 let readMarks = {}          // chat_key -> Zeitpunkt der letzten eigenen Lesemarkierung
@@ -111,18 +114,20 @@ applyStoredTheme()
 // 2. Start: gespeicherte Session prüfen (Auto-Login nach Neuladen),
 //    oder erkennen, dass gerade ein "Passwort vergessen"-Link geöffnet wurde
 async function init() {
-  supabaseClient.auth.onAuthStateChange((event) => {
+  supabaseClient.auth.onAuthStateChange((event, session) => {
     // Im Callback keine Supabase-Aufrufe mit await (kann die Auth-Library blockieren)
     if (event === 'PASSWORD_RECOVERY') {
       recoveryMode = true
       showPasswordReset()
-    } else if (event === 'SIGNED_OUT' && !recoveryMode) {
+    } else if (event === 'SIGNED_IN' && inviteMode) {
+      showInviteSetup(session.user.id)
+    } else if (event === 'SIGNED_OUT' && !recoveryMode && !inviteMode) {
       setTimeout(showLogin, 0)
     }
   })
 
   const { data: { session } } = await supabaseClient.auth.getSession()
-  if (recoveryMode) return // die Weiche oben zeigt bereits den Reset-Bildschirm
+  if (recoveryMode || inviteMode) return // die Weiche oben zeigt bereits den passenden Bildschirm
 
   if (session) {
     await enterApp(session.user)
@@ -249,6 +254,24 @@ function showLogin() {
 }
 
 function showPasswordReset() {
+  document.getElementById('reset-heading').textContent = 'Neues Passwort setzen'
+  document.getElementById('reset-subtext').textContent = 'Bitte vergib ein neues Passwort, bevor es weitergeht.'
+  showScreen('reset-bereich')
+}
+
+// Einladungs-Link geöffnet: derselbe Bildschirm wie "Passwort vergessen", nur mit Namen der Person
+// und eigenem Hinweistext - und man kommt erst weiter, wenn ein neues Passwort gesetzt wurde.
+async function showInviteSetup(userId) {
+  const { data: profile } = await supabaseClient
+    .from('profiles')
+    .select('display_name')
+    .eq('id', userId)
+    .single()
+
+  const name = profile?.display_name
+  document.getElementById('reset-heading').textContent = name ? `Willkommen, ${name}!` : 'Willkommen!'
+  document.getElementById('reset-subtext').textContent =
+    'Du wurdest eingeladen. Vergib zuerst ein eigenes Passwort, bevor es weitergeht.'
   showScreen('reset-bereich')
 }
 
@@ -2627,24 +2650,29 @@ function updatePasswordToggle(input) {
 // Nach programmatischem Leeren der Felder (Logout, Passwort geändert, ...) aufrufen
 function refreshPasswordToggles() {
   document.querySelectorAll('.password-field input').forEach(updatePasswordToggle)
-  updatePasswordRules()
-  updatePasswordMatch()
+  document.querySelectorAll('[data-rules-for]').forEach(list => updatePasswordRules(list.dataset.rulesFor))
+  document.querySelectorAll('[data-match-for]').forEach(hint => updatePasswordMatch(hint.dataset.matchFor))
 }
 
-// Regeln unter dem neuen Passwort: erscheinen beim Tippen, erfüllte Punkte werden grün
-function updatePasswordRules() {
-  const pw = document.getElementById('new-password').value
-  const list = document.querySelector('[data-rules-for="new-password"]')
+// Regeln unter einem neuen Passwort-Feld: erscheinen beim Tippen, erfüllte Punkte werden grün.
+// pwId ist die id des Passwort-Felds, z.B. 'new-password' (Einstellungen) oder 'reset-password'
+// (Passwort setzen/Einladung) - so funktioniert dieselbe Logik für beide Stellen.
+function updatePasswordRules(pwId) {
+  const pw = document.getElementById(pwId).value
+  const list = document.querySelector(`[data-rules-for="${pwId}"]`)
+  if (!list) return
   list.style.display = pw ? '' : 'none'
   const ok = { length: pw.length >= 8, letter: /[a-zA-Z]/.test(pw), digit: /[0-9]/.test(pw) }
   list.querySelectorAll('li').forEach(li => li.classList.toggle('ok', ok[li.dataset.rule]))
 }
 
-// Unter der Wiederholung: stimmt sie mit dem neuen Passwort überein?
-function updatePasswordMatch() {
-  const pw = document.getElementById('new-password').value
-  const repeat = document.getElementById('repeat-password').value
-  const hint = document.getElementById('pw-match')
+// Unter der Wiederholung: stimmt sie mit dem neuen Passwort überein? (siehe updatePasswordRules)
+function updatePasswordMatch(pwId) {
+  const repeatInput = document.querySelector(`[data-repeat-for="${pwId}"]`)
+  const hint = document.querySelector(`[data-match-for="${pwId}"]`)
+  if (!repeatInput || !hint) return
+  const pw = document.getElementById(pwId).value
+  const repeat = repeatInput.value
   hint.style.display = repeat ? '' : 'none'
   const same = repeat === pw
   hint.textContent = same ? '✓ Passwörter stimmen überein' : 'Passwörter stimmen noch nicht überein'
@@ -2662,8 +2690,10 @@ function toggleFieldVisibility(inputId, btn) {
 document.querySelectorAll('.password-field input').forEach(input => {
   input.addEventListener('input', () => updatePasswordToggle(input))
 })
-document.getElementById('new-password').addEventListener('input', () => { updatePasswordRules(); updatePasswordMatch() })
-document.getElementById('repeat-password').addEventListener('input', updatePasswordMatch)
+document.getElementById('new-password').addEventListener('input', () => { updatePasswordRules('new-password'); updatePasswordMatch('new-password') })
+document.getElementById('repeat-password').addEventListener('input', () => updatePasswordMatch('new-password'))
+document.getElementById('reset-password').addEventListener('input', () => { updatePasswordRules('reset-password'); updatePasswordMatch('reset-password') })
+document.getElementById('reset-repeat-password').addEventListener('input', () => updatePasswordMatch('reset-password'))
 refreshPasswordToggles()
 
 async function sendPasswordReset() {
@@ -2788,9 +2818,14 @@ async function changePassword() {
 async function completePasswordReset() {
   const input = document.getElementById('reset-password')
   const newPassword = input.value
+  const repeatPassword = document.getElementById('reset-repeat-password').value
 
-  if (newPassword.length < 6) {
-    showToast('Das Passwort muss mindestens 6 Zeichen haben.')
+  if (!isStrongPassword(newPassword)) {
+    showToast('Das Passwort erfüllt noch nicht alle Anforderungen.')
+    return
+  }
+  if (newPassword !== repeatPassword) {
+    showToast('Die Passwörter stimmen nicht überein.')
     return
   }
 
@@ -2807,6 +2842,7 @@ async function completePasswordReset() {
   }
 
   recoveryMode = false
+  inviteMode = false
   showToast('Passwort gesetzt. Du bist jetzt eingeloggt.', 'success')
 
   const { data: { user } } = await supabaseClient.auth.getUser()
@@ -3120,6 +3156,7 @@ onEnter('username', login)
 onEnter('password', login)
 onEnter('forgot-username', sendPasswordReset)
 onEnter('reset-password', completePasswordReset)
+onEnter('reset-repeat-password', completePasswordReset)
 onEnter('new-user-email', inviteUser)
 
 // ===== Push-Benachrichtigungen (kommen auch an, wenn die Seite gar nicht offen ist) =====

@@ -118,15 +118,29 @@
 
     <!-- BEREICH 2: NEUES PASSWORT SETZEN (nach Klick auf den Link aus der E-Mail) -->
     <div id="reset-bereich" class="card" style="display: none;">
-      <h2>Neues Passwort setzen</h2>
-      <p>Bitte vergib ein neues Passwort, bevor es weitergeht.</p>
+      <h2 id="reset-heading">Neues Passwort setzen</h2>
+      <p id="reset-subtext">Bitte vergib ein neues Passwort, bevor es weitergeht.</p>
 
       <div class="input-group">
         <label for="reset-password">Neues Passwort</label>
         <div class="password-field">
-          <input type="password" id="reset-password" placeholder="Mindestens 6 Zeichen" autocomplete="new-password">
+          <input type="password" id="reset-password" autocomplete="new-password">
           <button type="button" class="toggle-password" onclick="toggleFieldVisibility('reset-password', this)" aria-label="Passwort anzeigen"></button>
         </div>
+        <ul class="pw-rules" data-rules-for="reset-password" style="display: none;">
+          <li data-rule="length">Mindestens 8 Zeichen</li>
+          <li data-rule="letter">Mindestens ein Buchstabe</li>
+          <li data-rule="digit">Mindestens eine Zahl</li>
+        </ul>
+      </div>
+
+      <div class="input-group">
+        <label for="reset-repeat-password">Neues Passwort wiederholen</label>
+        <div class="password-field">
+          <input type="password" id="reset-repeat-password" data-repeat-for="reset-password" autocomplete="new-password">
+          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('reset-repeat-password', this)" aria-label="Passwort anzeigen"></button>
+        </div>
+        <p class="pw-match" data-match-for="reset-password" style="display: none;"></p>
       </div>
 
       <button id="reset-password-btn" onclick="completePasswordReset()">Passwort setzen</button>
@@ -325,10 +339,10 @@
       <div class="input-group">
         <label for="repeat-password">Neues Passwort wiederholen</label>
         <div class="password-field">
-          <input type="password" id="repeat-password" autocomplete="new-password">
+          <input type="password" id="repeat-password" data-repeat-for="new-password" autocomplete="new-password">
           <button type="button" class="toggle-password" onclick="toggleFieldVisibility('repeat-password', this)" aria-label="Passwort anzeigen"></button>
         </div>
-        <p id="pw-match" class="pw-match" style="display: none;"></p>
+        <p class="pw-match" data-match-for="new-password" style="display: none;"></p>
       </div>
 
       <button id="change-password-btn" onclick="changePassword()">Passwort ändern</button>
