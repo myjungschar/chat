@@ -1,4 +1,5 @@
-   {
-     "deno.enable": true,
-     "deno.enablePaths": ["supabase/functions"]
-   }
+{
+  "deno.enable": true,
+  "deno.enablePaths": ["supabase/functions"],
+  "deno.path": "C:/Users/levib/AppData/Local/Microsoft/WinGet/Links/deno.exe"
+}
