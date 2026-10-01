@@ -49,8 +49,15 @@ function avatarColor(id) {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
 }
 
+// Initialen für das Profilbild: Anfangsbuchstabe von Vor- UND Nachname ("Levi Betke" -> "LB").
+// Bei nur einem Namen bleibt es bei einem Buchstaben. Trenner: Leerzeichen, Punkt, Unterstrich, Bindestrich.
 function initialsOf(name) {
-  return (name || '?').trim().charAt(0).toUpperCase()
+  const parts = (name || '?').trim().split(/[\s._-]+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  const first = Array.from(parts[0])[0]
+  if (parts.length === 1) return first.toUpperCase()
+  const last = Array.from(parts[parts.length - 1])[0]
+  return (first + last).toUpperCase()
 }
 
 // Eigenes Pop-up statt der Browser-Meldung, z. B. zum Bestätigen einer Löschung
@@ -827,6 +834,18 @@ function showList() {
   markCurrentRoomRead().then(() => renderChatList()) // Namen und Vorschauen könnten sich zwischenzeitlich geändert haben
 }
 
+// Benutzername -> E-Mail über die Datenbankfunktion. Groß-/Kleinschreibung ist egal
+// ("Levi.Betke" funktioniert genauso wie "levi.betke"): erst klein geschrieben, zur Sicherheit danach wie getippt.
+async function lookupEmailByUsername(rawName) {
+  const typed = rawName.trim()
+  const lower = typed.toLowerCase()
+  let result = await supabaseClient.rpc('get_email_by_username', { uname: lower })
+  if ((result.error || !result.data) && typed !== lower) {
+    result = await supabaseClient.rpc('get_email_by_username', { uname: typed })
+  }
+  return result
+}
+
 // 3. Einloggen
 async function login() {
   const username = document.getElementById('username').value.trim()
@@ -842,8 +861,7 @@ async function login() {
 
   // Benutzername -> hinterlegte E-Mail-Adresse (über eine Datenbankfunktion,
   // damit im Frontend nicht einfach alle E-Mails abgefragt werden können)
-  const { data: email, error: lookupError } = await supabaseClient
-    .rpc('get_email_by_username', { uname: username })
+  const { data: email, error: lookupError } = await lookupEmailByUsername(username)
 
   if (lookupError || !email) {
     loginBtn.disabled = false
@@ -2725,8 +2743,7 @@ async function sendPasswordReset() {
   const btn = document.getElementById('forgot-send-btn')
   btn.disabled = true
 
-  const { data: email, error: lookupError } = await supabaseClient
-    .rpc('get_email_by_username', { uname: username })
+  const { data: email, error: lookupError } = await lookupEmailByUsername(username)
 
   if (lookupError || !email) {
     btn.disabled = false
