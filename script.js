@@ -2807,6 +2807,7 @@ function openSettings() {
   document.getElementById('menu-users').style.display = isAdmin() ? 'flex' : 'none'
   document.getElementById('push-toggle-row').style.display = isAdmin() ? 'none' : 'flex'
   refreshPushToggleUI()
+  updateInstallMenu()
 }
 
 function openEmailChange() {
@@ -3558,6 +3559,142 @@ function updateAppBadge(count) {
   else navigator.clearAppBadge?.().catch(() => {})
 }
 
+// ===== Als App installieren =====
+// Beim ersten Besuch auf jedem Gerät erscheint kurz nach dem Laden ein Pop-up. Wer nicht will, findet
+// "Als App installieren" danach in den Einstellungen. Ist die App schon installiert (oder läuft die Seite
+// bereits als App), kommt weder das Pop-up noch der Eintrag in den Einstellungen.
+const INSTALL_DISMISSED_KEY = 'installPopupDismissed' // '1' = hier nicht mehr automatisch fragen
+const INSTALLED_KEY = 'appInstalled'                   // '1' = auf diesem Gerät schon installiert
+let deferredInstallPrompt = null                       // Chrome/Edge/Android: das echte Installations-Fenster
+
+function isStandaloneApp() {
+  return window.matchMedia('(display-mode: standalone)').matches ||
+    window.matchMedia('(display-mode: fullscreen)').matches ||
+    window.navigator.standalone === true
+}
+
+function isIosDevice() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) // iPad mit "Desktop-Seite"
+}
+
+function isAndroidDevice() {
+  return /android/i.test(navigator.userAgent)
+}
+
+function isAppInstalledHere() {
+  if (isStandaloneApp()) {
+    localStorage.setItem(INSTALLED_KEY, '1') // läuft schon als App -> merken
+    return true
+  }
+  return localStorage.getItem(INSTALLED_KEY) === '1'
+}
+
+// Chrome/Edge melden, dass die Seite installierbar ist - das Fenster dazu heben wir uns für den Klick auf
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault()
+  deferredInstallPrompt = e
+})
+
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null
+  localStorage.setItem(INSTALLED_KEY, '1')
+  closeInstallPopup()
+  updateInstallMenu()
+})
+
+function updateInstallMenu() {
+  const item = document.getElementById('menu-install')
+  if (item) item.style.display = isAppInstalledHere() ? 'none' : 'flex'
+}
+
+function installPopupAllowed() {
+  return !isAppInstalledHere() && localStorage.getItem(INSTALL_DISMISSED_KEY) !== '1'
+}
+
+// Zeigt das Pop-up automatisch, kurz nachdem die Seite geladen ist - nur auf Geräten, auf denen
+// Installieren überhaupt geht (Chrome/Edge mit Installations-Fenster, iPhone/iPad, Android)
+function scheduleInstallPopup() {
+  setTimeout(() => {
+    const settingPassword = inviteMode || recoveryMode || /type=(invite|recovery)/.test(window.location.hash)
+    if (settingPassword || !installPopupAllowed()) return
+    if (deferredInstallPrompt || isIosDevice() || isAndroidDevice()) openInstallPopup()
+  }, 2000)
+}
+
+function openInstallPopup() {
+  const textEl = document.getElementById('install-modal-text')
+  const stepsEl = document.getElementById('install-steps')
+  const installBtn = document.getElementById('install-confirm-btn')
+  const closeBtn = document.getElementById('install-close-btn')
+  if (!textEl) return
+
+  stepsEl.innerHTML = ''
+  let steps = []
+
+  if (deferredInstallPrompt) {
+    textEl.textContent = 'Installiere den JungscharChat als App. Er startet dann direkt von deinem Startbildschirm, ohne Browser-Leiste.'
+    installBtn.style.display = ''
+    closeBtn.textContent = 'Nicht jetzt'
+  } else {
+    installBtn.style.display = 'none'
+    closeBtn.textContent = 'Schließen'
+    if (isIosDevice()) {
+      textEl.textContent = 'So legst du den JungscharChat als App auf deinen Home-Bildschirm (in Safari):'
+      steps = [
+        'Tippe auf das Teilen-Symbol (Quadrat mit Pfeil nach oben).',
+        'Wähle „Zum Home-Bildschirm“.',
+        'Tippe oben rechts auf „Hinzufügen“.'
+      ]
+    } else if (isAndroidDevice()) {
+      textEl.textContent = 'So legst du den JungscharChat als App auf deinen Startbildschirm:'
+      steps = [
+        'Tippe im Browser oben rechts auf das Menü (drei Punkte).',
+        'Wähle „App installieren“ oder „Zum Startbildschirm hinzufügen“.'
+      ]
+    } else {
+      textEl.textContent = 'Klicke im Browser in der Adressleiste oder im Menü auf „Installieren“ bzw. „App installieren“. Manche Browser bieten das nicht an - am besten klappt es in Chrome oder Edge.'
+    }
+  }
+
+  steps.forEach(text => {
+    const li = document.createElement('li')
+    li.textContent = text
+    stepsEl.appendChild(li)
+  })
+  stepsEl.style.display = steps.length ? '' : 'none'
+
+  document.getElementById('install-modal').style.display = 'flex'
+}
+
+function closeInstallPopup() {
+  const modal = document.getElementById('install-modal')
+  if (modal) modal.style.display = 'none'
+}
+
+// "Nicht jetzt" / "Schließen": hier nicht mehr automatisch fragen (in den Einstellungen geht es jederzeit)
+function dismissInstallPopup() {
+  localStorage.setItem(INSTALL_DISMISSED_KEY, '1')
+  closeInstallPopup()
+}
+
+async function confirmInstall() {
+  const promptEvent = deferredInstallPrompt
+  if (!promptEvent) return
+  deferredInstallPrompt = null // ein Installations-Fenster lässt sich nur einmal benutzen
+  closeInstallPopup()
+
+  promptEvent.prompt()
+  const { outcome } = await promptEvent.userChoice
+  if (outcome === 'accepted') {
+    localStorage.setItem(INSTALLED_KEY, '1')
+  } else {
+    localStorage.setItem(INSTALL_DISMISSED_KEY, '1')
+  }
+  updateInstallMenu()
+}
+
 registerServiceWorker()
 
 init()
+scheduleInstallPopup()

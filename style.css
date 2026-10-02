@@ -2176,3 +2176,21 @@ input[type="password"]::-ms-clear {
 .select-bar-delete:hover {
   background: var(--danger-hover);
 }
+
+/* ===== Pop-up "Als App installieren" ===== */
+.modal-box .install-title {
+  margin-bottom: 10px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.install-steps {
+  margin: -6px 0 18px;
+  padding-left: 20px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.install-steps li {
+  margin-bottom: 6px;
+}

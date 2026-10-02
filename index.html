@@ -197,6 +197,10 @@
           <span>Passwort ändern</span>
           <span class="settings-arrow">›</span>
         </li>
+        <li id="menu-install" style="display: none;" onclick="openInstallPopup()">
+          <span>Als App installieren</span>
+          <span class="settings-arrow">›</span>
+        </li>
         <li id="menu-users" style="display: none;" onclick="openUserManagement()">
           <span>Nutzer verwalten</span>
           <span class="settings-arrow">›</span>
@@ -418,6 +422,19 @@
   </div>
 
   <!-- Eigenes Bestätigungs-Pop-up, ersetzt die Browser-eigene Meldung -->
+  <!-- Pop-up "Als App installieren" (erscheint beim ersten Besuch auf jedem Gerät, danach in den Einstellungen) -->
+  <div id="install-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-box">
+      <p class="install-title">Als App installieren</p>
+      <p id="install-modal-text"></p>
+      <ol id="install-steps" class="install-steps" style="display: none;"></ol>
+      <div class="modal-actions">
+        <button type="button" id="install-close-btn" class="modal-cancel" onclick="dismissInstallPopup()">Nicht jetzt</button>
+        <button type="button" id="install-confirm-btn" onclick="confirmInstall()">Installieren</button>
+      </div>
+    </div>
+  </div>
+
   <div id="confirm-modal" class="modal-overlay" style="display: none;">
     <div class="modal-box">
       <p id="confirm-modal-text"></p>
