@@ -458,7 +458,11 @@
       <!-- Eingabefeld -->
       <div class="chat-input-area">
         <button type="button" id="emoji-toggle-btn" class="input-round-btn" onclick="toggleTextEmojiPicker(this, event)" aria-label="Emoji einfügen">😊</button>
-        <textarea id="message-input" placeholder="Nachricht" maxlength="3000" rows="1"></textarea>
+        <div class="message-field">
+          <textarea id="message-input" placeholder="Nachricht" maxlength="3000" rows="1"></textarea>
+          <!-- Eigener Scroll-Balken: sitzt mit Abstand INNERHALB des Feldes (der eingebaute Balken ließ sich nicht verschieben) -->
+          <div class="field-scrollbar" id="message-scrollbar" aria-hidden="true"><div class="field-scrollbar-thumb"></div></div>
+        </div>
         <button type="button" id="attach-btn" class="input-round-btn" onclick="toggleAttachMenu(this, event)" aria-label="Anhängen">+</button>
         <button type="button" id="send-btn" class="input-round-btn send" onclick="sendMessage()" aria-label="Senden">➤</button>
       </div>

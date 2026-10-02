@@ -1029,33 +1029,54 @@ img.emoji {
   max-height: 120px;
   border-radius: 20px;
   padding: 9px 16px;
-  padding-right: 12px; /* etwas Luft, damit der Scrollbalken nicht direkt in der Rundung sitzt */
+  padding-right: 20px; /* Platz für den eigenen Scroll-Balken, damit Text nicht darunter läuft */
   resize: none;
   overflow-y: hidden;
   line-height: 1.35;
   font-family: inherit;
-  scrollbar-width: thin; /* Firefox */
-  scrollbar-color: var(--text-secondary) transparent;
+  scrollbar-width: none; /* Der eingebaute Balken ist aus - unten sitzt ein eigener, genau platzierter */
 }
 
 .chat-input-area textarea::-webkit-scrollbar {
-  width: 16px;
+  display: none;
 }
 
-/* Heller, dünn (3px sichtbar) und mit 9px Abstand zum rechten Rand: die transparenten Kanten schieben ihn nach links */
-.chat-input-area textarea::-webkit-scrollbar-thumb {
-  background: var(--text-secondary);
-  background-clip: padding-box;
-  border-style: solid;
-  border-color: transparent;
-  border-width: 0 9px 0 4px;
+/* Feld-Hülle: nötig, damit der eigene Balken über dem Textfeld liegen kann */
+.message-field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.message-field textarea {
+  width: 100%;
+}
+
+/* Eigener Scroll-Balken: 12px Abstand oben/unten (damit er in den runden Ecken nicht herausguckt),
+   8px Abstand zum rechten Rand, hell und nur 3px dünn */
+.field-scrollbar {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  right: 8px;
+  width: 3px;
+  display: none;      /* ohne Text über einer Zeile: gar nicht da, schiebt also nichts und macht nichts scrollbar */
+  overflow: hidden;   /* der Balken kann nie über seine Bahn hinausragen */
+  pointer-events: none;
+}
+
+.field-scrollbar.visible {
+  display: block;
+}
+
+.field-scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
   border-radius: 999px;
-}
-
-/* Abstand oben und unten, damit der Balken nicht in den runden Ecken des Feldes endet */
-.chat-input-area textarea::-webkit-scrollbar-track {
-  background: transparent;
-  margin: 14px 0;
+  background: var(--text-secondary);
 }
 
 .input-round-btn {

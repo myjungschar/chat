@@ -1583,7 +1583,7 @@ function toggleAttachMenu(anchorBtn, evt) {
 
   const pollItem = document.createElement('button')
   pollItem.className = 'msg-menu-item'
-  pollItem.innerHTML = '📊&nbsp; Umfrage'
+  pollItem.textContent = 'Umfrage'
   pollItem.addEventListener('click', () => { closeAttachMenu(); openPollModal() })
   menu.appendChild(pollItem)
 
@@ -2167,7 +2167,7 @@ function openMessageMenu(anchorEl, msg, options) {
       menu.appendChild(infoItem)
     }
 
-    if (options.canEdit) {
+    if (options.canEdit && withinEditWindow(msg.created_at)) {
       const editItem = document.createElement('button')
       editItem.className = 'msg-menu-item'
       editItem.textContent = 'Bearbeiten'
@@ -2723,7 +2723,24 @@ function cancelReplyingTo() {
 // der Senden-Pfeil wird währenddessen zu einem Häkchen (wie bei WhatsApp)
 let editingMessageId = null
 
+// Eine Nachricht lässt sich nur 15 Minuten nach dem Senden bearbeiten (die Datenbank prüft das ebenfalls)
+const EDIT_WINDOW_MS = 15 * 60 * 1000
+
+function withinEditWindow(createdAt) {
+  const time = new Date(createdAt).getTime()
+  return !isNaN(time) && Date.now() - time < EDIT_WINDOW_MS
+}
+
+function editWindowExpiredToast() {
+  showToast('Bearbeiten ist nur in den ersten 15 Minuten nach dem Senden möglich.')
+}
+
 function startEditingMessage(id, oldText) {
+  const row = document.querySelector(`#chat-box [data-id="${id}"]`)
+  if (row && row.dataset.createdAt && !withinEditWindow(row.dataset.createdAt)) {
+    editWindowExpiredToast()
+    return
+  }
   cancelReplyingTo() // Bearbeiten und gleichzeitig auf etwas antworten schließen sich aus
   editingMessageId = id
   const input = document.getElementById('message-input')
@@ -2745,6 +2762,14 @@ function cancelEditingMessage() {
 async function saveEditedMessage(newText) {
   const id = editingMessageId
   const input = document.getElementById('message-input')
+
+  // Die Zeit kann während des Bearbeitens abgelaufen sein
+  const row = document.querySelector(`#chat-box [data-id="${id}"]`)
+  if (row && row.dataset.createdAt && !withinEditWindow(row.dataset.createdAt)) {
+    editWindowExpiredToast()
+    cancelEditingMessage()
+    return
+  }
 
   const { data, error } = await supabaseClient
     .from(currentTable())
@@ -3561,9 +3586,45 @@ function autoResizeMessageInput() {
   input.style.overflowY = input.scrollHeight > MESSAGE_INPUT_MAX_HEIGHT ? 'auto' : 'hidden'
 
   document.getElementById('attach-btn').classList.toggle('hidden-btn', input.value.trim() !== '')
+  updateMessageScrollbar()
+}
+
+// Eigener Scroll-Balken im Nachrichtenfeld: erscheint, sobald die zweite Zeile beginnt, und zeigt beim
+// Scrollen, wo man im langen Text ist. Seine Länge bleibt immer gleich (so lang wie bei zwei Zeilen).
+function updateMessageScrollbar() {
+  const input = document.getElementById('message-input')
+  const bar = document.getElementById('message-scrollbar')
+  if (!input || !bar) return
+  const thumb = bar.firstElementChild
+
+  const style = getComputedStyle(input)
+  const paddingY = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0)
+  let lineHeight = parseFloat(style.lineHeight)
+  if (isNaN(lineHeight)) lineHeight = (parseFloat(style.fontSize) || 16) * 1.35
+  const contentHeight = input.scrollHeight - paddingY
+
+  // Eine Zeile (oder leer): Balken komplett aus dem Layout nehmen, damit er nichts verschiebt
+  if (contentHeight < lineHeight * 1.5) {
+    bar.classList.remove('visible')
+    thumb.style.transform = ''
+    return
+  }
+  bar.classList.add('visible') // erst jetzt hat der Balken eine Höhe zum Messen
+
+  const SCROLLBAR_INSET = 24 // 12px oben + 12px unten (siehe .field-scrollbar im CSS)
+  const trackHeight = bar.clientHeight
+  const twoLineLength = Math.round(lineHeight * 2 + paddingY - SCROLLBAR_INSET)
+  const thumbHeight = Math.max(14, Math.min(twoLineLength, trackHeight))
+
+  const overflow = input.scrollHeight - input.clientHeight
+  const top = overflow > 1 ? (trackHeight - thumbHeight) * (input.scrollTop / overflow) : 0
+  thumb.style.height = thumbHeight + 'px'
+  thumb.style.transform = 'translateY(' + Math.round(top) + 'px)'
 }
 
 document.getElementById('message-input').addEventListener('input', autoResizeMessageInput)
+document.getElementById('message-input').addEventListener('scroll', updateMessageScrollbar)
+window.addEventListener('resize', updateMessageScrollbar)
 autoResizeMessageInput()
 
 // ===== Meldung bei fehlender Internetverbindung =====
