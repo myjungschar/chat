@@ -608,7 +608,7 @@ async function renderChatList() {
   }
 
   const others = Object.entries(profileCache)
-    .filter(([id, info]) => id !== currentUser.id && info.role !== 'admin')
+    .filter(([id, info]) => id !== currentUser.id && info.role !== 'admin' && info.active !== false)
     .sort((a, b) => {
       const timeA = dmPreviews[a[0]] ? new Date(dmPreviews[a[0]].created_at).getTime() : 0
       const timeB = dmPreviews[b[0]] ? new Date(dmPreviews[b[0]].created_at).getTime() : 0
@@ -902,9 +902,10 @@ function showForgotScreen() {
 
 // 4. Namen aller Profile einmal laden (für die Chatliste und für Realtime-Nachrichten ohne Join)
 async function loadProfileCache() {
+  // '*' statt Spaltenliste: so läuft die App auch dann, wenn die Spalte "active" noch nicht existiert
   const { data, error } = await supabaseClient
     .from('profiles')
-    .select('id, display_name, role, is_blocked, gender')
+    .select('*')
 
   if (error) {
     console.error('Fehler beim Laden der Profile:', error)
@@ -913,7 +914,8 @@ async function loadProfileCache() {
 
   profileCache = {}
   data.forEach(p => {
-    profileCache[p.id] = { name: p.display_name, role: p.role, blocked: !!p.is_blocked, gender: p.gender }
+    // active = false: eingeladen, aber Einladung noch nicht angenommen / noch kein Passwort gesetzt
+    profileCache[p.id] = { name: p.display_name, role: p.role, blocked: !!p.is_blocked, gender: p.gender, active: p.active !== false }
   })
 }
 
@@ -1849,7 +1851,7 @@ function recipientIdsForRoom() {
   const key = currentRoom.groupKey || 'main'
   return Object.entries(profileCache)
     .filter(([id, info]) => {
-      if (id === currentUser.id || info.role === 'admin' || info.blocked) return false
+      if (id === currentUser.id || info.role === 'admin' || info.blocked || info.active === false) return false
       return key === 'main' || info.gender === key
     })
     .map(([id]) => id)
@@ -3069,7 +3071,7 @@ async function loadUsers() {
 
   const { data: users, error } = await supabaseClient
     .from('profiles')
-    .select('id, display_name, role, is_blocked, gender')
+    .select('*')
     .order('display_name')
 
   if (error) {
@@ -3089,7 +3091,9 @@ async function loadUsers() {
 
       const name = document.createElement('span')
       name.className = 'user-name'
-      name.textContent = (u.display_name || 'Ohne Namen') + (u.is_blocked ? ' (gesperrt)' : '')
+      name.textContent = (u.display_name || 'Ohne Namen') +
+        (u.is_blocked ? ' (gesperrt)' : '') +
+        (u.active === false ? ' (Einladung offen)' : '')
       row.appendChild(name)
 
       const arrow = document.createElement('span')
