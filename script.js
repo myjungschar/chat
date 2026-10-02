@@ -297,6 +297,26 @@ async function showInviteSetup(userId) {
   showScreen('reset-bereich')
 }
 
+// "Abbrechen" auf dem Passwort-setzen-Bildschirm (Einladung oder "Passwort vergessen"): zurück zum normalen Login.
+// Der Link aus der E-Mail ist ein Einmal-Link und danach verbraucht - ein zweites Mal klappt es über
+// "Passwort vergessen" (neue Mail) oder mit einer neuen Einladung vom Admin.
+async function cancelPasswordSetup() {
+  const wasInvite = inviteMode || !recoveryMode
+  recoveryMode = false
+  inviteMode = false
+
+  history.replaceState(null, '', window.location.pathname + window.location.search)
+  await supabaseClient.auth.signOut() // beendet die Sitzung, die der Link angelegt hat
+  showLogin()
+
+  showToast(
+    wasInvite
+      ? 'Abgebrochen. Dein Passwort kannst du später über „Passwort vergessen“ festlegen.'
+      : 'Abgebrochen.',
+    'success'
+  )
+}
+
 // Chatliste anzeigen (Startbildschirm nach dem Login): lädt Profil + Nutzerliste
 async function enterApp(user) {
   // Eingeladene Person, die noch kein eigenes Passwort gesetzt hat: nicht in den Chat - auch nicht nach

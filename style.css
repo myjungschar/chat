@@ -2362,3 +2362,9 @@ input[type="password"]::-ms-clear {
   padding: 8px 0;
   font-size: 15px;
 }
+
+/* Abbrechen oben auf dem Passwort-setzen-Bildschirm */
+.reset-top {
+  display: flex;
+  margin: -6px 0 8px -10px;
+}
