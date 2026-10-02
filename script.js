@@ -2807,8 +2807,8 @@ function deleteMessage(id) {
 function openSettings() {
   if (!desktopQuery.matches) stopListening() // am PC bleibt der Chat rechts offen
   showScreen('settings-bereich')
-  document.getElementById('menu-users').style.display = isAdmin() ? 'flex' : 'none'
-  document.getElementById('push-toggle-row').style.display = isAdmin() ? 'none' : 'flex'
+  document.getElementById('admin-group').style.display = isAdmin() ? '' : 'none'
+  document.getElementById('push-group').style.display = isAdmin() ? 'none' : ''
   refreshPushToggleUI()
   updateInstallMenu()
 }
@@ -3798,9 +3798,22 @@ window.addEventListener('appinstalled', () => {
   updateInstallMenu()
 })
 
+// Der Eintrag in den Einstellungen ist immer da: ist die App schon installiert, steht dort "App installiert" mit Haken
 function updateInstallMenu() {
-  const item = document.getElementById('menu-install')
-  if (item) item.style.display = isAppInstalledHere() ? 'none' : 'flex'
+  const label = document.getElementById('menu-install-label')
+  const state = document.getElementById('menu-install-state')
+  if (!label || !state) return
+  const installed = isAppInstalledHere()
+  label.textContent = installed ? 'App installiert' : 'Als App installieren'
+  state.textContent = installed ? '✓' : '›'
+}
+
+function onInstallMenuClick() {
+  if (isAppInstalledHere()) {
+    showToast('Die App ist schon installiert.', 'success')
+  } else {
+    openInstallPopup()
+  }
 }
 
 function installPopupAllowed() {

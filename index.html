@@ -188,43 +188,78 @@
         </div>
       </header>
 
-      <ul class="settings-menu">
-        <li onclick="openEmailChange()">
-          <span>E-Mail-Adresse ändern</span>
-          <span class="settings-arrow">›</span>
-        </li>
-        <li onclick="openPasswordChange()">
-          <span>Passwort ändern</span>
-          <span class="settings-arrow">›</span>
-        </li>
-        <li onclick="openDevices()">
-          <span>Angemeldete Geräte</span>
-          <span class="settings-arrow">›</span>
-        </li>
-        <li id="menu-install" style="display: none;" onclick="openInstallPopup()">
-          <span>Als App installieren</span>
-          <span class="settings-arrow">›</span>
-        </li>
-        <li id="menu-users" style="display: none;" onclick="openUserManagement()">
-          <span>Nutzer verwalten</span>
-          <span class="settings-arrow">›</span>
-        </li>
-      </ul>
+      <div class="settings-groups">
 
-      <div class="toggle-row" id="push-toggle-row">
-        <span>Push-Benachrichtigungen</span>
-        <label class="switch">
-          <input type="checkbox" id="push-toggle" onchange="onPushToggleChanged()">
-          <span class="switch-slider"></span>
-        </label>
-      </div>
+        <section class="settings-group">
+          <h3 class="settings-group-title">Konto &amp; Sicherheit</h3>
+          <div class="settings-group-body">
+            <ul class="settings-menu">
+              <li onclick="openEmailChange()">
+                <span>E-Mail-Adresse ändern</span>
+                <span class="settings-arrow">›</span>
+              </li>
+              <li onclick="openPasswordChange()">
+                <span>Passwort ändern</span>
+                <span class="settings-arrow">›</span>
+              </li>
+              <li onclick="openDevices()">
+                <span>Angemeldete Geräte</span>
+                <span class="settings-arrow">›</span>
+              </li>
+            </ul>
+          </div>
+        </section>
 
-      <div class="toggle-row">
-        <span>Dunkler Modus</span>
-        <label class="switch">
-          <input type="checkbox" id="dark-mode-toggle" onchange="toggleDarkMode()">
-          <span class="switch-slider"></span>
-        </label>
+        <section class="settings-group" id="push-group">
+          <h3 class="settings-group-title">Mitteilungen</h3>
+          <div class="settings-group-body">
+            <div class="toggle-row" id="push-toggle-row">
+              <span>Push-Benachrichtigungen</span>
+              <label class="switch">
+                <input type="checkbox" id="push-toggle" onchange="onPushToggleChanged()">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-group">
+          <h3 class="settings-group-title">Darstellung</h3>
+          <div class="settings-group-body">
+            <div class="toggle-row">
+              <span>Dunkler Modus</span>
+              <label class="switch">
+                <input type="checkbox" id="dark-mode-toggle" onchange="toggleDarkMode()">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-group">
+          <h3 class="settings-group-title">App</h3>
+          <div class="settings-group-body">
+            <ul class="settings-menu">
+              <li id="menu-install" onclick="onInstallMenuClick()">
+                <span id="menu-install-label">Als App installieren</span>
+                <span class="settings-arrow" id="menu-install-state">›</span>
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="settings-group" id="admin-group" style="display: none;">
+          <h3 class="settings-group-title">Verwaltung</h3>
+          <div class="settings-group-body">
+            <ul class="settings-menu">
+              <li id="menu-users" onclick="openUserManagement()">
+                <span>Nutzer verwalten</span>
+                <span class="settings-arrow">›</span>
+              </li>
+            </ul>
+          </div>
+        </section>
+
       </div>
 
     </div>
