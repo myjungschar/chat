@@ -197,6 +197,10 @@
           <span>Passwort ändern</span>
           <span class="settings-arrow">›</span>
         </li>
+        <li onclick="openDevices()">
+          <span>Angemeldete Geräte</span>
+          <span class="settings-arrow">›</span>
+        </li>
         <li id="menu-install" style="display: none;" onclick="openInstallPopup()">
           <span>Als App installieren</span>
           <span class="settings-arrow">›</span>
@@ -279,6 +283,25 @@
 
       <button id="invite-user-btn" onclick="inviteUser()">Einladung senden</button>
       <p class="settings-hint">Die Person bekommt einen Link per E-Mail und vergibt darüber ihr eigenes Passwort.</p>
+      </div>
+    </div>
+
+    <!-- BEREICH 3d: ANGEMELDETE GERÄTE (eigene Unterseite) -->
+    <div id="devices-bereich" class="card subpage" style="display: none;">
+      <div class="form-card">
+
+      <header class="chat-header">
+        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen">←</button>
+        <div class="user-info">
+          <span>Angemeldete Geräte</span>
+        </div>
+      </header>
+
+      <ul id="device-list" class="device-list"></ul>
+
+      <button type="button" id="logout-others-btn" onclick="logoutOtherDevices()">Alle anderen Geräte abmelden</button>
+      <button type="button" id="logout-all-btn" class="logout-all-btn" onclick="logoutAllDevices()">Auf allen Geräten abmelden</button>
+      <p class="settings-hint">Ein abgemeldetes Gerät kann noch bis zu einer Stunde offen bleiben, danach landet es im Login. Wenn du dein Passwort änderst, werden alle anderen Geräte automatisch abgemeldet.</p>
       </div>
     </div>
 

@@ -1474,6 +1474,7 @@ body.split-view #admin-contacts-bereich {
 body.split-view #conversation-bereich,
 body.split-view #email-change-bereich,
 body.split-view #password-change-bereich,
+body.split-view #devices-bereich,
 body.split-view #user-detail-bereich,
 body.split-view #new-user-bereich {
   grid-column: 2;
@@ -1483,6 +1484,7 @@ body.split-view #new-user-bereich {
 /* Unterseiten der Einstellungen rechts: Inhalt nicht endlos breit, Zurück-Pfeil unnötig */
 body.split-view #email-change-bereich .back-btn,
 body.split-view #password-change-bereich .back-btn,
+body.split-view #devices-bereich .back-btn,
 body.split-view #user-detail-bereich .back-btn,
 body.split-view #new-user-bereich .back-btn {
   display: none;
@@ -1584,13 +1586,34 @@ body.split-view.chat-open #chat-placeholder {
   text-overflow: ellipsis;
 }
 
+.chat-tab {
+  /* Am Handy kein Aufblitzen beim Antippen: kein graues Tipp-Highlight, kein weiches Überblenden */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: none;
+}
+
+/* Das allgemeine "button:hover" färbt Knöpfe in der Akzentfarbe - am Handy bleibt dieser Zustand nach dem
+   Tippen kleben und blinkte beim Wechsel des Reiters. Reiter behalten deshalb immer ihre eigene Farbe. */
 .chat-tab:hover {
+  background: var(--bg-input);
   color: var(--text-primary);
 }
 
-.chat-tab.active {
+.chat-tab.active,
+.chat-tab.active:hover {
   background: var(--accent);
   color: var(--text-on-accent);
+}
+
+@media (hover: none) {
+  .chat-tab:hover {
+    color: var(--text-secondary);
+  }
+
+  .chat-tab.active:hover {
+    color: var(--text-on-accent);
+  }
 }
 
 /* ===== Platzhalter rechts in der PC-Ansicht (Telegram-Stil: Pille in der Mitte) ===== */
@@ -2193,4 +2216,63 @@ input[type="password"]::-ms-clear {
 
 .install-steps li {
   margin-bottom: 6px;
+}
+
+/* ===== Angemeldete Geräte ===== */
+.device-list {
+  list-style: none;
+  margin-bottom: 16px;
+}
+
+.device-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.device-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.device-name {
+  font-size: 15px;
+}
+
+.device-meta {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.device-empty {
+  padding: 14px 4px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.device-logout-btn {
+  width: auto;
+  flex-shrink: 0;
+  padding: 7px 14px;
+  background: var(--bg-input);
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.device-logout-btn:hover {
+  background: var(--bg-panel-raised);
+}
+
+.logout-all-btn {
+  margin-top: 10px;
+  background: var(--danger);
+}
+
+.logout-all-btn:hover {
+  background: var(--danger-hover);
 }

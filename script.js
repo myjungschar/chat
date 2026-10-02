@@ -163,7 +163,7 @@ const desktopQuery = window.matchMedia('(min-width: 900px)')
 const AUTH_SCREENS = ['login-bereich', 'forgot-bereich', 'reset-bereich']
 const LEFT_SCREENS = ['list-bereich', 'settings-bereich', 'users-bereich', 'admin-contacts-bereich']
 // Rechts: Chat oder die Unterseiten der Einstellungen (am Handy sind das eigene volle Seiten)
-const RIGHT_SCREENS = ['conversation-bereich', 'email-change-bereich', 'password-change-bereich', 'user-detail-bereich', 'new-user-bereich']
+const RIGHT_SCREENS = ['conversation-bereich', 'email-change-bereich', 'password-change-bereich', 'devices-bereich', 'user-detail-bereich', 'new-user-bereich']
 
 function isSplitView() {
   return document.body.classList.contains('split-view')
@@ -239,6 +239,7 @@ function hideAllScreens() {
   document.getElementById('settings-bereich').style.display = 'none'
   document.getElementById('email-change-bereich').style.display = 'none'
   document.getElementById('password-change-bereich').style.display = 'none'
+  document.getElementById('devices-bereich').style.display = 'none'
   document.getElementById('admin-contacts-bereich').style.display = 'none'
   document.getElementById('users-bereich').style.display = 'none'
   document.getElementById('user-detail-bereich').style.display = 'none'
@@ -3011,7 +3012,8 @@ async function changePassword() {
     document.getElementById('new-password').value = ''
     document.getElementById('repeat-password').value = ''
     refreshPasswordToggles()
-    showToast('Passwort wurde geändert.', 'success')
+    await signOutOtherDevices(currentUser.id)
+    showToast('Passwort wurde geändert. Auf allen anderen Geräten wurdest du abgemeldet.', 'success')
     openSettings()
   }
 }
@@ -3048,11 +3050,14 @@ async function completePasswordReset() {
     return
   }
 
+  const wasRecovery = recoveryMode
   recoveryMode = false
   inviteMode = false
   showToast('Passwort gesetzt. Du bist jetzt eingeloggt.', 'success')
 
   const { data: { user } } = await supabaseClient.auth.getUser()
+  // Nach "Passwort vergessen" sind alle anderen Anmeldungen weg (falls jemand Fremdes noch eingeloggt war)
+  if (user && wasRecovery) await signOutOtherDevices(user.id)
   if (user) await enterApp(user)
   else showLogin()
 }
@@ -3269,6 +3274,185 @@ async function logout() {
   showLogin()
 }
 
+// ===== Angemeldete Geräte =====
+// Die Liste kommt aus der Datenbank (Funktion list_my_sessions). Ein Gerät abmelden heißt: seine Anmeldung
+// löschen. Es bleibt noch bis zu etwa einer Stunde drin (so lange gilt sein letzter Zugangsschlüssel),
+// kann sich danach aber nicht mehr erneuern und landet im Login.
+async function getCurrentSessionId() {
+  try {
+    const { data: { session } } = await supabaseClient.auth.getSession()
+    if (!session) return null
+    const part = session.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    return JSON.parse(atob(part)).session_id || null
+  } catch (e) {
+    return null
+  }
+}
+
+// Aus dem technischen Browser-Text einen lesbaren Gerätenamen machen ("Chrome auf Windows")
+function describeDevice(ua) {
+  ua = ua || ''
+  if (!ua) return 'Unbekanntes Gerät'
+  let browser = 'Browser'
+  if (/edg\//i.test(ua)) browser = 'Edge'
+  else if (/opr\/|opera/i.test(ua)) browser = 'Opera'
+  else if (/samsungbrowser/i.test(ua)) browser = 'Samsung Internet'
+  else if (/firefox|fxios/i.test(ua)) browser = 'Firefox'
+  else if (/chrome|crios/i.test(ua)) browser = 'Chrome'
+  else if (/safari/i.test(ua)) browser = 'Safari'
+
+  let os = ''
+  if (/windows/i.test(ua)) os = 'Windows'
+  else if (/iphone/i.test(ua)) os = 'iPhone'
+  else if (/ipad/i.test(ua)) os = 'iPad'
+  else if (/android/i.test(ua)) os = 'Android'
+  else if (/cros/i.test(ua)) os = 'Chromebook'
+  else if (/mac os x|macintosh/i.test(ua)) os = 'Mac'
+  else if (/linux/i.test(ua)) os = 'Linux'
+
+  return os ? browser + ' auf ' + os : browser
+}
+
+function formatLastActive(value) {
+  const date = new Date(value)
+  if (isNaN(date.getTime())) return ''
+  const minutes = Math.round((Date.now() - date.getTime()) / 60000)
+  if (minutes < 2) return 'gerade eben aktiv'
+  if (minutes < 60) return 'zuletzt aktiv vor ' + minutes + ' Min.'
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return 'zuletzt aktiv vor ' + hours + ' Std.'
+  return 'zuletzt aktiv am ' + date.toLocaleString('de-DE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
+function openDevices() {
+  showScreen('devices-bereich')
+  loadDevices()
+}
+
+async function loadDevices() {
+  const list = document.getElementById('device-list')
+  list.innerHTML = ''
+  const loading = document.createElement('li')
+  loading.className = 'device-empty'
+  loading.textContent = 'Lade ...'
+  list.appendChild(loading)
+
+  const [{ data, error }, currentId] = await Promise.all([
+    supabaseClient.rpc('list_my_sessions'),
+    getCurrentSessionId()
+  ])
+
+  list.innerHTML = ''
+  if (error) {
+    const li = document.createElement('li')
+    li.className = 'device-empty'
+    li.textContent = 'Geräte konnten nicht geladen werden: ' + error.message
+    list.appendChild(li)
+    return
+  }
+
+  // Dieses Gerät zuerst, dann nach letzter Aktivität
+  const sessions = (data || []).slice().sort((a, b) => {
+    if (a.id === currentId) return -1
+    if (b.id === currentId) return 1
+    return new Date(b.last_active) - new Date(a.last_active)
+  })
+
+  sessions.forEach(sess => {
+    const isThis = sess.id === currentId
+    const li = document.createElement('li')
+    li.className = 'device-item'
+
+    const info = document.createElement('div')
+    info.className = 'device-info'
+
+    const name = document.createElement('span')
+    name.className = 'device-name'
+    name.textContent = describeDevice(sess.user_agent)
+    info.appendChild(name)
+
+    const meta = document.createElement('span')
+    meta.className = 'device-meta'
+    meta.textContent = isThis ? 'Dieses Gerät' : formatLastActive(sess.last_active)
+    info.appendChild(meta)
+
+    li.appendChild(info)
+
+    if (!isThis) {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'device-logout-btn'
+      btn.textContent = 'Abmelden'
+      btn.addEventListener('click', () => logoutDevice(sess))
+      li.appendChild(btn)
+    }
+    list.appendChild(li)
+  })
+
+  if (sessions.length === 0) {
+    const li = document.createElement('li')
+    li.className = 'device-empty'
+    li.textContent = 'Keine Geräte gefunden.'
+    list.appendChild(li)
+  }
+}
+
+async function logoutDevice(sess) {
+  const name = describeDevice(sess.user_agent)
+  if (!(await askConfirm(name + ' abmelden?', { okText: 'Abmelden', danger: true }))) return
+
+  const { error } = await supabaseClient.rpc('revoke_my_session', { session_id: sess.id })
+  if (error) {
+    showToast('Abmelden fehlgeschlagen: ' + error.message)
+    return
+  }
+  showToast(name + ' wurde abgemeldet.', 'success')
+  loadDevices()
+}
+
+// Push-Abos dieser Person löschen - auf Wunsch das dieses Geräts behalten
+async function dropPushSubscriptions(userId, { keepThisDevice }) {
+  let query = supabaseClient.from('push_subscriptions').delete().eq('user_id', userId)
+  if (keepThisDevice && 'serviceWorker' in navigator) {
+    const registration = await navigator.serviceWorker.getRegistration()
+    const subscription = registration && await registration.pushManager.getSubscription()
+    if (subscription) query = query.neq('endpoint', subscription.endpoint)
+  }
+  const { error } = await query
+  if (error) console.error('Push-Abos konnten nicht gelöscht werden:', error)
+}
+
+// Alle anderen Geräte abmelden (dieses bleibt drin) - samt ihrer Benachrichtigungen
+async function signOutOtherDevices(userId) {
+  await dropPushSubscriptions(userId, { keepThisDevice: true })
+  const { error } = await supabaseClient.auth.signOut({ scope: 'others' })
+  if (error) console.error('Andere Geräte konnten nicht abgemeldet werden:', error)
+  return !error
+}
+
+async function logoutOtherDevices() {
+  const question = 'Alle anderen Geräte abmelden? Dieses Gerät bleibt angemeldet.'
+  if (!(await askConfirm(question, { okText: 'Abmelden', danger: true }))) return
+
+  if (await signOutOtherDevices(currentUser.id)) {
+    showToast('Alle anderen Geräte wurden abgemeldet.', 'success')
+  } else {
+    showToast('Abmelden fehlgeschlagen. Bitte versuche es nochmal.')
+  }
+  loadDevices()
+}
+
+async function logoutAllDevices() {
+  const question = 'Auf allen Geräten abmelden, auch auf diesem? Danach musst du dich überall neu anmelden.'
+  if (!(await askConfirm(question, { okText: 'Überall abmelden', danger: true }))) return
+
+  await teardownPushSubscription() // dieses Gerät
+  await dropPushSubscriptions(currentUser.id, { keepThisDevice: false }) // alle anderen Abos
+  const { error } = await supabaseClient.auth.signOut({ scope: 'global' })
+  if (error) console.error('Globales Abmelden fehlgeschlagen:', error)
+  showLogin()
+}
+
 // ===== Eigene Pop-ups statt alert()/confirm() =====
 // Meldung oben am Bildschirm: type 'error' (rot, Standard) oder 'success' (grün).
 // Verschwindet nach einigen Sekunden von selbst, ein Klick schließt sie sofort.
@@ -3482,12 +3666,19 @@ async function enablePushNotifications({ silent = false } = {}) {
     }
 
     const json = subscription.toJSON()
-    const { error } = await supabaseClient.from('push_subscriptions').upsert({
+    const subRow = {
       user_id: currentUser.id,
       endpoint: json.endpoint,
       p256dh: json.keys.p256dh,
       auth: json.keys.auth
-    }, { onConflict: 'endpoint' })
+    }
+    // session_id verknüpft das Push-Abo mit der Anmeldung: wird ein Gerät abgemeldet, verschwindet auch sein Abo.
+    // Gibt es die Spalte noch nicht, wird ohne gespeichert (läuft dann wie bisher).
+    let { error } = await supabaseClient.from('push_subscriptions')
+      .upsert({ ...subRow, session_id: await getCurrentSessionId() }, { onConflict: 'endpoint' })
+    if (error && /session_id/.test(error.message || '')) {
+      ({ error } = await supabaseClient.from('push_subscriptions').upsert(subRow, { onConflict: 'endpoint' }))
+    }
 
     if (error) {
       console.error('Push-Abo konnte nicht gespeichert werden:', error)
