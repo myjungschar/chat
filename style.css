@@ -1885,45 +1885,47 @@ body.split-view.chat-open #chat-placeholder {
   padding: 22px;
 }
 
-/* Einstellungsliste: Schalter als ganz normale Zeile, ohne doppelte Linie */
-#settings-bereich .toggle-row {
-  margin-top: 0;
-  padding: 14px 4px;
-  border-top: 0;
-  border-bottom: 1px solid var(--border-subtle);
-  font-size: 15px;
-}
-
-/* ===== Einstellungen in Gruppen: Überschrift oben links, darunter die Liste leicht eingerückt ===== */
+/* ===== Einstellungen: ruhige Liste ohne Trennlinien, Überschrift oben links, Einträge darunter ===== */
 .settings-group {
-  padding: 8px 0 4px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.settings-groups > .settings-group:last-of-type,
-.settings-groups > .settings-group:last-child {
-  border-bottom: 0;
+  padding: 14px 0 6px;
 }
 
 .settings-group-title {
-  margin: 0;
-  padding: 12px 0 0;
-  font-size: 14px;
+  margin: 0 0 4px;
+  padding: 0;
+  font-size: 16px;
   font-weight: 600;
   line-height: 1.3;
-  color: var(--accent);
+  color: var(--text-primary);
 }
 
-/* Die Liste steht ein Stück weiter rechts als die Überschrift */
+/* Die Einträge stehen ein Stück weiter rechts als die Überschrift */
 .settings-group-body {
   min-width: 0;
-  padding-left: 14px;
+  padding-left: 4px;
 }
 
-/* Letzte Zeile jeder Gruppe ohne eigene Linie, die Gruppe hat schon eine */
-.settings-group .settings-menu li:last-child,
-.settings-group .toggle-row:last-child {
-  border-bottom: 0;
+/* Zeilen: nur Text, keine Linien. Beim Antippen/Darüberfahren kommt eine weiche Fläche */
+#settings-bereich .settings-menu li,
+#settings-bereich .toggle-row {
+  margin: 0;
+  padding: 12px 10px;
+  border: 0;
+  border-radius: 12px;
+  font-size: 15px;
+  color: var(--text-primary);
+  transition: background 0.15s ease;
+}
+
+#settings-bereich .settings-menu li:active {
+  background: var(--bg-input);
+}
+
+@media (hover: hover) {
+  #settings-bereich .settings-menu li:hover {
+    background: var(--bg-input);
+    color: var(--text-primary);
+  }
 }
 
 /* Passwort-Regeln und Übereinstimmung unter den Feldern */
