@@ -253,6 +253,7 @@ function showLogin() {
   stopListening()
   stopListListening()
   stopInboxChannel()
+  stopPresence()
   clearTimeout(deliveredTimer)
   deliveredTimer = null
   deliveredReported = {}
@@ -348,6 +349,7 @@ async function enterApp(user) {
   } else {
     initPushForDevice()
   }
+  startPresence()
 }
 
 // Letzte Nachricht je Chat laden, für die Vorschau in der Liste
@@ -805,6 +807,7 @@ function openAdminDmView(userA, userB, nameA, nameB) {
 
 async function openConversation(title) {
   document.getElementById('conversation-title').textContent = title
+  updateOnlineIndicator()
   showScreen('conversation-bereich')
   cancelEditingMessage()
   cancelReplyingTo()
@@ -3576,21 +3579,31 @@ function onEnter(id, fn) {
 
 onEnter('message-input', sendMessage)
 
-const MESSAGE_INPUT_MAX_HEIGHT = 120 // px - danach scrollt das Feld für sich weiter
+const MESSAGE_INPUT_MAX_LINES = 5 // so viele Zeilen wächst das Feld mit - danach scrollt es für sich weiter
 
 function autoResizeMessageInput() {
   const input = document.getElementById('message-input')
   input.style.height = 'auto'
-  const next = Math.min(input.scrollHeight, MESSAGE_INPUT_MAX_HEIGHT)
-  input.style.height = next + 'px'
-  input.style.overflowY = input.scrollHeight > MESSAGE_INPUT_MAX_HEIGHT ? 'auto' : 'hidden'
+
+  // Das Feld rechnet mit Rahmen (border-box): scrollHeight enthält den Rahmen nicht. Ohne diese 2px blieb das Feld
+  // immer ein kleines Stück zu niedrig und war dadurch schon bei einer Zeile "scrollbar".
+  const style = getComputedStyle(input)
+  const paddingY = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0)
+  const borderY = input.offsetHeight - input.clientHeight
+  let lineHeight = parseFloat(style.lineHeight)
+  if (isNaN(lineHeight)) lineHeight = (parseFloat(style.fontSize) || 16) * 1.35
+
+  const maxHeight = Math.ceil(lineHeight * MESSAGE_INPUT_MAX_LINES + paddingY + borderY) // genau 5 Zeilen
+  const wanted = input.scrollHeight + borderY
+  input.style.height = Math.min(wanted, maxHeight) + 'px'
+  input.style.overflowY = wanted > maxHeight + 1 ? 'auto' : 'hidden'
 
   document.getElementById('attach-btn').classList.toggle('hidden-btn', input.value.trim() !== '')
   updateMessageScrollbar()
 }
 
-// Eigener Scroll-Balken im Nachrichtenfeld: erscheint, sobald die zweite Zeile beginnt, und zeigt beim
-// Scrollen, wo man im langen Text ist. Seine Länge bleibt immer gleich (so lang wie bei zwei Zeilen).
+// Eigener Scroll-Balken im Nachrichtenfeld: erscheint erst, wenn der Text nicht mehr komplett ins Feld passt
+// (ab der sechsten Zeile) und zeigt dann, wo man im Text ist. Seine Länge bleibt immer gleich.
 function updateMessageScrollbar() {
   const input = document.getElementById('message-input')
   const bar = document.getElementById('message-scrollbar')
@@ -3601,10 +3614,10 @@ function updateMessageScrollbar() {
   const paddingY = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0)
   let lineHeight = parseFloat(style.lineHeight)
   if (isNaN(lineHeight)) lineHeight = (parseFloat(style.fontSize) || 16) * 1.35
-  const contentHeight = input.scrollHeight - paddingY
+  const overflow = input.scrollHeight - input.clientHeight
 
-  // Eine Zeile (oder leer): Balken komplett aus dem Layout nehmen, damit er nichts verschiebt
-  if (contentHeight < lineHeight * 1.5) {
+  // Alles Geschriebene ist im Feld sichtbar (bis zur fünften Zeile): Balken komplett aus dem Layout nehmen
+  if (overflow <= 2) {
     bar.classList.remove('visible')
     thumb.style.transform = ''
     return
@@ -3613,11 +3626,11 @@ function updateMessageScrollbar() {
 
   const SCROLLBAR_INSET = 24 // 12px oben + 12px unten (siehe .field-scrollbar im CSS)
   const trackHeight = bar.clientHeight
-  const twoLineLength = Math.round(lineHeight * 2 + paddingY - SCROLLBAR_INSET)
+  const twoLineLength = Math.round(lineHeight * 2 + paddingY - SCROLLBAR_INSET) // feste Länge des Balkens
   const thumbHeight = Math.max(14, Math.min(twoLineLength, trackHeight))
 
-  const overflow = input.scrollHeight - input.clientHeight
-  const top = overflow > 1 ? (trackHeight - thumbHeight) * (input.scrollTop / overflow) : 0
+  // Ganz unten, solange man am Textende schreibt; wandert nach oben, wenn man im Text hochscrollt
+  const top = (trackHeight - thumbHeight) * (input.scrollTop / overflow)
   thumb.style.height = thumbHeight + 'px'
   thumb.style.transform = 'translateY(' + Math.round(top) + 'px)'
 }
@@ -3813,6 +3826,99 @@ function updateAppBadge(count) {
   if (isAdmin()) count = 0 // Admin: keine Zahl auf dem App-Symbol
   if (count > 0) navigator.setAppBadge(count).catch(() => {})
   else navigator.clearAppBadge?.().catch(() => {})
+}
+
+// ===== Wer ist online? =====
+// Jede angemeldete Person (außer dem Admin, der nur mitliest) meldet sich in einem gemeinsamen Echtzeit-Kanal
+// an, solange die App offen und sichtbar ist. Daraus entsteht "online" im Einzelchat und "2 online" in Gruppen.
+let presenceChannel = null
+let presenceSubscribed = false
+let onlineUserIds = new Set()
+
+function startPresence() {
+  if (presenceChannel || !currentUser) return
+
+  presenceChannel = supabaseClient.channel('online-users', {
+    config: { presence: { key: currentUser.id } }
+  })
+
+  presenceChannel
+    .on('presence', { event: 'sync' }, () => {
+      onlineUserIds = new Set(Object.keys(presenceChannel.presenceState()))
+      updateOnlineIndicator()
+    })
+    .subscribe((status) => {
+      presenceSubscribed = status === 'SUBSCRIBED'
+      if (presenceSubscribed) syncPresenceTracking()
+    })
+}
+
+// Online ist man, solange die App sichtbar ist (im Hintergrund oder bei gesperrtem Handy nicht)
+function syncPresenceTracking() {
+  if (!presenceChannel || !presenceSubscribed || isAdmin()) return
+  if (document.visibilityState === 'visible') {
+    presenceChannel.track({ online_at: new Date().toISOString() })
+  } else {
+    presenceChannel.untrack()
+  }
+}
+
+document.addEventListener('visibilitychange', syncPresenceTracking)
+
+function stopPresence() {
+  if (presenceChannel) supabaseClient.removeChannel(presenceChannel)
+  presenceChannel = null
+  presenceSubscribed = false
+  onlineUserIds = new Set()
+  updateOnlineIndicator()
+}
+
+// Die anderen Personen dieses Chats, die gerade online sind (ich selbst zähle nicht mit)
+function onlineMembersOfRoom() {
+  return recipientIdsForRoom().filter(id => onlineUserIds.has(id))
+}
+
+function updateOnlineIndicator() {
+  const el = document.getElementById('online-status')
+  if (!el) return
+
+  let text = ''
+  let clickable = false
+
+  if (currentUser && currentRoom) {
+    const online = onlineMembersOfRoom()
+    if (currentRoom.type === 'dm') {
+      if (online.length > 0) text = 'online'
+    } else if (currentRoom.type === 'group') {
+      if (online.length > 0) text = online.length + ' online'
+      clickable = online.length > 0
+    }
+  }
+
+  el.textContent = text
+  el.style.display = text ? '' : 'none'
+  el.classList.toggle('clickable', clickable)
+}
+
+function openOnlineList() {
+  if (!currentRoom || currentRoom.type !== 'group') return
+  const names = onlineMembersOfRoom()
+    .map(id => (profileCache[id] && profileCache[id].name) || 'Ohne Namen')
+    .sort((a, b) => a.localeCompare(b, 'de'))
+  if (names.length === 0) return
+
+  const list = document.getElementById('online-list')
+  list.innerHTML = ''
+  names.forEach(name => {
+    const li = document.createElement('li')
+    li.textContent = name
+    list.appendChild(li)
+  })
+  document.getElementById('online-modal').style.display = 'flex'
+}
+
+function closeOnlineList() {
+  document.getElementById('online-modal').style.display = 'none'
 }
 
 // ===== Als App installieren =====

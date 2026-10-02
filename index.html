@@ -432,6 +432,7 @@
         <button class="back-btn" onclick="showList()" aria-label="Zurück zur Übersicht">←</button>
         <div class="user-info">
           <span id="conversation-title">JungscharChat</span>
+          <span id="online-status" class="online-status" style="display: none;" onclick="openOnlineList()"></span>
         </div>
       </header>
 
@@ -484,6 +485,17 @@
   </div>
 
   <!-- Eigenes Bestätigungs-Pop-up, ersetzt die Browser-eigene Meldung -->
+  <!-- Pop-up: wer in dieser Gruppe gerade online ist -->
+  <div id="online-modal" class="modal-overlay" style="display: none;" onclick="closeOnlineList()">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <p class="install-title">Gerade online</p>
+      <ul id="online-list" class="online-list"></ul>
+      <div class="modal-actions">
+        <button type="button" class="modal-cancel" onclick="closeOnlineList()">Schließen</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Pop-up "Als App installieren" (erscheint beim ersten Besuch auf jedem Gerät, danach in den Einstellungen) -->
   <div id="install-modal" class="modal-overlay" style="display: none;">
     <div class="modal-box">

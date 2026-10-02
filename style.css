@@ -1026,7 +1026,7 @@ img.emoji {
 .chat-input-area textarea {
   flex: 1;
   min-width: 0;
-  max-height: 120px;
+  max-height: none; /* die Höhe (höchstens 5 Zeilen) setzt autoResizeMessageInput() */
   border-radius: 20px;
   padding: 9px 16px;
   padding-right: 20px; /* Platz für den eigenen Scroll-Balken, damit Text nicht darunter läuft */
@@ -2337,4 +2337,28 @@ input[type="password"]::-ms-clear {
 
 .logout-all-btn:hover {
   background: var(--danger-hover);
+}
+
+/* ===== Online-Anzeige neben dem Namen ===== */
+.online-status {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.online-status.clickable {
+  cursor: pointer;
+}
+
+.online-list {
+  list-style: none;
+  margin: 0 0 14px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.online-list li {
+  padding: 8px 0;
+  font-size: 15px;
 }
