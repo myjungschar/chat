@@ -145,6 +145,12 @@ async function init() {
 
   if (linkError) history.replaceState(null, '', window.location.pathname + window.location.search)
 
+  // Einladungs-Link ein zweites Mal angeklickt (verbraucht), die Einladung wurde hier aber nur abgebrochen: weitermachen
+  if (linkError && !session && localStorage.getItem(PENDING_INVITE_KEY)) {
+    if (!(await resumePendingInvite())) showLogin() // bei Misserfolg zeigt resumePendingInvite() den Hinweis selbst
+    return
+  }
+
   if (session) {
     await enterApp(session.user)
   } else {
@@ -272,6 +278,7 @@ function showLogin() {
   document.getElementById('username').value = ''
   document.getElementById('password').value = ''
   refreshPasswordToggles()
+  updatePendingInviteNotice()
   showScreen('login-bereich')
 }
 
@@ -297,24 +304,77 @@ async function showInviteSetup(userId) {
   showScreen('reset-bereich')
 }
 
-// "Abbrechen" auf dem Passwort-setzen-Bildschirm (Einladung oder "Passwort vergessen"): zurück zum normalen Login.
-// Der Link aus der E-Mail ist ein Einmal-Link und danach verbraucht - ein zweites Mal klappt es über
-// "Passwort vergessen" (neue Mail) oder mit einer neuen Einladung vom Admin.
+// ===== Einladung abbrechen und später fortsetzen =====
+// Der Link aus der Einladungs-Mail ist bei Supabase ein Einmal-Link: schon beim ersten Klick ist er verbraucht.
+// Damit man trotzdem abbrechen und es auf demselben Gerät nochmal versuchen kann, merkt sich die App die
+// angefangene Einladung. Weitermachen geht dann per "Einladung fortsetzen" auf dem Login-Bildschirm
+// oder durch erneutes Klicken auf den Link in der Mail.
+const PENDING_INVITE_KEY = 'pendingInviteSession'
+
+// Die Sitzung nur in diesem Browser vergessen, ohne sie bei Supabase zu beenden (signOut() würde sie ungültig machen)
+function forgetSessionLocally() {
+  Object.keys(localStorage)
+    .filter(key => /^sb-.+-auth-token(-code-verifier)?$/.test(key))
+    .forEach(key => localStorage.removeItem(key))
+}
+
+function updatePendingInviteNotice() {
+  const box = document.getElementById('pending-invite')
+  if (box) box.style.display = localStorage.getItem(PENDING_INVITE_KEY) ? '' : 'none'
+}
+
+// "Abbrechen" auf dem Passwort-setzen-Bildschirm: zurück zum normalen Login, als wäre nichts passiert
 async function cancelPasswordSetup() {
-  const wasInvite = inviteMode || !recoveryMode
+  const wasRecovery = recoveryMode
   recoveryMode = false
   inviteMode = false
-
   history.replaceState(null, '', window.location.pathname + window.location.search)
-  await supabaseClient.auth.signOut() // beendet die Sitzung, die der Link angelegt hat
-  showLogin()
 
-  showToast(
-    wasInvite
-      ? 'Abgebrochen. Dein Passwort kannst du später über „Passwort vergessen“ festlegen.'
-      : 'Abgebrochen.',
-    'success'
-  )
+  if (wasRecovery) {
+    // "Passwort vergessen": nichts zu merken, die Sitzung einfach beenden
+    await supabaseClient.auth.signOut()
+    showLogin()
+    showToast('Abgebrochen.', 'success')
+    return
+  }
+
+  // Einladung: Sitzung merken, damit sie sich später fortsetzen lässt
+  const { data: { session } } = await supabaseClient.auth.getSession()
+  if (session) {
+    localStorage.setItem(PENDING_INVITE_KEY, JSON.stringify({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token
+    }))
+    forgetSessionLocally()
+  }
+  showLogin()
+  showToast('Abgebrochen. Mit „Einladung fortsetzen“ kannst du später weitermachen.', 'success')
+}
+
+// Angefangene Einladung wieder aufnehmen: führt direkt zurück zum Passwort-setzen-Bildschirm
+async function resumePendingInvite() {
+  const raw = localStorage.getItem(PENDING_INVITE_KEY)
+  if (!raw) return false
+
+  inviteMode = true // damit der Auth-Callback den richtigen Bildschirm zeigt
+  try {
+    const saved = JSON.parse(raw)
+    const { data, error } = await supabaseClient.auth.setSession({
+      access_token: saved.access_token,
+      refresh_token: saved.refresh_token
+    })
+    if (error || !data.session) throw error || new Error('keine Sitzung')
+
+    localStorage.removeItem(PENDING_INVITE_KEY)
+    await showInviteSetup(data.session.user.id)
+    return true
+  } catch (e) {
+    inviteMode = false
+    localStorage.removeItem(PENDING_INVITE_KEY)
+    updatePendingInviteNotice()
+    showToast('Die Einladung ist nicht mehr gültig. Bitte lass dir eine neue Einladung schicken.')
+    return false
+  }
 }
 
 // Chatliste anzeigen (Startbildschirm nach dem Login): lädt Profil + Nutzerliste
@@ -3101,6 +3161,7 @@ async function completePasswordReset() {
   const wasRecovery = recoveryMode
   recoveryMode = false
   inviteMode = false
+  localStorage.removeItem(PENDING_INVITE_KEY)
   showToast('Passwort gesetzt. Du bist jetzt eingeloggt.', 'success')
 
   const { data: { user } } = await supabaseClient.auth.getUser()
