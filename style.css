@@ -500,15 +500,6 @@ input:focus-visible {
   gap: 10px;
 }
 
-#chat-box::-webkit-scrollbar {
-  width: 6px;
-}
-
-#chat-box::-webkit-scrollbar-thumb {
-  background: var(--border-subtle);
-  border-radius: 3px;
-}
-
 .chat-empty {
   margin: auto;
   color: var(--text-secondary);
@@ -1023,22 +1014,49 @@ img.emoji {
 
 /* War ein <input>, ist jetzt ein <textarea>, damit es beim Tippen in die Höhe mitwachsen kann.
    Die Höhe selbst setzt autoResizeMessageInput() in JS. */
-.chat-input-area textarea {
+.message-input {
   flex: 1;
+  width: 100%;
   min-width: 0;
-  max-height: none; /* die Höhe (höchstens 5 Zeilen) setzt autoResizeMessageInput() */
+  min-height: calc(1.35em + 20px); /* eine Zeile: Zeilenhöhe + Innenabstand + Rahmen */
+  padding: 9px 20px 9px 16px; /* rechts Platz für den eigenen Scroll-Balken, damit Text nicht darunter läuft */
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
   border-radius: 20px;
-  padding: 9px 16px;
-  padding-right: 20px; /* Platz für den eigenen Scroll-Balken, damit Text nicht darunter läuft */
-  resize: none;
-  overflow-y: hidden;
-  line-height: 1.35;
+  color: var(--text-primary);
   font-family: inherit;
+  font-size: 15px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-y: hidden; /* die Höhe (höchstens 5 Zeilen) setzt autoResizeMessageInput() */
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+  transition: border-color 0.15s ease;
   scrollbar-width: none; /* Der eingebaute Balken ist aus - unten sitzt ein eigener, genau platzierter */
 }
 
-.chat-input-area textarea::-webkit-scrollbar {
+.message-input::-webkit-scrollbar {
   display: none;
+}
+
+.message-input:focus {
+  border-color: var(--accent);
+}
+
+/* Platzhalter "Nachricht", solange das Feld leer ist */
+.message-input:empty::before {
+  content: attr(data-placeholder);
+  color: #55636f;
+  pointer-events: none;
+}
+
+/* Emoji-Bilder im Feld etwas größer, damit sie schön aussehen */
+.message-input img.emoji {
+  height: 1.3em;
+  width: 1.3em;
+  vertical-align: -0.3em;
 }
 
 /* Feld-Hülle: nötig, damit der eigene Balken über dem Textfeld liegen kann */
@@ -1047,10 +1065,6 @@ img.emoji {
   flex: 1;
   min-width: 0;
   display: flex;
-}
-
-.message-field textarea {
-  width: 100%;
 }
 
 /* Eigener Scroll-Balken: 12px Abstand oben/unten (damit er in den runden Ecken nicht herausguckt),
@@ -2381,4 +2395,130 @@ input[type="password"]::-ms-clear {
   margin: 0 0 10px;
   font-size: 14px;
   color: var(--text-secondary);
+}
+
+/* ===== Emoji-Auswahl: Suchleiste, Reiter und Raster ===== */
+.input-emoji-picker.emoji-panel {
+  display: block;
+  padding: 0;
+  width: min(340px, calc(100vw - 24px));
+  max-width: none;
+}
+
+.emoji-search {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 8px 8px 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 14px;
+}
+
+.emoji-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 6px 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-subtle);
+  scrollbar-width: none;
+}
+
+.emoji-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.emoji-tab {
+  width: auto;
+  flex-shrink: 0;
+  padding: 6px 8px;
+  background: transparent;
+  border-radius: 8px 8px 0 0;
+  border-bottom: 2px solid transparent;
+  opacity: 0.6;
+}
+
+.emoji-tab:hover {
+  background: var(--bg-input);
+}
+
+.emoji-tab.active,
+.emoji-tab.active:hover {
+  background: transparent;
+  border-bottom-color: var(--accent);
+  opacity: 1;
+}
+
+.emoji-tab img.emoji {
+  display: block;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+}
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  padding: 8px;
+  height: 240px;
+  overflow-y: auto;
+  align-content: start;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.emoji-grid .emoji-picker-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+}
+
+.emoji-grid .emoji-picker-btn img.emoji {
+  width: 26px;
+  height: 26px;
+}
+
+.emoji-grid .emoji-empty {
+  grid-column: 1 / -1;
+  margin: 12px 4px;
+  line-height: 1.4;
+}
+
+/* ===== Scroll-Balken: dünn, in der Farbe der Seite statt im Standard-Grau des Browsers ===== */
+:root {
+  --scrollbar-thumb: rgba(78, 163, 224, 0.45);
+  --scrollbar-thumb-hover: rgba(78, 163, 224, 0.75);
+}
+
+body.light-theme,
+html:has(body.light-theme) {
+  --scrollbar-thumb: rgba(0, 136, 204, 0.4);
+  --scrollbar-thumb-hover: rgba(0, 136, 204, 0.7);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* Ältere Safari-Versionen kennen die Standard-Eigenschaft oben noch nicht */
+@supports not (scrollbar-color: auto) {
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 999px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
 }

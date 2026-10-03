@@ -430,6 +430,7 @@ async function enterApp(user) {
     initPushForDevice()
   }
   startPresence()
+  warmUpEmojiPicker()
 }
 
 // Letzte Nachricht je Chat laden, für die Vorschau in der Liste
@@ -1685,39 +1686,212 @@ function closeTextEmojiPicker() {
   if (openTextEmojiEl) { openTextEmojiEl.remove(); openTextEmojiEl = null }
 }
 
+// Die Emoji-Daten (emojis.json: name, category, code, search) werden beim ersten Öffnen geladen und gemerkt
+const EMOJI_RECENT_NAME = 'Häufig genutzt'
+const EMOJI_TAB_ICONS = {
+  'Smileys & Emotionen': '😀', 'Menschen & Körper': '👋', 'Tiere & Natur': '🐻', 'Essen & Trinken': '🍔',
+  'Reisen & Orte': '🚗', 'Aktivitäten': '⚽', 'Objekte': '💡', 'Symbole': '❤️', 'Flaggen': '🏁'
+}
+let emojiDataPromise = null
+
+// Suchtext vereinheitlichen: klein geschrieben, ohne Akzente und Umlautpunkte ("Mädchen" findet auch "madchen")
+function normalizeEmojiSearch(text) {
+  return String(text).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+}
+
+function loadEmojiData() {
+  if (!emojiDataPromise) {
+    emojiDataPromise = fetch('emojis.json')
+      .then(res => {
+        if (!res.ok) throw new Error('HTTP ' + res.status)
+        return res.json()
+      })
+      .then(list => {
+        const categories = []
+        const byCategory = {}
+        const byEmoji = {}
+        list.forEach(item => {
+          item._s = normalizeEmojiSearch(item.name + ' ' + item.search)
+          if (!byCategory[item.category]) { byCategory[item.category] = []; categories.push(item.category) }
+          byCategory[item.category].push(item)
+          byEmoji[item.emoji] = item
+        })
+        return { list, categories, byCategory, byEmoji }
+      })
+      .catch(err => { emojiDataPromise = null; throw err })
+  }
+  return emojiDataPromise
+}
+
+// ----- "Häufig genutzt": pro Nutzer (auf diesem Gerät) die am meisten und zuletzt benutzten Emojis -----
+const EMOJI_RECENT_SHOWN = 24
+const EMOJI_RECENT_STORED = 60
+
+function emojiRecentKey() {
+  return 'emojiRecent:' + (currentUser ? currentUser.id : 'gast')
+}
+
+function readEmojiRecent() {
+  try {
+    const list = JSON.parse(localStorage.getItem(emojiRecentKey()) || '[]')
+    return Array.isArray(list) ? list : []
+  } catch (e) {
+    return []
+  }
+}
+
+// Wertung: Anzahl der Benutzungen, die mit der Zeit abklingt (Halbwertszeit 14 Tage) - so steigen oft benutzte
+// Emojis nach oben, und neu benutzte werden nicht von alten Dauerbrennern verdrängt
+function emojiRecentScore(entry) {
+  const days = Math.max(0, (Date.now() - entry.t) / 86400000)
+  return entry.n * Math.pow(0.5, days / 14)
+}
+
+function recordEmojiUse(emoji) {
+  try {
+    const list = readEmojiRecent()
+    const entry = list.find(x => x.e === emoji)
+    if (entry) { entry.n += 1; entry.t = Date.now() }
+    else list.push({ e: emoji, n: 1, t: Date.now() })
+    list.sort((a, b) => emojiRecentScore(b) - emojiRecentScore(a))
+    localStorage.setItem(emojiRecentKey(), JSON.stringify(list.slice(0, EMOJI_RECENT_STORED)))
+  } catch (e) { /* Speicher nicht verfügbar: dann merkt sich die App eben nichts */ }
+}
+
+function getRecentEmojiItems(data) {
+  return readEmojiRecent()
+    .sort((a, b) => emojiRecentScore(b) - emojiRecentScore(a))
+    .map(entry => data.byEmoji[entry.e])
+    .filter(Boolean)
+    .slice(0, EMOJI_RECENT_SHOWN)
+}
+
+// Emoji-Auswahl im Hintergrund vorwärmen: Daten und die ersten Bilder werden schon nach dem Login geladen
+// und liegen dann im Zwischenspeicher des Browsers - der Picker geht danach deutlich schneller auf
+function warmUpEmojiPicker() {
+  const run = () => loadEmojiData().then(data => {
+    const firstCategory = data.byCategory[data.categories[0]] || []
+    const emojis = firstCategory.slice(0, 48).map(item => item.emoji)
+      .concat(Object.values(EMOJI_TAB_ICONS), ['🕒'])
+    emojis.forEach(emoji => { new Image().src = emojiSourceChain(emojiIconId(emoji))[0] })
+  }).catch(() => {})
+
+  if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 5000 })
+  else setTimeout(run, 3000)
+}
+
 function toggleTextEmojiPicker(anchorBtn, evt) {
   if (evt) evt.stopPropagation() // sonst schließt der Klick den Picker über den globalen Listener sofort wieder
   if (openTextEmojiEl) { closeTextEmojiPicker(); return }
   closeAttachMenu()
 
   const picker = document.createElement('div')
-  picker.className = 'emoji-picker input-emoji-picker'
+  picker.className = 'emoji-picker input-emoji-picker emoji-panel'
   picker.addEventListener('click', e => e.stopPropagation())
 
-  QUICK_EMOJI.forEach(emoji => {
-    const btn = document.createElement('button')
-    btn.className = 'emoji-picker-btn'
-    btn.textContent = emoji
-    btn.addEventListener('click', () => insertEmojiInInput(emoji))
-    picker.appendChild(btn)
-  })
+  const search = document.createElement('input')
+  search.type = 'text'
+  search.className = 'emoji-search'
+  search.placeholder = 'Emoji suchen …'
+  search.autocomplete = 'off'
+  search.setAttribute('aria-label', 'Emoji suchen')
+  search.enterKeyHint = 'search'
 
+  // Ein Klick auf ein Emoji soll den Cursor im Nachrichtenfeld nicht wegnehmen (nur das Suchfeld darf den Fokus holen)
+  picker.addEventListener('mousedown', e => { if (e.target !== search) e.preventDefault() })
+
+  const tabs = document.createElement('div')
+  tabs.className = 'emoji-tabs'
+  const grid = document.createElement('div')
+  grid.className = 'emoji-grid'
+  grid.textContent = 'Lade Emojis …'
+
+  picker.appendChild(search)
+  picker.appendChild(tabs)
+  picker.appendChild(grid)
   anchorBtn.parentElement.appendChild(picker)
-  applyEmojiImages(picker)
   openTextEmojiEl = picker
+
+  loadEmojiData().then(data => {
+    if (openTextEmojiEl !== picker) return // wurde inzwischen wieder geschlossen
+
+    const sections = []
+    sections.push({ name: EMOJI_RECENT_NAME, icon: '🕒', items: getRecentEmojiItems(data) })
+    data.categories.forEach(name => {
+      sections.push({ name, icon: EMOJI_TAB_ICONS[name] || data.byCategory[name][0].emoji, items: data.byCategory[name] })
+    })
+
+    function renderItems(items, emptyText) {
+      grid.innerHTML = ''
+      grid.scrollTop = 0
+      if (items.length === 0) {
+        const note = document.createElement('p')
+        note.className = 'emoji-empty'
+        note.textContent = emptyText
+        grid.appendChild(note)
+        return
+      }
+      items.forEach(item => {
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'emoji-picker-btn'
+        btn.title = item.name
+        btn.setAttribute('aria-label', item.name)
+        btn.appendChild(createEmojiImg(item.emoji))
+        btn.addEventListener('click', () => {
+          insertEmojiInInput(item.emoji)
+          recordEmojiUse(item.emoji)
+        })
+        grid.appendChild(btn)
+      })
+    }
+
+    let currentIndex = 0
+    function showSection(index) {
+      currentIndex = index
+      search.value = ''
+      tabs.querySelectorAll('.emoji-tab').forEach((tab, i) => tab.classList.toggle('active', i === index))
+      const section = sections[index]
+      renderItems(
+        section.items,
+        'Noch leer. Hier erscheinen deine am häufigsten und zuletzt benutzten Emojis.'
+      )
+    }
+
+    sections.forEach((section, index) => {
+      const tab = document.createElement('button')
+      tab.type = 'button'
+      tab.className = 'emoji-tab'
+      tab.title = section.name
+      tab.setAttribute('aria-label', section.name)
+      tab.appendChild(createEmojiImg(section.icon))
+      tab.addEventListener('click', () => showSection(index))
+      tabs.appendChild(tab)
+    })
+
+    // Suche: alle Wörter müssen im Namen oder in den Suchbegriffen vorkommen (Deutsch und Englisch)
+    search.addEventListener('input', () => {
+      const query = normalizeEmojiSearch(search.value).trim()
+      if (!query) { showSection(currentIndex); return }
+      const words = query.split(/\s+/)
+      tabs.querySelectorAll('.emoji-tab').forEach(tab => tab.classList.remove('active'))
+      renderItems(
+        data.list.filter(item => words.every(word => item._s.includes(word))).slice(0, 200),
+        'Keine Treffer.'
+      )
+    })
+
+    // Startet bei "Häufig genutzt", solange dort schon etwas steht, sonst bei den Smileys
+    showSection(sections[0].items.length > 0 ? 0 : 1)
+  }).catch(() => {
+    if (openTextEmojiEl === picker) grid.textContent = 'Emojis konnten nicht geladen werden.'
+  })
 }
 
 document.addEventListener('click', closeTextEmojiPicker)
 
 function insertEmojiInInput(emoji) {
-  const input = document.getElementById('message-input')
-  const start = input.selectionStart ?? input.value.length
-  const end = input.selectionEnd ?? input.value.length
-  input.value = input.value.slice(0, start) + emoji + input.value.slice(end)
-  const pos = start + emoji.length
-  input.focus()
-  input.setSelectionRange(pos, pos)
-  autoResizeMessageInput()
+  insertIntoMessageInput(emoji)
 }
 
 // Reaktionen (Daumen hoch/runter) zu einer Liste von Nachrichten-IDs laden
@@ -1778,43 +1952,108 @@ function formatChatListTime(isoString) {
   return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
 }
 
-// Emojis als schöne Bilder statt als (je nach Gerät hässliche) Systemzeichen zeichnen.
-// Bilder: "Noto Emoji 3D" von Google (Apache-Lizenz). Die Emojis, die die App selbst benutzt, liegen im Ordner
-// emoji/ (laden sofort, auch ohne Netz); alle anderen kommen bei Bedarf aus dem Netz (jsDelivr).
-// Fehlt ein Bild, springt die App auf Twemoji und zuletzt auf das Systemzeichen zurück.
-// window.twemoji (aus index.html) wird nur zum Finden der Emojis im Text benutzt, nicht für die Bilder.
-const EMOJI_NOTO_BASE = 'https://cdn.jsdelivr.net/gh/googlefonts/noto-emoji@e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e/3D/png/72/emoji_u'
-const EMOJI_TWEMOJI_BASE = 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/'
-const LOCAL_EMOJI = new Set(['1f44d', '1f44e', '1f466', '1f467', '1f4ca', '1f4cc', '1f602', '1f60a', '1f622', '1f62e', '1f64f', '2764'])
+// ===== Emojis: überall als Noto-Bilder, nirgends als (hässliche) Systemzeichen =====
+// Alle Emoji-Bilder kommen über das CDN jsDelivr aus dem Satz "Noto Emoji" von Google (Apache-Lizenz):
+// Bild-Adresse = EMOJI_CDN_BASE + Emoji-Code + ".png". Es werden keine einzelnen Bilder im Projekt gespeichert.
+// Achtung: Den Pfad ".../noto-emoji@main/png/72/..." gibt es im Noto-Repository nicht mehr (404). Die Bilder liegen
+// jetzt unter 2D/ (flach) und 3D/ (plastisch). Für den flachen Look unten "3D" durch "2D" ersetzen.
+// Die Version ist auf einen festen Stand gepinnt, damit spätere Umbauten im Repository nichts kaputt machen.
+const EMOJI_CDN_BASE = 'https://cdn.jsdelivr.net/gh/googlefonts/noto-emoji@e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e/3D/png/72/emoji_u'
+const EMOJI_TWEMOJI_BASE = 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/' // Ersatz, falls ein Noto-Bild fehlt
 
-// Noto benennt die Dateien mit Unterstrichen und ohne das Emoji-Zusatzzeichen fe0f ("1f3f3-fe0f-200d-1f308" -> "1f3f3_200d_1f308")
-function emojiNotoCode(icon) {
-  return icon.split('-').filter(part => part !== 'fe0f').join('_')
+function emojiHexParts(emoji) {
+  return Array.from(emoji).map(ch => ch.codePointAt(0).toString(16))
 }
 
-function emojiImageUrl(icon) {
-  const code = emojiNotoCode(icon)
-  return LOCAL_EMOJI.has(code) ? 'emoji/' + code + '.png' : EMOJI_NOTO_BASE + code + '.png'
+// Twemoji-Schreibweise des Emoji-Codes: Hex mit "-", das Zusatzzeichen fe0f nur bei Verbund-Emojis
+function emojiIconId(emoji) {
+  const parts = emojiHexParts(emoji)
+  return (parts.includes('200d') ? parts : parts.filter(part => part !== 'fe0f')).join('-')
 }
 
+// Reihenfolge der Bildquellen: Noto (ohne fe0f), Noto (mit fe0f, falls anders), Twemoji. Danach das Systemzeichen.
+function emojiSourceChain(icon) {
+  const parts = icon.split('-')
+  const stripped = parts.filter(part => part !== 'fe0f').join('_')
+  const kept = parts.join('_')
+  const chain = [EMOJI_CDN_BASE + stripped + '.png']
+  if (kept !== stripped) chain.push(EMOJI_CDN_BASE + kept + '.png')
+  chain.push(EMOJI_TWEMOJI_BASE + icon + '.svg')
+  return chain
+}
+
+// Fehlt ein Bild, geht es mit der nächsten Quelle weiter; zuletzt bleibt das Emoji-Zeichen stehen
+function attachEmojiFallback(img) {
+  if (img.dataset.emojiReady) return
+  img.dataset.emojiReady = '1'
+  img.addEventListener('error', () => {
+    const chain = emojiSourceChain(img.dataset.emoji || '')
+    const next = Number(img.dataset.emojiStage || 0) + 1
+    if (next < chain.length) {
+      img.dataset.emojiStage = String(next)
+      img.src = chain[next]
+    } else if (img.parentNode) {
+      img.replaceWith(document.createTextNode(img.alt))
+    }
+  })
+}
+
+// Ein Emoji-Bild direkt bauen (für den Emoji-Picker)
+function createEmojiImg(emoji) {
+  const img = document.createElement('img')
+  img.className = 'emoji'
+  img.alt = emoji
+  img.draggable = false
+  img.loading = 'lazy'
+  img.decoding = 'async'
+  img.dataset.emoji = emojiIconId(emoji)
+  attachEmojiFallback(img)
+  img.src = emojiSourceChain(img.dataset.emoji)[0]
+  return img
+}
+
+// Alle Emoji-Zeichen im Text eines Elements durch Bilder ersetzen.
+// window.twemoji (aus index.html) wird nur zum Finden der Emojis benutzt, die Bilder kommen von Noto.
 function applyEmojiImages(el) {
   if (!window.twemoji || !el) return
   window.twemoji.parse(el, {
-    callback: icon => emojiImageUrl(icon),
+    callback: icon => emojiSourceChain(icon)[0],
     attributes: (rawText, iconId) => ({ 'data-emoji': iconId })
   })
+  if (el.querySelectorAll) el.querySelectorAll('img.emoji').forEach(attachEmojiFallback)
+}
 
-  el.querySelectorAll('img.emoji:not([data-fallback])').forEach(img => {
-    img.dataset.fallback = '0'
-    img.addEventListener('error', () => {
-      if (img.dataset.fallback === '0') {
-        img.dataset.fallback = '1'
-        img.src = EMOJI_TWEMOJI_BASE + img.dataset.emoji + '.svg'
-      } else if (img.parentNode) {
-        img.replaceWith(document.createTextNode(img.alt)) // letzter Ausweg: Systemzeichen
-      }
+// Automatisch für ALLES, was in der App neu erscheint (empfangene und gesendete Nachrichten, Antworten, Chatliste,
+// Reaktionen, Umfragen ...): Emoji-Zeichen werden sofort durch Bilder ersetzt. Das Nachrichtenfeld regelt sich selbst
+// (wegen des Cursors) und wird hier ausgelassen.
+function startEmojiObserver() {
+  if (!window.twemoji || !('MutationObserver' in window)) return
+  const pending = new Set()
+  let scheduled = false
+
+  function flush() {
+    scheduled = false
+    pending.forEach(node => {
+      const target = node.nodeType === Node.TEXT_NODE ? node.parentElement : node
+      if (!target || !target.isConnected) return
+      if (target.closest && target.closest('#message-input')) return
+      if (window.twemoji.test(target.textContent)) applyEmojiImages(target)
     })
-  })
+    pending.clear()
+  }
+
+  new MutationObserver(mutations => {
+    for (const mutation of mutations) {
+      if (mutation.type === 'characterData') pending.add(mutation.target)
+      else mutation.addedNodes.forEach(node => {
+        if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) pending.add(node)
+      })
+    }
+    if (pending.size && !scheduled) {
+      scheduled = true
+      requestAnimationFrame(flush)
+    }
+  }).observe(document.body, { childList: true, subtree: true, characterData: true })
 }
 
 // Eine Nachricht als Element in den Chat einfügen
@@ -2177,6 +2416,7 @@ function renderReactionChips(container, messageId) {
     chip.addEventListener('click', () => toggleReaction(messageId, emoji))
     container.appendChild(chip)
   })
+  applyEmojiImages(container)
 }
 
 // Die Emoji, die im Reagieren-Menü zur Auswahl stehen
@@ -2330,6 +2570,7 @@ function openMessageMenu(anchorEl, msg, options) {
       })
       picker.appendChild(btn)
     })
+    applyEmojiImages(picker)
     menu.appendChild(picker)
     positionFloatingMenu(menu, anchorEl)
   }
@@ -2380,7 +2621,7 @@ function positionFloatingMenu(menu, anchorEl) {
 async function sendMessage() {
   const input = document.getElementById('message-input')
   const sendBtn = document.getElementById('send-btn')
-  const text = input.value.trim()
+  const text = getMessageText().trim()
 
   if (!text || !currentUser) return
 
@@ -2410,8 +2651,7 @@ async function sendMessage() {
   } else {
     cancelReplyingTo()
     renderMessage(inserted)
-    input.value = ''
-    autoResizeMessageInput()
+    clearMessageInput()
     input.focus()
   }
 }
@@ -2827,6 +3067,7 @@ function startReplyingTo(id) {
 
   document.getElementById('reply-bar-author').textContent = authorName
   document.getElementById('reply-bar-snippet').textContent = original.text
+  applyEmojiImages(document.getElementById('reply-bar-snippet'))
   document.getElementById('reply-bar').style.display = 'flex'
   document.getElementById('message-input').focus()
 }
@@ -2860,18 +3101,14 @@ function startEditingMessage(id, oldText) {
   }
   cancelReplyingTo() // Bearbeiten und gleichzeitig auf etwas antworten schließen sich aus
   editingMessageId = id
-  const input = document.getElementById('message-input')
-  input.value = oldText
-  input.focus()
-  autoResizeMessageInput()
+  setMessageText(oldText)
   document.getElementById('edit-bar').style.display = 'flex'
   document.getElementById('send-btn').textContent = '✓'
 }
 
 function cancelEditingMessage() {
   editingMessageId = null
-  document.getElementById('message-input').value = ''
-  autoResizeMessageInput()
+  clearMessageInput()
   document.getElementById('edit-bar').style.display = 'none'
   document.getElementById('send-btn').textContent = '➤'
 }
@@ -2904,7 +3141,7 @@ async function saveEditedMessage(newText) {
     return
   }
 
-  input.value = newText
+  setMessageText(newText)
 }
 
 // Text (und ggf. den "bearbeitet"-Hinweis) einer bereits angezeigten Nachricht aktualisieren
@@ -3685,6 +3922,7 @@ function askConfirm(message, { okText = 'OK', cancelText = 'Abbrechen', danger =
 // Enter-Taste
 function onEnter(id, fn) {
   document.getElementById(id).addEventListener('keydown', (e) => {
+    if (e.isComposing || e.keyCode === 229) return // Bestätigen eines Vorschlags der Tastatur ist kein Senden
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       fn()
@@ -3713,7 +3951,7 @@ function autoResizeMessageInput() {
   input.style.height = Math.min(wanted, maxHeight) + 'px'
   input.style.overflowY = wanted > maxHeight + 1 ? 'auto' : 'hidden'
 
-  document.getElementById('attach-btn').classList.toggle('hidden-btn', input.value.trim() !== '')
+  document.getElementById('attach-btn').classList.toggle('hidden-btn', getMessageText().trim() !== '')
   updateMessageScrollbar()
 }
 
@@ -3750,8 +3988,230 @@ function updateMessageScrollbar() {
   thumb.style.transform = 'translateY(' + Math.round(top) + 'px)'
 }
 
-document.getElementById('message-input').addEventListener('input', autoResizeMessageInput)
-document.getElementById('message-input').addEventListener('scroll', updateMessageScrollbar)
+// ===== Nachrichtenfeld: ein beschreibbares Feld, das Emojis als schöne Bilder zeigt =====
+// Ein normales Textfeld kann keine Bilder zeigen, deshalb ist das Feld ein <div contenteditable>.
+// Die Funktionen unten ersetzen das frühere ".value": Text lesen, setzen, leeren, an der Cursor-Stelle einfügen.
+const MESSAGE_MAX_LENGTH = 3000
+let savedMessageRange = null // zuletzt bekannte Cursor-Stelle, falls der Klick auf einen Knopf sie kurz wegnimmt
+let messageComposing = false // true, solange die Handy-Tastatur gerade einen Vorschlag bildet
+
+function messageInputEl() {
+  return document.getElementById('message-input')
+}
+
+// Inhalt als reiner Text: Emoji-Bilder werden wieder zu Emoji-Zeichen, Zeilenumbrüche zu \n
+function serializeMessageNode(node) {
+  let out = ''
+  node.childNodes.forEach(child => {
+    if (child.nodeType === Node.TEXT_NODE) {
+      out += child.nodeValue
+    } else if (child.nodeName === 'BR') {
+      out += '\n'
+    } else if (child.nodeName === 'IMG') {
+      out += child.getAttribute('alt') || ''
+    } else if (child.nodeType === Node.ELEMENT_NODE) {
+      if ((child.nodeName === 'DIV' || child.nodeName === 'P') && out && !out.endsWith('\n')) out += '\n'
+      out += serializeMessageNode(child)
+    }
+  })
+  return out
+}
+
+function getMessageText() {
+  return serializeMessageNode(messageInputEl()).replace(/\u00a0/g, ' ')
+}
+
+// Text kürzen, ohne ein Emoji (zwei Zeichen) in der Mitte zu zerschneiden
+function clipToLength(text, max) {
+  let out = ''
+  for (const ch of Array.from(text)) {
+    if (out.length + ch.length > max) break
+    out += ch
+  }
+  return out
+}
+
+function textToNodes(text) {
+  const holder = document.createElement('span')
+  String(text).split('\n').forEach((line, i) => {
+    if (i > 0) holder.appendChild(document.createElement('br'))
+    if (line) holder.appendChild(document.createTextNode(line))
+  })
+  applyEmojiImages(holder) // Emoji im Text -> Bilder
+  const frag = document.createDocumentFragment()
+  while (holder.firstChild) frag.appendChild(holder.firstChild)
+  return frag
+}
+
+function placeCaretAtEnd(el) {
+  el.focus()
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  range.collapse(false)
+  const sel = window.getSelection()
+  sel.removeAllRanges()
+  sel.addRange(range)
+}
+
+function setMessageText(text) {
+  const el = messageInputEl()
+  el.textContent = ''
+  el.appendChild(textToNodes(text))
+  placeCaretAtEnd(el)
+  autoResizeMessageInput()
+}
+
+function clearMessageInput() {
+  messageInputEl().textContent = ''
+  savedMessageRange = null
+  autoResizeMessageInput()
+}
+
+// Text oder Emoji an der Cursor-Stelle einfügen (ersetzt eine markierte Stelle)
+function insertIntoMessageInput(text) {
+  const el = messageInputEl()
+  if (!el || !text) return
+  el.focus()
+
+  const sel = window.getSelection()
+  let range = null
+  if (sel.rangeCount && el.contains(sel.anchorNode)) range = sel.getRangeAt(0)
+  else if (savedMessageRange && el.contains(savedMessageRange.startContainer)) range = savedMessageRange
+  if (!range) {
+    range = document.createRange()
+    range.selectNodeContents(el)
+    range.collapse(false)
+  }
+
+  range.deleteContents()
+  const room = MESSAGE_MAX_LENGTH - getMessageText().length
+  if (room <= 0) return
+  const frag = textToNodes(clipToLength(text, room))
+  const last = frag.lastChild
+  if (!last) return
+  range.insertNode(frag)
+
+  range.setStartAfter(last)
+  range.collapse(true)
+  sel.removeAllRanges()
+  sel.addRange(range)
+  savedMessageRange = range.cloneRange()
+  autoResizeMessageInput()
+}
+
+// Cursor-Stelle als Zeichenzahl vom Textanfang (Emoji-Bilder zählen mit der Länge ihres Zeichens)
+function caretOffsetIn(el) {
+  const sel = window.getSelection()
+  if (!sel.rangeCount || !el.contains(sel.anchorNode)) return null
+  const range = sel.getRangeAt(0)
+  const pre = document.createRange()
+  pre.selectNodeContents(el)
+  pre.setEnd(range.endContainer, range.endOffset)
+  const holder = document.createElement('div')
+  holder.appendChild(pre.cloneContents())
+  return serializeMessageNode(holder).length
+}
+
+function setCaretOffsetIn(el, offset) {
+  let remaining = offset
+  let target = null
+  const walk = (node) => {
+    for (let i = 0; i < node.childNodes.length && !target; i++) {
+      const child = node.childNodes[i]
+      if (child.nodeType === Node.TEXT_NODE) {
+        const len = child.nodeValue.length
+        if (remaining <= len) target = [child, remaining]
+        else remaining -= len
+      } else if (child.nodeName === 'BR') {
+        if (remaining === 0) target = [node, i]
+        else remaining -= 1
+      } else if (child.nodeName === 'IMG') {
+        const len = (child.getAttribute('alt') || '').length
+        if (remaining === 0) target = [node, i]
+        else if (remaining <= len) target = [node, i + 1]
+        else remaining -= len
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        walk(child)
+      }
+    }
+  }
+  walk(el)
+  if (!target) target = [el, el.childNodes.length]
+
+  const range = document.createRange()
+  range.setStart(target[0], target[1])
+  range.collapse(true)
+  const sel = window.getSelection()
+  sel.removeAllRanges()
+  sel.addRange(range)
+}
+
+// Emoji, die mit der Tastatur getippt wurden (zum Beispiel über Win+.), werden gleich zu schönen Bildern
+function convertTypedEmoji() {
+  const el = messageInputEl()
+  if (!window.twemoji) return
+  let hasEmojiText = false
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+  while (walker.nextNode()) {
+    if (window.twemoji.test(walker.currentNode.nodeValue)) { hasEmojiText = true; break }
+  }
+  if (!hasEmojiText) return
+
+  const offset = caretOffsetIn(el)
+  applyEmojiImages(el)
+  if (offset !== null) setCaretOffsetIn(el, offset)
+}
+
+function onMessageInput() {
+  const el = messageInputEl()
+  if (!messageComposing) {
+    try { convertTypedEmoji() } catch (e) { console.error('Emoji-Umwandlung:', e) }
+    const text = getMessageText()
+    if (text.length > MESSAGE_MAX_LENGTH) setMessageText(clipToLength(text, MESSAGE_MAX_LENGTH))
+    else if (text === '') el.innerHTML = '' // übrig gebliebene Umbrüche entfernen, damit der Platzhalter wieder erscheint
+  }
+  autoResizeMessageInput()
+}
+
+;(function setupMessageInput() {
+  const el = messageInputEl()
+
+  el.addEventListener('input', onMessageInput)
+  el.addEventListener('scroll', updateMessageScrollbar)
+  el.addEventListener('compositionstart', () => { messageComposing = true })
+  el.addEventListener('compositionend', () => { messageComposing = false; onMessageInput() })
+
+  // Enter an der Handy-Tastatur sendet (Umschalt+Enter macht eine neue Zeile); Längenbegrenzung
+  el.addEventListener('beforeinput', (e) => {
+    if (e.inputType === 'insertParagraph') {
+      e.preventDefault()
+      sendMessage()
+      return
+    }
+    if (e.inputType.startsWith('insert') && !e.isComposing) {
+      const selected = window.getSelection().toString().length
+      if (getMessageText().length - selected >= MESSAGE_MAX_LENGTH) e.preventDefault()
+    }
+  })
+
+  // Einfügen und Ziehen: immer nur reiner Text, nie fremde Formatierung
+  el.addEventListener('paste', (e) => {
+    e.preventDefault()
+    const text = (e.clipboardData || window.clipboardData).getData('text/plain')
+    insertIntoMessageInput(String(text).replace(/\r\n?/g, '\n'))
+  })
+  el.addEventListener('drop', (e) => {
+    e.preventDefault()
+    const text = e.dataTransfer && e.dataTransfer.getData('text/plain')
+    if (text) insertIntoMessageInput(String(text).replace(/\r\n?/g, '\n'))
+  })
+
+  // Cursor-Stelle merken, falls ein Klick auf den Emoji-Knopf sie kurz wegnimmt
+  document.addEventListener('selectionchange', () => {
+    const sel = window.getSelection()
+    if (sel.rangeCount && el.contains(sel.anchorNode)) savedMessageRange = sel.getRangeAt(0).cloneRange()
+  })
+})()
 window.addEventListener('resize', updateMessageScrollbar)
 autoResizeMessageInput()
 
@@ -4187,5 +4647,6 @@ async function confirmInstall() {
 registerServiceWorker()
 
 applyEmojiImages(document.body)
+startEmojiObserver()
 init()
 scheduleInstallPopup()

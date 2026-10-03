@@ -469,7 +469,8 @@
       <div class="chat-input-area">
         <button type="button" id="emoji-toggle-btn" class="input-round-btn" onclick="toggleTextEmojiPicker(this, event)" aria-label="Emoji einfügen">😊</button>
         <div class="message-field">
-          <textarea id="message-input" placeholder="Nachricht" maxlength="3000" rows="1"></textarea>
+          <!-- Kein normales Textfeld, damit Emojis hier als schöne Bilder erscheinen können (siehe script.js) -->
+          <div id="message-input" class="message-input" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Nachricht" data-placeholder="Nachricht" enterkeyhint="send" autocapitalize="sentences"></div>
           <!-- Eigener Scroll-Balken: sitzt mit Abstand INNERHALB des Feldes (der eingebaute Balken ließ sich nicht verschieben) -->
           <div class="field-scrollbar" id="message-scrollbar" aria-hidden="true"><div class="field-scrollbar-thumb"></div></div>
         </div>
