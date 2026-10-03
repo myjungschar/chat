@@ -2522,3 +2522,28 @@ html:has(body.light-theme) {
     background: var(--scrollbar-thumb-hover);
   }
 }
+
+/* Emoji-Auswahl: kein Bild-Menü oder Markieren beim langen Drücken, Hinweis unter "Häufig genutzt" */
+.emoji-picker-btn,
+.emoji-picker-btn img {
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.emoji-grid .emoji-hint {
+  grid-column: 1 / -1;
+  margin: 8px 4px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Pop-up "Junge oder Mädchen?": Auswahl über den Knöpfen "Abbrechen" */
+.confirm-dialog .gender-choice {
+  margin-bottom: 14px;
+}
+
+.confirm-dialog .gender-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-input);
+}

@@ -56,7 +56,7 @@ export default {
 
     // 5. Einladung verschicken. Das Konto wird dabei angelegt; needs_password markiert, dass die
     //    Person noch ein eigenes Passwort setzen muss (die App sperrt den Chat bis dahin).
-    const { error } = await ctx.supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+    const { data: invited, error } = await ctx.supabaseAdmin.auth.admin.inviteUserByEmail(email, {
       redirectTo: appUrl,
       data: { needs_password: true },
     });
@@ -70,6 +70,7 @@ export default {
       return json({ error: message }, 400);
     }
 
-    return json({ ok: true });
+    // Die ID des neuen Nutzers: die App trägt damit gleich Junge/Mädchen im Profil ein
+    return json({ ok: true, userId: invited?.user?.id ?? null });
   }),
 };

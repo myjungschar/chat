@@ -1758,6 +1758,66 @@ function recordEmojiUse(emoji) {
   } catch (e) { /* Speicher nicht verfügbar: dann merkt sich die App eben nichts */ }
 }
 
+// Ein Emoji aus "Häufig genutzt" entfernen (zum Beispiel, wenn man es aus Versehen angetippt hat)
+function removeEmojiFromRecent(emoji) {
+  try {
+    const list = readEmojiRecent().filter(entry => entry.e !== emoji)
+    localStorage.setItem(emojiRecentKey(), JSON.stringify(list))
+  } catch (e) { /* nichts zu tun */ }
+}
+
+// Rechtsklick (PC) oder langes Drücken (Handy) auf ein Emoji ruft onOpen auf (öffnet das Löschen-Menü)
+function enableEmojiMenu(btn, onOpen) {
+  let timer = null
+  let opened = false
+  const open = () => {
+    if (opened) return
+    opened = true
+    clearTimeout(timer)
+    onOpen()
+  }
+  btn.addEventListener('mousedown', () => { opened = false })
+  btn.addEventListener('contextmenu', e => { e.preventDefault(); open() })
+  btn.addEventListener('touchstart', () => { opened = false; timer = setTimeout(open, 500) }, { passive: true })
+  btn.addEventListener('touchmove', () => clearTimeout(timer), { passive: true })
+  btn.addEventListener('touchcancel', () => clearTimeout(timer))
+  btn.addEventListener('touchend', e => {
+    clearTimeout(timer)
+    if (opened) e.preventDefault() // das Loslassen nach dem langen Drücken soll nichts einfügen
+  })
+}
+
+// Kleines Menü mit "Löschen" unter (oder über) dem Emoji. Schließt wie das Nachrichtenmenü bei einem Klick daneben.
+function openEmojiDeleteMenu(anchorBtn, onDelete) {
+  closeMessageMenu()
+
+  const menu = document.createElement('div')
+  menu.className = 'msg-menu'
+  menu.addEventListener('click', e => e.stopPropagation())
+
+  const del = document.createElement('button')
+  del.className = 'msg-menu-item danger'
+  del.textContent = 'Löschen'
+  del.addEventListener('click', () => {
+    closeMessageMenu()
+    onDelete()
+  })
+  menu.appendChild(del)
+  document.body.appendChild(menu)
+
+  const margin = 8
+  const rect = anchorBtn.getBoundingClientRect()
+  const size = menu.getBoundingClientRect()
+  let left = rect.left + rect.width / 2 - size.width / 2
+  let top = rect.bottom + 6
+  if (top + size.height > window.innerHeight - margin) top = rect.top - size.height - 6
+  left = Math.min(Math.max(left, margin), window.innerWidth - size.width - margin)
+  menu.style.left = left + 'px'
+  menu.style.top = Math.max(margin, top) + 'px'
+
+  openMenuEl = menu
+}
+
 function getRecentEmojiItems(data) {
   return readEmojiRecent()
     .sort((a, b) => emojiRecentScore(b) - emojiRecentScore(a))
@@ -1787,7 +1847,7 @@ function toggleTextEmojiPicker(anchorBtn, evt) {
 
   const picker = document.createElement('div')
   picker.className = 'emoji-picker input-emoji-picker emoji-panel'
-  picker.addEventListener('click', e => e.stopPropagation())
+  picker.addEventListener('click', e => { e.stopPropagation(); closeMessageMenu() })
 
   const search = document.createElement('input')
   search.type = 'text'
@@ -1821,7 +1881,7 @@ function toggleTextEmojiPicker(anchorBtn, evt) {
       sections.push({ name, icon: EMOJI_TAB_ICONS[name] || data.byCategory[name][0].emoji, items: data.byCategory[name] })
     })
 
-    function renderItems(items, emptyText) {
+    function renderItems(items, emptyText, removable = false) {
       grid.innerHTML = ''
       grid.scrollTop = 0
       if (items.length === 0) {
@@ -1842,8 +1902,22 @@ function toggleTextEmojiPicker(anchorBtn, evt) {
           insertEmojiInInput(item.emoji)
           recordEmojiUse(item.emoji)
         })
+        if (removable) {
+          enableEmojiMenu(btn, () => openEmojiDeleteMenu(btn, () => {
+            removeEmojiFromRecent(item.emoji)
+            sections[0].items = getRecentEmojiItems(data)
+            btn.remove()
+            if (!grid.querySelector('.emoji-picker-btn')) showSection(0)
+          }))
+        }
         grid.appendChild(btn)
       })
+      if (removable) {
+        const hint = document.createElement('p')
+        hint.className = 'emoji-hint'
+        hint.textContent = 'Zum Löschen: Rechtsklick oder gedrückt halten'
+        grid.appendChild(hint)
+      }
     }
 
     let currentIndex = 0
@@ -1854,7 +1928,8 @@ function toggleTextEmojiPicker(anchorBtn, evt) {
       const section = sections[index]
       renderItems(
         section.items,
-        'Noch leer. Hier erscheinen deine am häufigsten und zuletzt benutzten Emojis.'
+        'Noch leer. Hier erscheinen deine am häufigsten und zuletzt benutzten Emojis.',
+        section.name === EMOJI_RECENT_NAME
       )
     }
 
@@ -3600,6 +3675,58 @@ async function readFunctionError(error) {
   return error.message
 }
 
+// Kleines Pop-up: Junge oder Mädchen? Gibt 'junge', 'maedchen' oder null (abgebrochen) zurück
+function askGender(email) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div')
+    overlay.className = 'confirm-overlay'
+
+    const dialog = document.createElement('div')
+    dialog.className = 'confirm-dialog'
+    dialog.setAttribute('role', 'dialog')
+    dialog.setAttribute('aria-modal', 'true')
+
+    const text = document.createElement('p')
+    text.textContent = 'Ist ' + email + ' ein Junge oder ein Mädchen?'
+
+    const choice = document.createElement('div')
+    choice.className = 'gender-choice'
+    const boyBtn = document.createElement('button')
+    boyBtn.type = 'button'
+    boyBtn.className = 'gender-btn junge'
+    boyBtn.textContent = 'Junge'
+    const girlBtn = document.createElement('button')
+    girlBtn.type = 'button'
+    girlBtn.className = 'gender-btn maedchen'
+    girlBtn.textContent = 'Mädchen'
+    choice.append(boyBtn, girlBtn)
+
+    const buttons = document.createElement('div')
+    buttons.className = 'confirm-buttons'
+    const cancelBtn = document.createElement('button')
+    cancelBtn.type = 'button'
+    cancelBtn.className = 'confirm-cancel'
+    cancelBtn.textContent = 'Abbrechen'
+    buttons.appendChild(cancelBtn)
+
+    dialog.append(text, choice, buttons)
+    overlay.appendChild(dialog)
+    document.body.appendChild(overlay)
+
+    const finish = result => {
+      document.removeEventListener('keydown', onKey)
+      overlay.remove()
+      resolve(result)
+    }
+    const onKey = e => { if (e.key === 'Escape') finish(null) }
+    document.addEventListener('keydown', onKey)
+    boyBtn.addEventListener('click', () => finish('junge'))
+    girlBtn.addEventListener('click', () => finish('maedchen'))
+    cancelBtn.addEventListener('click', () => finish(null))
+    overlay.addEventListener('click', e => { if (e.target === overlay) finish(null) })
+  })
+}
+
 async function inviteUser() {
   if (!isAdmin()) return
   const input = document.getElementById('new-user-email')
@@ -3612,6 +3739,13 @@ async function inviteUser() {
   }
 
   btn.disabled = true
+
+  // Erst fragen, ob Junge oder Mädchen (bei "Abbrechen" wird nichts gesendet)
+  const gender = await askGender(email)
+  if (!gender) {
+    btn.disabled = false
+    return
+  }
 
   // Aktuelle Sitzung holen (erneuert den Token bei Bedarf) und das Admin-JWT ausdrücklich mitschicken
   const { data: { session } } = await supabaseClient.auth.getSession()
@@ -3637,7 +3771,23 @@ async function inviteUser() {
   }
 
   input.value = ''
-  showToast('Einladung an ' + email + ' gesendet.', 'success')
+
+  // Das neue Profil gleich als Junge/Mädchen eintragen (die Funktion liefert die ID des neuen Nutzers zurück)
+  let genderSaved = false
+  if (data && data.userId) {
+    const { data: updated, error: genderError } = await supabaseClient
+      .from('profiles')
+      .update({ gender })
+      .eq('id', data.userId)
+      .select('id')
+    genderSaved = !genderError && updated && updated.length > 0
+  }
+
+  if (genderSaved) {
+    showToast('Einladung an ' + email + ' gesendet.', 'success')
+  } else {
+    showToast('Einladung an ' + email + ' gesendet. Junge/Mädchen bitte unter „Nutzer verwalten“ noch eintragen.')
+  }
   loadUsers()
 }
 
