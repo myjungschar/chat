@@ -726,6 +726,7 @@ async function renderChatList() {
     list.appendChild(hint)
   }
 
+  applyEmojiImages(list)
   renderChatTabs()
   applyChatTabFilter()
 
@@ -1777,10 +1778,43 @@ function formatChatListTime(isoString) {
   return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
 }
 
-// Emojis als kleine Bilder statt als (unter Windows hässliche) Systemzeichen zeichnen.
-// window.twemoji kommt von der Bibliothek, die in index.html eingebunden ist.
+// Emojis als schöne Bilder statt als (je nach Gerät hässliche) Systemzeichen zeichnen.
+// Bilder: "Noto Emoji 3D" von Google (Apache-Lizenz). Die Emojis, die die App selbst benutzt, liegen im Ordner
+// emoji/ (laden sofort, auch ohne Netz); alle anderen kommen bei Bedarf aus dem Netz (jsDelivr).
+// Fehlt ein Bild, springt die App auf Twemoji und zuletzt auf das Systemzeichen zurück.
+// window.twemoji (aus index.html) wird nur zum Finden der Emojis im Text benutzt, nicht für die Bilder.
+const EMOJI_NOTO_BASE = 'https://cdn.jsdelivr.net/gh/googlefonts/noto-emoji@e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e/3D/png/72/emoji_u'
+const EMOJI_TWEMOJI_BASE = 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/'
+const LOCAL_EMOJI = new Set(['1f44d', '1f44e', '1f466', '1f467', '1f4ca', '1f4cc', '1f602', '1f60a', '1f622', '1f62e', '1f64f', '2764'])
+
+// Noto benennt die Dateien mit Unterstrichen und ohne das Emoji-Zusatzzeichen fe0f ("1f3f3-fe0f-200d-1f308" -> "1f3f3_200d_1f308")
+function emojiNotoCode(icon) {
+  return icon.split('-').filter(part => part !== 'fe0f').join('_')
+}
+
+function emojiImageUrl(icon) {
+  const code = emojiNotoCode(icon)
+  return LOCAL_EMOJI.has(code) ? 'emoji/' + code + '.png' : EMOJI_NOTO_BASE + code + '.png'
+}
+
 function applyEmojiImages(el) {
-  if (window.twemoji) window.twemoji.parse(el, { folder: 'svg', ext: '.svg' })
+  if (!window.twemoji || !el) return
+  window.twemoji.parse(el, {
+    callback: icon => emojiImageUrl(icon),
+    attributes: (rawText, iconId) => ({ 'data-emoji': iconId })
+  })
+
+  el.querySelectorAll('img.emoji:not([data-fallback])').forEach(img => {
+    img.dataset.fallback = '0'
+    img.addEventListener('error', () => {
+      if (img.dataset.fallback === '0') {
+        img.dataset.fallback = '1'
+        img.src = EMOJI_TWEMOJI_BASE + img.dataset.emoji + '.svg'
+      } else if (img.parentNode) {
+        img.replaceWith(document.createTextNode(img.alt)) // letzter Ausweg: Systemzeichen
+      }
+    })
+  })
 }
 
 // Eine Nachricht als Element in den Chat einfügen
@@ -4152,5 +4186,6 @@ async function confirmInstall() {
 
 registerServiceWorker()
 
+applyEmojiImages(document.body)
 init()
 scheduleInstallPopup()
