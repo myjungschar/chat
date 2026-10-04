@@ -1,5 +1,5 @@
 // Supabase Edge Function "invite-user"
-// Einfügen unter: Supabase -> Edge Functions -> invite-user -> Code (bestehenden Code ersetzen) -> Deploy.
+// Liegt als supabase/functions/invite-user/index.ts, daneben die Datei deno.json (dort steht, woher @supabase/supabase-js kommt).
 //
 // Ablauf (die E-Mail geht erst raus, wenn das Geschlecht sicher gespeichert ist):
 //  1. Prüft, dass der Aufrufer angemeldet UND Admin ist.
@@ -9,7 +9,7 @@
 //     und prüft es durch Nachlesen. Klappt das nicht: Konto wieder löschen, KEINE E-Mail.
 //  5. Erst jetzt wird die Einladungs-E-Mail gesendet. Scheitert das, wird das Konto wieder gelöscht.
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from '@supabase/supabase-js'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -31,17 +31,15 @@ Deno.serve(async (req) => {
 
   try {
     const url = Deno.env.get('SUPABASE_URL')!
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
     // 1. Wer ruft auf? Muss ein angemeldeter Admin sein.
-    const caller = createClient(url, anonKey, {
-      global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
-    })
-    const { data: { user } } = await caller.auth.getUser()
+    //    Das Token aus dem Header wird ausdrücklich an getUser() übergeben (in Edge Functions gibt es keine gespeicherte Sitzung).
+    const admin = createClient(url, serviceKey)
+    const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
+    const { data: { user } } = await admin.auth.getUser(token)
     if (!user) return json({ error: 'Nicht angemeldet.' }, 401)
 
-    const admin = createClient(url, serviceKey)
     const { data: me } = await admin.from('profiles').select('role').eq('id', user.id).maybeSingle()
     if (!me || me.role !== 'admin') return json({ error: 'Nur Admins dürfen Nutzer einladen.' }, 403)
 
