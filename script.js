@@ -128,6 +128,7 @@ async function init() {
     if (event === 'PASSWORD_RECOVERY') {
       recoveryMode = true
       showPasswordReset()
+      setTimeout(fillResetUsername, 0)
     } else if (event === 'SIGNED_IN' && inviteMode) {
       const inviteUserId = session.user.id
       setTimeout(() => showInviteSetup(inviteUserId), 0)
@@ -282,6 +283,21 @@ function showLogin() {
   showScreen('login-bereich')
 }
 
+// Trägt den Benutzernamen der gerade angemeldeten Person in das (nur lesbare) Feld ein.
+// So kann der Browser beim Speichern des neuen Passworts den richtigen Benutzernamen dazu merken.
+async function fillResetUsername(userId) {
+  const field = document.getElementById('reset-username')
+  field.value = ''
+  let id = userId
+  if (!id) {
+    const { data: { user } } = await supabaseClient.auth.getUser()
+    id = user && user.id
+  }
+  if (!id) return
+  const { data: profile } = await supabaseClient.from('profiles').select('display_name').eq('id', id).single()
+  if (profile && profile.display_name) field.value = profile.display_name
+}
+
 function showPasswordReset() {
   document.getElementById('reset-heading').textContent = 'Neues Passwort setzen'
   document.getElementById('reset-subtext').textContent = 'Bitte vergib ein neues Passwort, bevor es weitergeht.'
@@ -298,6 +314,7 @@ async function showInviteSetup(userId) {
     .single()
 
   const name = profile?.display_name
+  document.getElementById('reset-username').value = name || ''
   document.getElementById('reset-heading').textContent = name ? `Willkommen, ${name}!` : 'Willkommen!'
   document.getElementById('reset-subtext').textContent =
     'Du wurdest eingeladen. Vergib zuerst ein eigenes Passwort, bevor es weitergeht.'
@@ -5066,8 +5083,6 @@ updateOfflineBanner()
 onEnter('username', login)
 onEnter('password', login)
 onEnter('forgot-username', sendPasswordReset)
-onEnter('reset-password', completePasswordReset)
-onEnter('reset-repeat-password', completePasswordReset)
 onEnter('new-user-email', inviteUser)
 
 // ===== Push-Benachrichtigungen (kommen auch an, wenn die Seite gar nicht offen ist) =====

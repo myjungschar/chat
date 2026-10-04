@@ -2995,3 +2995,9 @@ html:has(body.light-theme) {
 .rights-switch.on::after {
   transform: translateX(18px);
 }
+
+/* Benutzername auf dem Passwort-setzen-Bildschirm (nur zur Anzeige, damit der Browser ihn mit speichert) */
+#reset-username[readonly] {
+  opacity: 0.75;
+  cursor: default;
+}

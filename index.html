@@ -130,6 +130,13 @@
       <h2 id="reset-heading">Neues Passwort setzen</h2>
       <p id="reset-subtext">Bitte vergib ein neues Passwort, bevor es weitergeht.</p>
 
+      <!-- Als echtes Formular, damit der Browser/Passwortmanager Benutzername + neues Passwort zusammen speichern kann -->
+      <form id="reset-form" onsubmit="event.preventDefault(); completePasswordReset()">
+      <div class="input-group">
+        <label for="reset-username">Benutzername</label>
+        <input type="text" id="reset-username" autocomplete="username" readonly>
+      </div>
+
       <div class="input-group">
         <label for="reset-password">Neues Passwort</label>
         <div class="password-field">
@@ -152,7 +159,8 @@
         <p class="pw-match" data-match-for="reset-password" style="display: none;"></p>
       </div>
 
-      <button id="reset-password-btn" onclick="completePasswordReset()">Passwort setzen</button>
+      <button type="submit" id="reset-password-btn">Passwort setzen</button>
+      </form>
     </div>
 
     <!-- BEREICH 3: CHATLISTE (Startbildschirm nach dem Login) -->
@@ -626,4 +634,4 @@
   <!-- Die eigene JavaScript-Logik ganz unten -->
   <script src="script.js"></script>
 </body>
-</html> 
+</html>
