@@ -3953,6 +3953,7 @@ function renderUserList() {
       const name = document.createElement('span')
       name.className = 'user-name'
       name.textContent = (u.display_name || 'Ohne Namen') +
+        (!u.gender && u.role !== 'admin' ? ' (Geschlecht fehlt)' : '') +
         (u.is_blocked ? ' (gesperrt)' : '') +
         (u.active === false ? ' (Einladung offen)' : '')
       row.appendChild(name)
@@ -3994,7 +3995,7 @@ function renderUserDetail(u) {
           <span class="rights-row-title">Besondere Rechte</span>
           <span class="rights-row-state">${vipIds.has(u.id) ? 'Ja' : 'Nein'}</span>
         </div>
-        <button type="button" class="switch${vipIds.has(u.id) ? ' on' : ''}" id="user-rights-switch" role="switch" aria-checked="${vipIds.has(u.id)}" aria-label="Besondere Rechte"></button>
+        <button type="button" class="rights-switch${vipIds.has(u.id) ? ' on' : ''}" id="user-rights-switch" role="switch" aria-checked="${vipIds.has(u.id)}" aria-label="Besondere Rechte"></button>
       </div>
     </div>
     <div class="user-actions">
@@ -4004,8 +4005,9 @@ function renderUserDetail(u) {
   `
   box.querySelectorAll('.gender-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      // Nochmal auf die gewählte Option drücken hebt die Auswahl wieder auf
-      setGender(u, btn.classList.contains('active') ? null : btn.dataset.value)
+      // Das Geschlecht muss immer eingestellt sein: die gewählte Option nochmal drücken ändert nichts
+      if (btn.classList.contains('active')) return
+      setGender(u, btn.dataset.value)
     })
   })
   document.getElementById('user-rights-switch').addEventListener('click', () => setVip(u, !vipIds.has(u.id)))
@@ -4225,7 +4227,7 @@ async function setVip(user, makeVip) {
 }
 
 async function setGender(user, gender) {
-  if (!isAdmin()) return
+  if (!isAdmin() || !gender) return
   // Wechsel von einer Gruppe in die andere (z. B. Mädchen -> Junge): erst nachfragen
   if (user.gender && gender && user.gender !== gender) {
     const question = gender === 'junge' ? 'Ist das wirklich ein Junge?' : 'Ist das wirklich ein Mädchen?'
@@ -4234,13 +4236,13 @@ async function setGender(user, gender) {
 
   const { error } = await supabaseClient
     .from('profiles')
-    .update({ gender: gender || null })
+    .update({ gender })
     .eq('id', user.id)
 
   if (error) {
     showToast('Fehler: ' + error.message)
   } else {
-    user.gender = gender || null
+    user.gender = gender
     renderUserDetail(user)
   }
   loadUsers()
@@ -4281,10 +4283,10 @@ function openNewUser() {
   document.getElementById('new-user-email').focus()
 }
 
-// Junge/Mädchen im Admin-Formular auswählen (nochmal drücken hebt die Auswahl auf)
+// Junge/Mädchen im Admin-Formular auswählen (einmal gewählt bleibt immer eins ausgewählt)
 function selectNewUserGender(value) {
   document.querySelectorAll('#new-user-gender .gender-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.value === value && !b.classList.contains('active'))
+    b.classList.toggle('active', b.dataset.value === value)
   })
 }
 

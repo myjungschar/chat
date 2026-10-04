@@ -2965,7 +2965,7 @@ html:has(body.light-theme) {
   color: var(--text-secondary);
 }
 
-.switch {
+.rights-switch {
   position: relative;
   flex-shrink: 0;
   width: 46px;
@@ -2976,7 +2976,7 @@ html:has(body.light-theme) {
   transition: background 0.15s ease;
 }
 
-.switch::after {
+.rights-switch::after {
   content: '';
   position: absolute;
   top: 3px;
@@ -2988,10 +2988,10 @@ html:has(body.light-theme) {
   transition: transform 0.15s ease;
 }
 
-.switch.on {
+.rights-switch.on {
   background: #3498db;
 }
 
-.switch.on::after {
+.rights-switch.on::after {
   transform: translateX(18px);
 }
