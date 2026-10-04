@@ -3919,11 +3919,32 @@ async function loadUsers() {
     return
   }
 
-  list.innerHTML = ''
-
-  users
+  allUsers = users
     .filter(u => u.id !== currentUser.id)
     .sort((x, y) => (x.display_name || '').localeCompare(y.display_name || '', 'de', { sensitivity: 'base' }))
+  renderUserList()
+}
+
+// Nutzerliste mit Suche (Name) und Filter (Alle / Jungs / Mädchen)
+let allUsers = []
+let userFilterGender = 'all'
+
+function setUserFilter(value) {
+  userFilterGender = value
+  document.querySelectorAll('#user-filter .filter-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.value === value)
+  })
+  renderUserList()
+}
+
+function renderUserList() {
+  const list = document.getElementById('user-list')
+  const query = (document.getElementById('user-search').value || '').trim().toLowerCase()
+  list.innerHTML = ''
+
+  allUsers
+    .filter(u => userFilterGender === 'all' || u.gender === userFilterGender)
+    .filter(u => !query || (u.display_name || '').toLowerCase().includes(query))
     .forEach(u => {
       const row = document.createElement('li')
       if (u.is_blocked) row.classList.add('blocked')
@@ -3932,7 +3953,6 @@ async function loadUsers() {
       const name = document.createElement('span')
       name.className = 'user-name'
       name.textContent = (u.display_name || 'Ohne Namen') +
-        (vipIds.has(u.id) ? ' (besondere Rechte)' : '') +
         (u.is_blocked ? ' (gesperrt)' : '') +
         (u.active === false ? ' (Einladung offen)' : '')
       row.appendChild(name)
@@ -3947,7 +3967,7 @@ async function loadUsers() {
     })
 
   if (list.children.length === 0) {
-    list.textContent = 'Noch keine anderen Nutzer.'
+    list.textContent = allUsers.length === 0 ? 'Noch keine anderen Nutzer.' : 'Keine passenden Nutzer gefunden.'
   }
 }
 
@@ -3969,10 +3989,12 @@ function renderUserDetail(u) {
       </div>
     </div>
     <div class="input-group">
-      <label>Besondere Rechte</label>
-      <div class="gender-choice">
-        <button type="button" class="gender-btn rights${vipIds.has(u.id) ? ' active' : ''}" id="user-rights-yes">Ja</button>
-        <button type="button" class="gender-btn rights${vipIds.has(u.id) ? '' : ' active'}" id="user-rights-no">Nein</button>
+      <div class="rights-row">
+        <div class="rights-row-text">
+          <span class="rights-row-title">Besondere Rechte</span>
+          <span class="rights-row-state">${vipIds.has(u.id) ? 'Ja' : 'Nein'}</span>
+        </div>
+        <button type="button" class="switch${vipIds.has(u.id) ? ' on' : ''}" id="user-rights-switch" role="switch" aria-checked="${vipIds.has(u.id)}" aria-label="Besondere Rechte"></button>
       </div>
     </div>
     <div class="user-actions">
@@ -3986,8 +4008,7 @@ function renderUserDetail(u) {
       setGender(u, btn.classList.contains('active') ? null : btn.dataset.value)
     })
   })
-  document.getElementById('user-rights-yes').addEventListener('click', () => { if (!vipIds.has(u.id)) setVip(u, true) })
-  document.getElementById('user-rights-no').addEventListener('click', () => { if (vipIds.has(u.id)) setVip(u, false) })
+  document.getElementById('user-rights-switch').addEventListener('click', () => setVip(u, !vipIds.has(u.id)))
   document.getElementById('user-block-btn').addEventListener('click', () => setBlocked(u, !u.is_blocked))
   document.getElementById('user-delete-btn').addEventListener('click', () => deleteUser(u))
 }
@@ -4257,15 +4278,7 @@ function openNewUser() {
   showScreen('new-user-bereich')
   document.getElementById('new-user-email').value = ''
   document.querySelectorAll('#new-user-gender .gender-btn').forEach(b => b.classList.remove('active'))
-  selectNewUserRights('nein')
   document.getElementById('new-user-email').focus()
-}
-
-// Besondere Rechte im Admin-Formular: Ja oder Nein (immer genau eins ist gewählt)
-function selectNewUserRights(value) {
-  document.querySelectorAll('#new-user-rights .gender-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.value === value)
-  })
 }
 
 // Junge/Mädchen im Admin-Formular auswählen (nochmal drücken hebt die Auswahl auf)
@@ -4350,7 +4363,6 @@ async function inviteUser() {
     return
   }
 
-  const makeVip = !!document.querySelector('#new-user-rights .gender-btn.active[data-value="ja"]')
   const activeGenderBtn = document.querySelector('#new-user-gender .gender-btn.active')
   const gender = activeGenderBtn ? activeGenderBtn.dataset.value : null
   if (!gender) {
@@ -4358,7 +4370,10 @@ async function inviteUser() {
     return
   }
 
-  // Vor dem Senden nochmal nachfragen
+  // Frage 1: besondere Rechte? (Esc oder daneben tippen zählt als "Nein")
+  const makeVip = await askConfirm('Soll die Person besondere Rechte bekommen?', { okText: 'Ja', cancelText: 'Nein' })
+
+  // Frage 2: wirklich senden?
   if (!(await askConfirm('Möchtest du die E-Mail wirklich an ' + email + ' senden?', { okText: 'Senden', cancelText: 'Abbrechen' }))) return
 
   btn.disabled = true
@@ -4388,7 +4403,6 @@ async function inviteUser() {
 
   input.value = ''
   document.querySelectorAll('#new-user-gender .gender-btn').forEach(b => b.classList.remove('active'))
-  selectNewUserRights('nein')
 
   // Das neue Profil gleich mit dem gewählten Geschlecht (= Gruppe) eintragen (die Funktion liefert die ID des neuen Nutzers zurück)
   let genderSaved = false

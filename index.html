@@ -289,6 +289,14 @@
           <span class="settings-arrow">›</span>
         </li>
       </ul>
+      <div class="user-filter-bar">
+        <input type="search" id="user-search" placeholder="Nutzer suchen" autocomplete="off" oninput="renderUserList()">
+        <div class="user-filter" id="user-filter">
+          <button type="button" class="filter-btn active" data-value="all" onclick="setUserFilter('all')">Alle</button>
+          <button type="button" class="filter-btn" data-value="junge" onclick="setUserFilter('junge')">Jungs</button>
+          <button type="button" class="filter-btn" data-value="maedchen" onclick="setUserFilter('maedchen')">Mädchen</button>
+        </div>
+      </div>
       <ul id="user-list" class="settings-menu"></ul>
 
     </div>
@@ -330,14 +338,6 @@
         <div class="gender-choice" id="new-user-gender">
           <button type="button" class="gender-btn junge" data-value="junge" onclick="selectNewUserGender('junge')">Junge</button>
           <button type="button" class="gender-btn maedchen" data-value="maedchen" onclick="selectNewUserGender('maedchen')">Mädchen</button>
-        </div>
-      </div>
-
-      <div class="input-group">
-        <label>Besondere Rechte</label>
-        <div class="gender-choice" id="new-user-rights">
-          <button type="button" class="gender-btn rights" data-value="ja" onclick="selectNewUserRights('ja')">Ja</button>
-          <button type="button" class="gender-btn rights active" data-value="nein" onclick="selectNewUserRights('nein')">Nein</button>
         </div>
       </div>
 
@@ -626,4 +626,4 @@
   <!-- Die eigene JavaScript-Logik ganz unten -->
   <script src="script.js"></script>
 </body>
-</html>
+</html> 
