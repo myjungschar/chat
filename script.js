@@ -2497,7 +2497,45 @@ function closeInfoModal() {
 // Unter der Nachricht steht unten links ein kleiner dunkler Chip mit den Emojis und der Anzahl. Ein Klick darauf öffnet
 // das Fenster "Reaktionen" mit allen Personen. Zum Reagieren gibt es die Emoji-Leiste: am PC erscheint sie beim
 // Darüberfahren mit der Maus, am Handy oben im Menü beim langen Drücken.
-const QUICK_EMOJI = ['👍', '👎', '❤️', '😂', '🤣', '😅', '😮', '🙏', '👌']
+const QUICK_EMOJI = ['👍', '👎', '❤️', '😅', '🙏']
+const QUICK_EXTRA_MAX = 2     // so viele Extra-Emojis (die man über das Plus oft nimmt) rücken automatisch in die Leiste
+const QUICK_EXTRA_MIN_USES = 2 // ab so vielen Benutzungen über das Plus gilt ein Emoji als "oft genutzt"
+
+function reactionExtraKey() {
+  return 'reactionExtra:' + (currentUser ? currentUser.id : 'gast')
+}
+
+function readReactionExtra() {
+  try {
+    const list = JSON.parse(localStorage.getItem(reactionExtraKey()) || '[]')
+    return Array.isArray(list) ? list : []
+  } catch (e) {
+    return []
+  }
+}
+
+// Merkt sich, welche Emojis man über das Plus für Reaktionen nimmt (nur die, die nicht schon fest in der Leiste sind)
+function recordReactionExtra(emoji) {
+  if (QUICK_EMOJI.includes(emoji)) return
+  try {
+    const list = readReactionExtra()
+    const entry = list.find(x => x.e === emoji)
+    if (entry) { entry.n += 1; entry.t = Date.now() }
+    else list.push({ e: emoji, n: 1, t: Date.now() })
+    list.sort((a, b) => emojiRecentScore(b) - emojiRecentScore(a))
+    localStorage.setItem(reactionExtraKey(), JSON.stringify(list.slice(0, 30)))
+  } catch (e) { /* Speicher nicht verfügbar: dann merkt sich die App eben nichts */ }
+}
+
+// Die 5 festen Emojis plus die (bis zu 2) am häufigsten über das Plus genutzten Emojis
+function quickEmojiList() {
+  const extras = readReactionExtra()
+    .filter(x => x.n >= QUICK_EXTRA_MIN_USES && !QUICK_EMOJI.includes(x.e))
+    .sort((a, b) => emojiRecentScore(b) - emojiRecentScore(a))
+    .slice(0, QUICK_EXTRA_MAX)
+    .map(x => x.e)
+  return QUICK_EMOJI.concat(extras)
+}
 
 function renderReactionChips(container, messageId) {
   container.innerHTML = ''
@@ -2615,13 +2653,13 @@ function openReactionsModal(messageId) {
   modal.style.display = 'flex'
 }
 
-// Die Emoji-Leiste: 9 Standard-Emojis und ganz rechts ein Plus für die volle Auswahl
+// Die Emoji-Leiste: 5 feste Emojis, bis zu 2 oft genutzte aus dem Plus (also höchstens 7), und ganz rechts ein Plus für die volle Auswahl
 function buildReactionBar(msg, { onPick, onMore }) {
   const bar = document.createElement('div')
   bar.className = 'reaction-bar'
   const mine = reactionMap[msg.id] ? reactionMap[msg.id].mine : null
 
-  QUICK_EMOJI.forEach(emoji => {
+  quickEmojiList().forEach(emoji => {
     const btn = document.createElement('button')
     btn.type = 'button'
     btn.className = 'reaction-bar-btn' + (mine === emoji ? ' active' : '')
@@ -2654,6 +2692,7 @@ function openReactionPicker(anchorEl, msg) {
 
   const panel = buildEmojiPanel(emoji => {
     closeMessageMenu()
+    recordReactionExtra(emoji)
     toggleReaction(msg.id, emoji)
   })
   panel.classList.add('reaction-full-picker')
