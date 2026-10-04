@@ -4389,7 +4389,7 @@ async function inviteUser() {
   }
 
   const { data, error } = await supabaseClient.functions.invoke('invite-user', {
-    body: { email, gender },
+    body: { email, gender, vip: makeVip },
     headers: { Authorization: 'Bearer ' + session.access_token }
   })
   btn.disabled = false
@@ -4406,25 +4406,40 @@ async function inviteUser() {
   input.value = ''
   document.querySelectorAll('#new-user-gender .gender-btn').forEach(b => b.classList.remove('active'))
 
-  // Das neue Profil gleich mit dem gewählten Geschlecht (= Gruppe) eintragen (die Funktion liefert die ID des neuen Nutzers zurück)
-  let genderSaved = false
-  if (data && data.userId) {
-    const { data: updated, error: genderError } = await supabaseClient
-      .from('profiles')
-      .update({ gender })
-      .eq('id', data.userId)
-      .select('id')
-    genderSaved = !genderError && updated && updated.length > 0
+  // Die (neue) Funktion speichert Geschlecht und Rechte selbst und meldet das zurück. Bei der alten Fassung
+  // der Funktion wird das Geschlecht hier nachgetragen (mehrere Versuche, falls das Profil noch angelegt wird).
+  const userId = (data && (data.userId || data.user_id || data.id || (data.user && data.user.id))) || null
+  let genderSaved = !!(data && data.genderSaved === true)
+  let genderProblem = ''
+
+  if (!genderSaved) {
+    if (!userId) {
+      genderProblem = 'Die Funktion hat keine Nutzer-ID zurückgegeben.'
+    } else {
+      for (let attempt = 0; attempt < 6 && !genderSaved; attempt++) {
+        if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 700))
+        const { data: updated, error: genderError } = await supabaseClient
+          .from('profiles')
+          .update({ gender })
+          .eq('id', userId)
+          .select('id')
+        if (genderError) genderProblem = genderError.message
+        else if (!updated || updated.length === 0) genderProblem = 'Das Profil wurde nicht gefunden oder darf nicht geändert werden.'
+        else genderSaved = true
+      }
+    }
+  }
+
+  if (makeVip && userId && !(data && data.vipSaved === true)) {
+    const { error: vipError } = await supabaseClient.from('vip_users').insert({ user_id: userId })
+    if (vipError && vipError.code !== '23505') showToast('Besondere Rechte konnten nicht gespeichert werden: ' + vipError.message)
   }
 
   if (!genderSaved) {
-    showToast('Das Geschlecht konnte nicht gespeichert werden.')
+    await showInfoDialog('Die E-Mail an ' + email + ' wurde gesendet, aber das Geschlecht konnte NICHT gespeichert werden (' + genderProblem + '). Bitte sofort unter „Nutzer verwalten“ Junge oder Mädchen einstellen.')
+  } else {
+    await showInfoDialog('Die E-Mail an ' + email + ' wurde erfolgreich gesendet!')
   }
-  if (makeVip && data && data.userId) {
-    const { error: vipError } = await supabaseClient.from('vip_users').insert({ user_id: data.userId })
-    if (vipError) showToast('Besondere Rechte konnten nicht gespeichert werden: ' + vipError.message)
-  }
-  await showInfoDialog('Die E-Mail an ' + email + ' wurde erfolgreich gesendet!')
   loadUsers()
 }
 
