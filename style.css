@@ -3002,3 +3002,14 @@ html:has(body.light-theme) {
   opacity: 0.75;
   cursor: default;
 }
+
+/* Fenster "Reaktionen": Knopf "Emoji hinzufügen" ganz links */
+.reactions-tab.reactions-add {
+  justify-content: center;
+  padding: 6px 10px;
+  color: var(--text-secondary);
+}
+
+.reactions-tab.reactions-add:hover {
+  color: var(--text-primary);
+}

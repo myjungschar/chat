@@ -2595,10 +2595,13 @@ function renderReactionChips(container, messageId) {
   chip.className = 'reaction-btn reaction-chip' + (info.mine ? ' active' : '')
   chip.setAttribute('aria-label', 'Reaktionen anzeigen')
   entries.slice(0, 3).forEach(([emoji]) => chip.appendChild(createEmojiImg(emoji)))
-  const count = document.createElement('span')
-  count.className = 'reaction-count'
-  count.textContent = String(total)
-  chip.appendChild(count)
+  // Wie bei WhatsApp: eine einzelne Reaktion zeigt nur das Emoji, erst ab zwei Reaktionen steht eine Zahl daneben
+  if (total >= 2) {
+    const count = document.createElement('span')
+    count.className = 'reaction-count'
+    count.textContent = String(total)
+    chip.appendChild(count)
+  }
   chip.addEventListener('click', e => {
     e.stopPropagation()
     openReactionsModal(messageId)
@@ -2610,7 +2613,9 @@ function closeReactionsModal() {
   document.getElementById('reactions-modal').style.display = 'none'
 }
 
-// Fenster "Reaktionen": Reiter "Alle" + ein Reiter je Emoji, darunter die Personen (Profilbild, Name, Emoji)
+// Fenster "Reaktionen" (wie bei WhatsApp): oben ein Knopf für ein neues Emoji, daneben ein Knopf je vorhandenem Emoji
+// mit Anzahl. Ein vorhandenes Emoji antippen = selbst auch so reagieren (ist es schon deins, ist es hervorgehoben und
+// ein weiteres Tippen nimmt es zurück). Darunter stehen alle Personen mit ihrem Emoji.
 function openReactionsModal(messageId) {
   closeMessageMenu()
   hideReactionBar()
@@ -2625,30 +2630,53 @@ function openReactionsModal(messageId) {
   const counts = {}
   users.forEach(u => { counts[u.emoji] = (counts[u.emoji] || 0) + 1 })
   const emojis = Object.keys(counts).sort((a, b) => counts[b] - counts[a])
-  let active = 'all'
+  const mineEmoji = (users.find(u => u.user_id === currentUser.id) || {}).emoji || null
+
+  document.getElementById('reactions-title').textContent = users.length + (users.length === 1 ? ' Reaktion' : ' Reaktionen')
+
+  // Nach dem Antippen: Fenster mit dem neuen Stand neu aufbauen (oder schließen, wenn nichts mehr da ist)
+  async function reactWith(emoji) {
+    await toggleReaction(messageId, emoji)
+    refreshModal()
+  }
+  function refreshModal() {
+    const rest = reactionMap[messageId] && reactionMap[messageId].users ? reactionMap[messageId].users : []
+    if (rest.length > 0) openReactionsModal(messageId)
+    else closeReactionsModal()
+  }
 
   const realName = userId => (profileCache[userId] && profileCache[userId].name) || 'Unbekannt'
 
   function render() {
     tabs.innerHTML = ''
-    const defs = [{ key: 'all', emoji: null, count: users.length }]
-      .concat(emojis.map(emoji => ({ key: emoji, emoji, count: counts[emoji] })))
-    defs.forEach(def => {
+
+    // Ganz links: ein neues Emoji aussuchen
+    const addBtn = document.createElement('button')
+    addBtn.type = 'button'
+    addBtn.className = 'reactions-tab reactions-add'
+    addBtn.setAttribute('aria-label', 'Emoji hinzufügen')
+    addBtn.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="13" r="8"/><path d="M7.8 15.2c.8 1.1 2 1.7 3.2 1.7s2.4-.6 3.2-1.7"/><circle cx="8.6" cy="11.6" r=".7" fill="currentColor"/><circle cx="13.4" cy="11.6" r=".7" fill="currentColor"/><path d="M19 2.5v5M16.5 5h5"/></svg>'
+    addBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      openReactionPicker(addBtn, messagesById[messageId] || { id: messageId }, refreshModal)
+    })
+    tabs.appendChild(addBtn)
+
+    // Daneben ein Knopf je vorhandenem Emoji (mit Anzahl); das eigene ist hervorgehoben
+    emojis.forEach(emoji => {
       const tab = document.createElement('button')
       tab.type = 'button'
-      tab.className = 'reactions-tab' + (def.key === active ? ' active' : '')
-      if (def.emoji) tab.appendChild(createEmojiImg(def.emoji))
-      else tab.appendChild(document.createTextNode('Alle'))
+      tab.className = 'reactions-tab' + (emoji === mineEmoji ? ' active' : '')
+      tab.appendChild(createEmojiImg(emoji))
       const count = document.createElement('span')
-      count.textContent = String(def.count)
+      count.textContent = String(counts[emoji])
       tab.appendChild(count)
-      tab.addEventListener('click', () => { active = def.key; render() })
+      tab.addEventListener('click', () => reactWith(emoji))
       tabs.appendChild(tab)
     })
 
     list.innerHTML = ''
     users
-      .filter(u => active === 'all' || u.emoji === active)
       .slice()
       .sort((a, b) => {
         if (a.user_id === currentUser.id) return -1
@@ -2729,14 +2757,15 @@ function buildReactionBar(msg, { onPick, onMore }) {
 }
 
 // Die volle Emoji-Auswahl (aus emojis.json) für eine Reaktion, direkt unter oder über der Nachricht
-function openReactionPicker(anchorEl, msg) {
+function openReactionPicker(anchorEl, msg, afterPick) {
   closeMessageMenu()
   hideReactionBar()
 
-  const panel = buildEmojiPanel(emoji => {
+  const panel = buildEmojiPanel(async emoji => {
     closeMessageMenu()
     recordReactionExtra(emoji)
-    toggleReaction(msg.id, emoji)
+    await toggleReaction(msg.id, emoji)
+    if (afterPick) afterPick()
   })
   panel.classList.add('reaction-full-picker')
   document.body.appendChild(panel)
