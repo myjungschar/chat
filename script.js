@@ -4969,17 +4969,22 @@ function clearMessageInput() {
 function insertIntoMessageInput(text) {
   const el = messageInputEl()
   if (!el || !text) return
-  el.focus()
 
+  // Die Einfüge-Stelle muss VOR dem focus() bestimmt werden: focus() setzt den Cursor sonst oft an den
+  // Textanfang, und das Emoji landete dort (zum Beispiel nach dem Suchen im Emoji-Fenster).
   const sel = window.getSelection()
   let range = null
-  if (sel.rangeCount && el.contains(sel.anchorNode)) range = sel.getRangeAt(0)
-  else if (savedMessageRange && el.contains(savedMessageRange.startContainer)) range = savedMessageRange
+  if (sel.rangeCount && el.contains(sel.anchorNode)) range = sel.getRangeAt(0).cloneRange()
+  else if (savedMessageRange && el.contains(savedMessageRange.startContainer)) range = savedMessageRange.cloneRange()
   if (!range) {
     range = document.createRange()
     range.selectNodeContents(el)
     range.collapse(false)
   }
+
+  el.focus()
+  sel.removeAllRanges()
+  sel.addRange(range)
 
   range.deleteContents()
   const room = MESSAGE_MAX_LENGTH - getMessageText().length
