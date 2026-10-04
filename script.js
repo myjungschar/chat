@@ -418,6 +418,7 @@ async function enterApp(user) {
   document.getElementById('chat-list').innerHTML = '<p class="chat-empty">Lädt …</p>'
 
   await loadProfileCache()
+  await loadVipIds()
   await renderChatList()
   listenForListUpdates()
   startInboxChannel()
@@ -902,9 +903,11 @@ async function openConversation(title) {
   latestSeenAt = null
   peerMarks = {}
   markActiveListItem() // am PC: den geöffneten Chat links hervorheben
+  loadVipIds() // frische VIP-Liste, muss nicht abgewartet werden
   await loadMessages()
   listenForNewMessages()
   startPollListening()
+  startPinListening()
   // Am PC bleibt die Liste sichtbar: Ungelesen-Zähler dort nach dem Markieren auffrischen
   markCurrentRoomRead().then(() => { if (isSplitView()) renderChatList() })
   loadPeerMarks() // Häkchen (Einzelchat und Gruppe), muss nicht abgewartet werden
@@ -1076,6 +1079,7 @@ async function loadMessages() {
   reactionMap = messages.length ? await loadReactionsFor(messages.map(m => m.id)) : {}
   messages.forEach(msg => renderMessage(msg))
   await loadPollsForRoom() // fügt sich zeitlich passend zwischen die Nachrichten ein
+  await loadPinForRoom() // angepinnte Nachricht (Leiste oben + Hinweis im Verlauf)
 
   if (chatBox.children.length === 0) showEmptyHint()
   applyEmojiImages(chatBox)
@@ -2903,6 +2907,29 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
       menu.appendChild(copyItem)
     }
 
+    // Anpinnen: nur für VIPs; "Anpinnen aufheben" nur für den, der angepinnt hat, und den Admin
+    const pinnedHere = !!currentPin && String(currentPin.message_id) === String(msg.id)
+    if (canPinHere() && !pinnedHere) {
+      const pinItem = document.createElement('button')
+      pinItem.className = 'msg-menu-item'
+      pinItem.textContent = 'Anpinnen'
+      pinItem.addEventListener('click', () => {
+        closeMessageMenu()
+        pinMessage(msg)
+      })
+      menu.appendChild(pinItem)
+    }
+    if (pinnedHere && canUnpinCurrent()) {
+      const unpinItem = document.createElement('button')
+      unpinItem.className = 'msg-menu-item'
+      unpinItem.textContent = 'Anpinnen aufheben'
+      unpinItem.addEventListener('click', () => {
+        closeMessageMenu()
+        unpinCurrent()
+      })
+      menu.appendChild(unpinItem)
+    }
+
     if (options.canInfo) {
       const infoItem = document.createElement('button')
       infoItem.className = 'msg-menu-item'
@@ -3133,6 +3160,7 @@ function stopListening() {
   }
   stopPeerListening()
   stopPollListening()
+  stopPinListening()
 }
 
 // Solange man eingeloggt ist: bei jeder neuen Nachricht (egal wo) die Chatliste neu sortieren
@@ -3311,6 +3339,7 @@ function deleteSelectedMessages() {
     const deleted = (data || []).map(r => String(r.id))
     deleted.forEach(id => removeMessageElement(id, false))
     cleanupDateSeparators()
+    dropPinForMessages(deleted)
 
     if (deleted.length < ids.length) {
       showToast((ids.length - deleted.length) + ' Nachricht(en) konnten nicht gelöscht werden.')
@@ -3601,6 +3630,7 @@ function deleteMessage(id) {
       showToast('Löschen nicht erlaubt.')
     } else {
       removeMessageElement(id)
+      dropPinForMessages([id])
     }
   })
 }
@@ -3877,6 +3907,7 @@ function openUserManagement() {
 
 async function loadUsers() {
   const list = document.getElementById('user-list')
+  await loadVipIds()
 
   const { data: users, error } = await supabaseClient
     .from('profiles')
@@ -3901,6 +3932,7 @@ async function loadUsers() {
       const name = document.createElement('span')
       name.className = 'user-name'
       name.textContent = (u.display_name || 'Ohne Namen') +
+        (vipIds.has(u.id) ? ' (VIP)' : '') +
         (u.is_blocked ? ' (gesperrt)' : '') +
         (u.active === false ? ' (Einladung offen)' : '')
       row.appendChild(name)
@@ -3936,6 +3968,11 @@ function renderUserDetail(u) {
         <button type="button" class="gender-btn maedchen${u.gender === 'maedchen' ? ' active' : ''}" data-value="maedchen">Mädchen</button>
       </div>
     </div>
+    <div class="input-group">
+      <label>Besondere Rechte</label>
+      <button type="button" class="vip-btn${vipIds.has(u.id) ? ' active' : ''}" id="user-vip-btn">${vipIds.has(u.id) ? 'VIP: darf Nachrichten anpinnen' : 'Kein VIP'}</button>
+      <p class="vip-hint">VIPs dürfen Nachrichten in Chats anpinnen. Zum Ändern tippen.</p>
+    </div>
     <div class="user-actions">
       <button type="button" class="${u.is_blocked ? 'unblock-btn' : 'block-btn'}" id="user-block-btn">${u.is_blocked ? 'Entsperren' : 'Sperren'}</button>
       <button type="button" class="delete-btn" id="user-delete-btn">Nutzer löschen</button>
@@ -3947,6 +3984,7 @@ function renderUserDetail(u) {
       setGender(u, btn.classList.contains('active') ? null : btn.dataset.value)
     })
   })
+  document.getElementById('user-vip-btn').addEventListener('click', () => setVip(u, !vipIds.has(u.id)))
   document.getElementById('user-block-btn').addEventListener('click', () => setBlocked(u, !u.is_blocked))
   document.getElementById('user-delete-btn').addEventListener('click', () => deleteUser(u))
 }
@@ -3965,6 +4003,201 @@ async function deleteUser(user) {
     return
   }
   openUserManagement()
+}
+
+// ===== VIP und angepinnte Nachrichten =====
+// VIPs (Tabelle vip_users) dürfen Nachrichten anpinnen. Pro Chat gibt es höchstens eine angepinnte Nachricht
+// (Tabelle pinned_messages, mit Kopie des Textes - sie bleibt also auch nach dem Ringpuffer stehen).
+let vipIds = new Set()   // IDs aller VIP-Nutzer
+let currentPin = null    // angepinnte Nachricht des gerade offenen Chats (oder null)
+let pinChannel = null    // Realtime: anpinnen/lösen im offenen Chat
+
+async function loadVipIds() {
+  const { data, error } = await supabaseClient.from('vip_users').select('user_id')
+  if (error) {
+    console.error('VIP-Liste konnte nicht geladen werden:', error)
+    return
+  }
+  vipIds = new Set((data || []).map(r => r.user_id))
+}
+
+function isVip() {
+  return !isAdmin() && !!currentUser && vipIds.has(currentUser.id)
+}
+
+// Anpinnen darf ein VIP im eigenen Chat (nicht im rein lesenden Einblick in fremde Einzelchats)
+function canPinHere() {
+  return isVip() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
+}
+
+// Aufheben darf, wer angepinnt hat, und der Admin
+function canUnpinCurrent() {
+  return !!currentPin && !!currentUser && (isAdmin() || currentPin.pinned_by === currentUser.id)
+}
+
+function pinChatKey() {
+  return pollChatKey(currentRoom)
+}
+
+// Zeigt im Verlauf die aktuelle Fassung, solange die Nachricht noch geladen ist, sonst die gespeicherte Kopie
+function currentPinText() {
+  if (!currentPin) return ''
+  const live = messagesById[currentPin.message_id]
+  return live ? live.text : currentPin.message_text
+}
+
+async function loadPinForRoom() {
+  currentPin = null
+  const key = pinChatKey()
+  if (key) {
+    const { data, error } = await supabaseClient
+      .from('pinned_messages')
+      .select('*')
+      .eq('chat_key', key)
+      .maybeSingle()
+    if (error) console.error('Angepinnte Nachricht konnte nicht geladen werden:', error)
+    else currentPin = data
+  }
+  renderPin()
+}
+
+// Zeichnet die Leiste oben und den Hinweis "<Name> hat eine Nachricht angepinnt" mitten im Verlauf neu
+function renderPin() {
+  const chatBox = document.getElementById('chat-box')
+  const bar = document.getElementById('pin-bar')
+  chatBox.querySelectorAll('.pin-notice').forEach(el => el.remove())
+
+  if (!currentPin) {
+    bar.style.display = 'none'
+    return
+  }
+
+  const name = (profileCache[currentPin.pinned_by] && profileCache[currentPin.pinned_by].name) || 'Jemand'
+  document.getElementById('pin-bar-label').textContent = 'Angepinnt von ' + name
+  const textEl = document.getElementById('pin-bar-text')
+  textEl.textContent = truncate(currentPinText().replace(/\s+/g, ' '), 120)
+  applyEmojiImages(textEl)
+  document.getElementById('pin-bar-close').style.display = canUnpinCurrent() ? '' : 'none'
+  bar.style.display = 'flex'
+
+  // Hinweis-Pille zeitlich einsortieren (wie die Umfragen)
+  const notice = document.createElement('div')
+  notice.className = 'pin-notice'
+  notice.dataset.createdAt = currentPin.pinned_at
+  const pill = document.createElement('span')
+  pill.className = 'pin-notice-pill'
+  pill.textContent = name + ' hat eine Nachricht angepinnt'
+  notice.appendChild(pill)
+
+  const pinnedAt = new Date(currentPin.pinned_at)
+  const sibling = Array.from(chatBox.children).find(el => el.dataset.createdAt && new Date(el.dataset.createdAt) > pinnedAt)
+  if (sibling) chatBox.insertBefore(notice, sibling)
+  else chatBox.appendChild(notice)
+}
+
+// Tipp auf die Leiste: zur Nachricht springen, oder (wenn sie nicht mehr im Chat steht) den ganzen Text zeigen
+function onPinBarClick() {
+  if (!currentPin) return
+  const target = document.querySelector(`#chat-box .msg-row[data-id="${currentPin.message_id}"]`)
+  if (target) jumpToMessage(currentPin.message_id)
+  else showInfoDialog(currentPinText())
+}
+
+async function pinMessage(msg) {
+  const key = pinChatKey()
+  if (!key || !canPinHere()) return
+  const { data, error } = await supabaseClient
+    .from('pinned_messages')
+    .upsert({
+      chat_key: key,
+      message_id: String(msg.id),
+      message_text: msg.text,
+      sender_id: msg.sender_id,
+      message_created_at: msg.created_at,
+      pinned_by: currentUser.id
+    }, { onConflict: 'chat_key' })
+    .select()
+    .single()
+
+  if (error) {
+    showToast('Anpinnen fehlgeschlagen: ' + error.message)
+    return
+  }
+  currentPin = data
+  renderPin()
+}
+
+async function unpinCurrent() {
+  if (!currentPin || !canUnpinCurrent()) return
+  const { data, error } = await supabaseClient
+    .from('pinned_messages')
+    .delete()
+    .eq('id', currentPin.id)
+    .select()
+
+  if (error) {
+    showToast('Aufheben fehlgeschlagen: ' + error.message)
+  } else if (!data || data.length === 0) {
+    showToast('Aufheben nicht erlaubt.')
+  } else {
+    currentPin = null
+    renderPin()
+  }
+}
+
+// Das ✕ in der Leiste (nur für den, der angepinnt hat, und den Admin)
+async function unpinFromBar() {
+  if (!(await askConfirm('Soll die Nachricht nicht mehr angepinnt sein?', { okText: 'Aufheben', cancelText: 'Abbrechen' }))) return
+  unpinCurrent()
+}
+
+// Wird eine angepinnte Nachricht gelöscht, verschwindet auch das Anpinnen
+async function dropPinForMessages(ids) {
+  if (!currentPin) return
+  if (!ids.map(String).includes(String(currentPin.message_id))) return
+  const pinId = currentPin.id
+  currentPin = null
+  renderPin()
+  await supabaseClient.from('pinned_messages').delete().eq('id', pinId)
+}
+
+function startPinListening() {
+  stopPinListening()
+  const key = pinChatKey()
+  if (!key) return
+
+  pinChannel = supabaseClient
+    .channel('pin:' + key)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'pinned_messages', filter: 'chat_key=eq.' + key },
+      (payload) => {
+        currentPin = payload.eventType === 'DELETE' ? null : payload.new
+        renderPin()
+      })
+    .subscribe()
+}
+
+function stopPinListening() {
+  if (pinChannel) {
+    supabaseClient.removeChannel(pinChannel)
+    pinChannel = null
+  }
+}
+
+// Admin: einer Person VIP-Rechte geben oder wieder wegnehmen
+async function setVip(user, makeVip) {
+  if (!isAdmin()) return
+  const { error } = makeVip
+    ? await supabaseClient.from('vip_users').insert({ user_id: user.id })
+    : await supabaseClient.from('vip_users').delete().eq('user_id', user.id)
+
+  if (error) {
+    showToast('Fehler: ' + error.message)
+    return
+  }
+  if (makeVip) vipIds.add(user.id)
+  else vipIds.delete(user.id)
+  renderUserDetail(user)
+  loadUsers()
 }
 
 async function setGender(user, gender) {
@@ -4116,6 +4349,9 @@ async function inviteUser() {
   // Vor dem Senden nochmal nachfragen
   if (!(await askConfirm('Möchtest du die E-Mail wirklich an ' + email + ' senden?', { okText: 'Senden', cancelText: 'Abbrechen' }))) return
 
+  // Zweite Frage: besondere Rechte? (Esc oder daneben tippen zählt als "Nein")
+  const makeVip = await askConfirm('Soll diese Person besondere Rechte (VIP) bekommen? VIPs dürfen Nachrichten anpinnen.', { okText: 'Ja, VIP', cancelText: 'Nein' })
+
   btn.disabled = true
 
   // Aktuelle Sitzung holen (erneuert den Token bei Bedarf) und das Admin-JWT ausdrücklich mitschicken
@@ -4157,6 +4393,10 @@ async function inviteUser() {
 
   if (!genderSaved) {
     showToast('Das Geschlecht konnte nicht gespeichert werden.')
+  }
+  if (makeVip && data && data.userId) {
+    const { error: vipError } = await supabaseClient.from('vip_users').insert({ user_id: data.userId })
+    if (vipError) showToast('VIP-Rechte konnten nicht gespeichert werden: ' + vipError.message)
   }
   await showInfoDialog('Die E-Mail an ' + email + ' wurde erfolgreich gesendet!')
   loadUsers()
