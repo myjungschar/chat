@@ -23,8 +23,8 @@ self.addEventListener('push', (event) => {
   const options = {
     body: data.body || '',
     // Passt diese beiden Pfade ggf. an, falls eure Icons anders heißen/liegen (siehe manifest.json)
-    icon: data.icon || 'faviicon.svg',
-    badge: data.badge || 'faviicon.svg',
+    icon: data.icon || 'favicon.svg',
+    badge: data.badge || 'favicon.svg',
     tag: data.tag || 'jungschar-chat', // gleicher Chat -> ersetzt die vorherige Meldung statt zu stapeln
     renotify: true,
     data: { url: data.url || './' }

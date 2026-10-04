@@ -2,7 +2,14 @@
 const SUPABASE_URL = 'https://qawjgxikppiumpptchow.supabase.co' // Aus Settings -> API
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFhd2pneGlrcHBpdW1wcHRjaG93Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwMDc0NDYsImV4cCI6MjEwNTU4MzQ0Nn0.CIhHOS2Zznk9pYbWWTrcqO2A-QWbSSGAJC7TY0UQgTs'     // Aus Settings -> API
 
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  realtime: {
+    // Kürzerer Herzschlag: eine tote Verbindung (z. B. nach Standby oder Netzwechsel) fällt schneller auf
+    heartbeatIntervalMs: 15000,
+    // Bei Verbindungsverlust schnell und immer wieder neu versuchen (0,5 s, 1 s, 2 s, dann alle 3 s)
+    reconnectAfterMs: (tries) => [500, 1000, 2000][tries - 1] || 3000
+  }
+})
 
 // --- Zustand der App ---
 let currentUser = null      // Auth-User (id, email)
@@ -5537,6 +5544,103 @@ async function confirmInstall() {
     localStorage.setItem(INSTALL_DISMISSED_KEY, '1')
   }
   updateInstallMenu()
+}
+
+// ===== Zurück aus dem Hintergrund: sofort wieder verbinden und Verpasstes nachladen =====
+// Im Hintergrund hält das Handy die App (und damit die Live-Verbindung) an. Kommt sie zurück,
+// wird die Verbindung sofort erneuert, ohne auf den normalen Wiederverbindungs-Timer zu warten.
+let hiddenSince = null
+let resumeSyncing = false
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') hiddenSince = Date.now()
+  else resumeSync('visible')
+})
+window.addEventListener('pageshow', (e) => { if (e.persisted) resumeSync('pageshow') })
+window.addEventListener('online', () => resumeSync('online'))
+
+async function resumeSync(reason) {
+  if (!currentUser || resumeSyncing) return
+  resumeSyncing = true
+  try {
+    const awayMs = hiddenSince ? Date.now() - hiddenSince : 0
+    hiddenSince = null
+
+    // 1. Die Live-Verbindung sofort wieder aufbauen, falls sie weg ist
+    try {
+      if (!supabaseClient.realtime.isConnected()) supabaseClient.realtime.connect()
+    } catch (e) { /* kein Problem: unten werden die Kanäle ohnehin neu aufgebaut */ }
+
+    // 2. Nach längerer Pause oder verlorenem Netz die Live-Kanäle frisch aufbauen (eine "hängende" Verbindung
+    //    sieht oft noch verbunden aus, bekommt aber nichts mehr)
+    if (awayMs > 15000 || reason === 'online') resubscribeRealtime()
+
+    // 3. Neue Nachrichten, die inzwischen angekommen sind, sofort aus der Datenbank holen
+    if (isConversationVisible()) await fetchMissedMessages()
+  } catch (e) {
+    console.error('Nachladen nach dem Zurückkehren fehlgeschlagen:', e)
+  } finally {
+    resumeSyncing = false
+  }
+}
+
+function resubscribeRealtime() {
+  if (isConversationVisible()) {
+    listenForNewMessages()
+    startPollListening()
+    startPinListening()
+  }
+  startInboxChannel()
+  if (listChannel) {
+    stopListListening()
+    listenForListUpdates()
+  }
+  if (presenceChannel) {
+    stopPresence()
+    startPresence()
+  }
+}
+
+// Holt alles, was im offenen Chat neuer ist als die zuletzt angezeigte Nachricht (ohne den Chat neu aufzubauen)
+async function fetchMissedMessages() {
+  const newest = Object.values(messagesById).map(m => m.created_at).filter(Boolean).sort().pop()
+  if (!newest) {
+    await loadMessages() // leerer Chat: einfach alles laden
+    return
+  }
+
+  let query = supabaseClient
+    .from(currentTable())
+    .select('*, profiles!sender_id(display_name)')
+    .gte('created_at', newest)
+    .order('created_at', { ascending: true })
+
+  if (currentRoom.type === 'dm') {
+    const me = currentUser.id
+    const other = currentRoom.userId
+    query = query.or(`and(sender_id.eq.${me},recipient_id.eq.${other}),and(sender_id.eq.${other},recipient_id.eq.${me})`)
+  } else if (currentRoom.type === 'dm-view') {
+    const a = currentRoom.userA
+    const b = currentRoom.userB
+    query = query.or(`and(sender_id.eq.${a},recipient_id.eq.${b}),and(sender_id.eq.${b},recipient_id.eq.${a})`)
+  } else if (currentRoom.groupKey) {
+    query = query.eq('group_key', currentRoom.groupKey)
+  } else {
+    query = query.is('group_key', null)
+  }
+
+  const { data, error } = await query
+  if (error || !data) return
+
+  let added = 0
+  for (const msg of data) {
+    if (messagesById[msg.id]) continue // schon angezeigt
+    if (!profileCache[msg.sender_id]) await fetchProfileName(msg.sender_id)
+    renderMessage(msg)
+    added++
+  }
+  if (added > 0 && document.visibilityState === 'visible') markCurrentRoomRead()
+  scheduleReactionRefresh() // Reaktionen, die inzwischen dazugekommen sind
 }
 
 registerServiceWorker()
