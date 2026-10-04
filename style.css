@@ -633,14 +633,14 @@ input:focus-visible {
 /* Reaktionen: kleiner dunkler Chip unten links an der Nachricht (ragt etwas über den unteren Rand) */
 .msg-reactions {
   position: absolute;
-  left: 8px;
-  bottom: -13px;
+  left: 16px;
+  bottom: -18px;
   display: flex;
   z-index: 1;
 }
 
 .msg.has-reactions {
-  margin-bottom: 14px; /* Platz, damit der Chip nicht in die nächste Nachricht ragt */
+  margin-bottom: 19px; /* Platz, damit der Chip nicht in die nächste Nachricht ragt */
 }
 
 .reaction-btn {
