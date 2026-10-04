@@ -2497,7 +2497,7 @@ function closeInfoModal() {
 // Unter der Nachricht steht unten links ein kleiner dunkler Chip mit den Emojis und der Anzahl. Ein Klick darauf öffnet
 // das Fenster "Reaktionen" mit allen Personen. Zum Reagieren gibt es die Emoji-Leiste: am PC erscheint sie beim
 // Darüberfahren mit der Maus, am Handy oben im Menü beim langen Drücken.
-const QUICK_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🙏']
+const QUICK_EMOJI = ['👍', '👎', '❤️', '😂', '🤣', '😅', '😮', '🙏', '👌']
 
 function renderReactionChips(container, messageId) {
   container.innerHTML = ''
@@ -2615,7 +2615,7 @@ function openReactionsModal(messageId) {
   modal.style.display = 'flex'
 }
 
-// Die Emoji-Leiste: 6 Standard-Emojis und ganz rechts ein Plus für die volle Auswahl
+// Die Emoji-Leiste: 9 Standard-Emojis und ganz rechts ein Plus für die volle Auswahl
 function buildReactionBar(msg, { onPick, onMore }) {
   const bar = document.createElement('div')
   bar.className = 'reaction-bar'

@@ -2713,6 +2713,24 @@ html:has(body.light-theme) {
   color: var(--text-secondary);
 }
 
+/* Schmale Handys: 9 Emojis + Plus müssen in die Pille passen */
+@media (max-width: 420px) {
+  .reaction-bar {
+    gap: 0;
+    padding: 4px 4px;
+  }
+
+  .reaction-bar-btn {
+    width: 31px;
+    height: 31px;
+  }
+
+  .reaction-bar-btn img.emoji {
+    width: 22px;
+    height: 22px;
+  }
+}
+
 /* Volle Emoji-Auswahl für eine Reaktion */
 .reaction-full-picker.emoji-panel {
   position: fixed;
