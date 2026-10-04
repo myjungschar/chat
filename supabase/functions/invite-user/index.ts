@@ -1,13 +1,13 @@
 // Supabase Edge Function "invite-user"
 // Einfügen unter: Supabase -> Edge Functions -> invite-user -> Code (bestehenden Code ersetzen) -> Deploy.
 //
-// Ablauf:
+// Ablauf (die E-Mail geht erst raus, wenn das Geschlecht sicher gespeichert ist):
 //  1. Prüft, dass der Aufrufer angemeldet UND Admin ist.
-//  2. Verlangt ein Geschlecht ("junge" oder "maedchen") - ohne wird gar nichts gesendet.
-//  3. Lädt die Person ein (E-Mail geht raus).
-//  4. Speichert das Geschlecht (und auf Wunsch die besonderen Rechte) im Profil.
-//     Klappt das Geschlecht nicht, wird das neue Konto sofort wieder entfernt,
-//     damit es nie eine Person ohne Geschlecht gibt.
+//  2. Verlangt ein Geschlecht ("junge" oder "maedchen") - ohne wird gar nichts gemacht.
+//  3. Legt das Konto an, OHNE eine E-Mail zu senden.
+//  4. Speichert das Geschlecht im Profil (mehrere Versuche, weil das Profil gerade erst entsteht)
+//     und prüft es durch Nachlesen. Klappt das nicht: Konto wieder löschen, KEINE E-Mail.
+//  5. Erst jetzt wird die Einladungs-E-Mail gesendet. Scheitert das, wird das Konto wieder gelöscht.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -54,21 +54,24 @@ Deno.serve(async (req) => {
       return json({ error: 'Das Geschlecht fehlt (Junge oder Mädchen).' }, 400)
     }
 
-    // 3. Einladen
-    const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email.trim(), {
-      data: { gender },
-      redirectTo: REDIRECT_URL,
+    // 3. Konto anlegen, noch ohne E-Mail
+    const { data: created, error: createError } = await admin.auth.admin.createUser({
+      email: email.trim(),
+      email_confirm: false,
+      user_metadata: { gender },
     })
-    if (inviteError || !invited?.user) {
-      return json({ error: inviteError?.message ?? 'Einladung fehlgeschlagen.' }, 400)
+    if (createError || !created?.user) {
+      return json({ error: createError?.message ?? 'Konto konnte nicht angelegt werden.' }, 400)
     }
-    const userId = invited.user.id
+    const userId = created.user.id
 
-    // 4. Geschlecht im Profil speichern (Profil wird meist per Trigger angelegt; sonst legen wir es an)
+    // 4. Geschlecht im Profil speichern und durch Nachlesen prüfen
+    //    (das Profil wird meist per Trigger angelegt, das kann einen Moment dauern)
     let genderSaved = false
-    let genderProblem = ''
-    for (let attempt = 0; attempt < 5 && !genderSaved; attempt++) {
+    let genderProblem = 'Das Profil wurde nicht gefunden.'
+    for (let attempt = 0; attempt < 6 && !genderSaved; attempt++) {
       if (attempt > 0) await new Promise((r) => setTimeout(r, 500))
+
       const { data: updated, error: updateError } = await admin
         .from('profiles')
         .update({ gender })
@@ -76,19 +79,35 @@ Deno.serve(async (req) => {
         .select('id')
       if (updateError) {
         genderProblem = updateError.message
-      } else if (updated && updated.length > 0) {
-        genderSaved = true
-      } else {
-        const { error: insertError } = await admin.from('profiles').insert({ id: userId, gender })
-        if (insertError) genderProblem = insertError.message
-        else genderSaved = true
+        continue
       }
+      if (!updated || updated.length === 0) {
+        // Kein Profil vorhanden: selbst anlegen
+        const { error: insertError } = await admin.from('profiles').insert({ id: userId, gender })
+        if (insertError) {
+          genderProblem = insertError.message
+          continue
+        }
+      }
+
+      const { data: check } = await admin.from('profiles').select('gender').eq('id', userId).maybeSingle()
+      if (check?.gender === gender) genderSaved = true
+      else genderProblem = 'Das gespeicherte Geschlecht stimmt nicht.'
     }
 
     if (!genderSaved) {
-      // Rückgängig machen: lieber keine Person als eine ohne Geschlecht
       await admin.auth.admin.deleteUser(userId)
-      return json({ error: 'Geschlecht konnte nicht gespeichert werden, Einladung zurückgenommen: ' + genderProblem }, 500)
+      return json({ error: 'Geschlecht konnte nicht gespeichert werden, es wurde keine E-Mail gesendet (' + genderProblem + ')' }, 500)
+    }
+
+    // 5. Jetzt erst die Einladungs-E-Mail senden
+    const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(email.trim(), {
+      data: { gender },
+      redirectTo: REDIRECT_URL,
+    })
+    if (inviteError) {
+      await admin.auth.admin.deleteUser(userId)
+      return json({ error: 'E-Mail konnte nicht gesendet werden: ' + inviteError.message }, 400)
     }
 
     // Besondere Rechte (optional)
