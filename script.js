@@ -403,22 +403,37 @@ async function enterApp(user) {
     return
   }
 
-  const { data: profile, error } = await supabaseClient
-    .from('profiles')
-    .select('id, display_name, role, is_blocked, gender')
-    .eq('id', user.id)
-    .single()
+  // Das Profil laden - bei schlechtem Netz bis zu 3 Versuche. Ein Netzwerkfehler darf NIEMALS zum Abmelden
+  // führen (früher wurde dabei die Sitzung auf allen Geräten beendet).
+  let profile = null
+  let error = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 1200))
+    ;({ data: profile, error } = await supabaseClient
+      .from('profiles')
+      .select('id, display_name, role, is_blocked, gender')
+      .eq('id', user.id)
+      .single())
+    if (profile || (error && error.code === 'PGRST116')) break // gefunden, oder es gibt das Profil wirklich nicht
+  }
 
-  if (error || !profile) {
+  if (!profile && error && error.code !== 'PGRST116') {
+    // Kein Netz oder Serverproblem: angemeldet bleiben, nur diesmal nicht hineinkommen
+    showLogin()
+    showToast('Keine Verbindung zum Server. Du bist weiter angemeldet - lade die Seite in einem Moment neu.')
+    return
+  }
+
+  if (!profile) {
     showToast('Dein Profil konnte nicht geladen werden.')
-    await supabaseClient.auth.signOut()
+    await supabaseClient.auth.signOut({ scope: 'local' }) // nur dieses Gerät
     showLogin()
     return
   }
 
   if (profile.is_blocked) {
     showToast('Dein Zugang wurde gesperrt. Bitte wende dich an die Leitung.')
-    await supabaseClient.auth.signOut()
+    await supabaseClient.auth.signOut({ scope: 'local' })
     showLogin()
     return
   }
