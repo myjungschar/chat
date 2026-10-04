@@ -3576,9 +3576,20 @@ function cancelEditingMessage() {
   document.getElementById('send-btn').textContent = '➤'
 }
 
+let savingEdit = false // verhindert, dass ein doppelter Enter-Druck die Änderung zweimal abschickt
+
+// Das Bearbeiten wieder öffnen, falls das Speichern nicht geklappt hat (nur wenn das Feld inzwischen leer ist)
+function reopenEditing(id, text) {
+  if (getMessageText().trim() !== '') return
+  editingMessageId = id
+  setMessageText(text)
+  document.getElementById('edit-bar').style.display = 'flex'
+  document.getElementById('send-btn').textContent = '✓'
+}
+
 async function saveEditedMessage(newText) {
   const id = editingMessageId
-  const input = document.getElementById('message-input')
+  if (!id || savingEdit) return
 
   // Die Zeit kann während des Bearbeitens abgelaufen sein
   const row = document.querySelector(`#chat-box [data-id="${id}"]`)
@@ -3588,23 +3599,36 @@ async function saveEditedMessage(newText) {
     return
   }
 
-  const { data, error } = await supabaseClient
-    .from(currentTable())
-    .update({ text: newText, edited_at: new Date().toISOString() })
-    .eq('id', id)
-    .select()
+  // Das Eingabefeld sofort schließen, nicht erst nach der Antwort vom Server
+  savingEdit = true
+  cancelEditingMessage()
 
-  if (error) {
-    showToast('Bearbeiten fehlgeschlagen: ' + error.message)
-  } else if (!data || data.length === 0) {
-    showToast('Bearbeiten nicht erlaubt.')
-  } else {
-    updateMessageElement(data[0])
-    cancelEditingMessage()
-    return
+  try {
+    const { data, error } = await supabaseClient
+      .from(currentTable())
+      .update({ text: newText, edited_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+
+    if (error) {
+      showToast('Bearbeiten fehlgeschlagen: ' + error.message)
+      reopenEditing(id, newText)
+    } else if (!data || data.length === 0) {
+      showToast('Bearbeiten nicht erlaubt.')
+      reopenEditing(id, newText)
+    } else {
+      try {
+        updateMessageElement(data[0])
+      } catch (e) {
+        console.error('Nachricht konnte nicht neu angezeigt werden:', e)
+      }
+    }
+  } catch (e) {
+    showToast('Bearbeiten fehlgeschlagen.')
+    reopenEditing(id, newText)
+  } finally {
+    savingEdit = false
   }
-
-  setMessageText(newText)
 }
 
 // Text (und ggf. den "bearbeitet"-Hinweis) einer bereits angezeigten Nachricht aktualisieren
