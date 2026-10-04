@@ -1840,14 +1840,13 @@ function warmUpEmojiPicker() {
   else setTimeout(run, 3000)
 }
 
-function toggleTextEmojiPicker(anchorBtn, evt) {
-  if (evt) evt.stopPropagation() // sonst schließt der Klick den Picker über den globalen Listener sofort wieder
-  if (openTextEmojiEl) { closeTextEmojiPicker(); return }
-  closeAttachMenu()
-
+// Baut die Emoji-Auswahl (Suche, Reiter, Raster). onPick(emoji) wird beim Antippen eines Emojis aufgerufen.
+// Genutzt vom Nachrichtenfeld (Knopf 😊) und für Reaktionen (Knopf +). allowRemove: "Häufig genutzt" lässt sich aufräumen.
+function buildEmojiPanel(onPick, { allowRemove = false } = {}) {
   const picker = document.createElement('div')
-  picker.className = 'emoji-picker input-emoji-picker emoji-panel'
-  picker.addEventListener('click', e => { e.stopPropagation(); closeMessageMenu() })
+  picker.className = 'emoji-picker emoji-panel'
+  // Klicks im Picker nicht an die Seite weitergeben (die schließt sonst Menüs); ein offenes Löschen-Menü schließen
+  picker.addEventListener('click', e => { e.stopPropagation(); if (openMenuEl && openMenuEl !== picker) closeMessageMenu() })
 
   const search = document.createElement('input')
   search.type = 'text'
@@ -1869,11 +1868,9 @@ function toggleTextEmojiPicker(anchorBtn, evt) {
   picker.appendChild(search)
   picker.appendChild(tabs)
   picker.appendChild(grid)
-  anchorBtn.parentElement.appendChild(picker)
-  openTextEmojiEl = picker
 
   loadEmojiData().then(data => {
-    if (openTextEmojiEl !== picker) return // wurde inzwischen wieder geschlossen
+    if (!picker.isConnected) return // wurde inzwischen wieder geschlossen
 
     const sections = []
     sections.push({ name: EMOJI_RECENT_NAME, icon: '🕒', items: getRecentEmojiItems(data) })
@@ -1899,10 +1896,10 @@ function toggleTextEmojiPicker(anchorBtn, evt) {
         btn.setAttribute('aria-label', item.name)
         btn.appendChild(createEmojiImg(item.emoji))
         btn.addEventListener('click', () => {
-          insertEmojiInInput(item.emoji)
+          onPick(item.emoji)
           recordEmojiUse(item.emoji)
         })
-        if (removable) {
+        if (removable && allowRemove) {
           enableEmojiMenu(btn, () => openEmojiDeleteMenu(btn, () => {
             removeEmojiFromRecent(item.emoji)
             sections[0].items = getRecentEmojiItems(data)
@@ -1912,7 +1909,7 @@ function toggleTextEmojiPicker(anchorBtn, evt) {
         }
         grid.appendChild(btn)
       })
-      if (removable) {
+      if (removable && allowRemove) {
         const hint = document.createElement('p')
         hint.className = 'emoji-hint'
         hint.textContent = 'Zum Löschen: Rechtsklick oder gedrückt halten'
@@ -1959,8 +1956,21 @@ function toggleTextEmojiPicker(anchorBtn, evt) {
     // Startet bei "Häufig genutzt", solange dort schon etwas steht, sonst bei den Smileys
     showSection(sections[0].items.length > 0 ? 0 : 1)
   }).catch(() => {
-    if (openTextEmojiEl === picker) grid.textContent = 'Emojis konnten nicht geladen werden.'
+    if (picker.isConnected) grid.textContent = 'Emojis konnten nicht geladen werden.'
   })
+
+  return picker
+}
+
+function toggleTextEmojiPicker(anchorBtn, evt) {
+  if (evt) evt.stopPropagation() // sonst schließt der Klick den Picker über den globalen Listener sofort wieder
+  if (openTextEmojiEl) { closeTextEmojiPicker(); return }
+  closeAttachMenu()
+
+  const picker = buildEmojiPanel(emoji => insertEmojiInInput(emoji), { allowRemove: true })
+  picker.classList.add('input-emoji-picker')
+  anchorBtn.parentElement.appendChild(picker)
+  openTextEmojiEl = picker
 }
 
 document.addEventListener('click', closeTextEmojiPicker)
@@ -1981,7 +1991,8 @@ async function loadReactionsFor(ids) {
     .in('message_id', ids)
 
   ;(data || []).forEach(r => {
-    if (!map[r.message_id]) map[r.message_id] = { counts: {}, mine: null }
+    if (!map[r.message_id]) map[r.message_id] = { counts: {}, mine: null, users: [] }
+    map[r.message_id].users.push({ user_id: r.user_id, emoji: r.emoji })
     map[r.message_id].counts[r.emoji] = (map[r.message_id].counts[r.emoji] || 0) + 1
     if (r.user_id === currentUser.id) map[r.message_id].mine = r.emoji
   })
@@ -2241,6 +2252,7 @@ function renderMessage(msg) {
   // CSS lässt den Text drum herum laufen, wie bei WhatsApp
   textEl.appendChild(footer)
   msgElement.appendChild(reactRow)
+  msgElement.classList.toggle('has-reactions', reactRow.childElementCount > 0)
 
   row.appendChild(msgElement)
   updateTicks(row)
@@ -2478,24 +2490,262 @@ function closeInfoModal() {
   document.getElementById('info-modal').style.display = 'none'
 }
 
-// Reaktions-Chips unter einer Nachricht neu aufbauen (ein Chip pro benutztem Emoji)
+// ===== Reaktionen =====
+// Pro Person gibt es eine Reaktion je Nachricht (Tabellen message_reactions für Gruppen, dm_reactions für Einzelchats).
+// Unter der Nachricht steht unten links ein kleiner dunkler Chip mit den Emojis und der Anzahl. Ein Klick darauf öffnet
+// das Fenster "Reaktionen" mit allen Personen. Zum Reagieren gibt es die Emoji-Leiste: am PC erscheint sie beim
+// Darüberfahren mit der Maus, am Handy oben im Menü beim langen Drücken.
+const QUICK_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🙏']
+
 function renderReactionChips(container, messageId) {
   container.innerHTML = ''
-  const info = reactionMap[messageId] || { counts: {}, mine: null }
+  const info = reactionMap[messageId] || { counts: {}, mine: null, users: [] }
+  const entries = Object.entries(info.counts).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1])
+  const total = entries.reduce((sum, [, n]) => sum + n, 0)
 
-  Object.entries(info.counts).forEach(([emoji, count]) => {
-    if (count <= 0) return
-    const chip = document.createElement('button')
-    chip.className = 'reaction-btn' + (info.mine === emoji ? ' active' : '')
-    chip.textContent = emoji + ' ' + count
-    chip.addEventListener('click', () => toggleReaction(messageId, emoji))
-    container.appendChild(chip)
+  const msgEl = container.closest('.msg')
+  if (msgEl) msgEl.classList.toggle('has-reactions', total > 0)
+  if (total === 0) return
+
+  const chip = document.createElement('button')
+  chip.type = 'button'
+  chip.className = 'reaction-btn reaction-chip' + (info.mine ? ' active' : '')
+  chip.setAttribute('aria-label', 'Reaktionen anzeigen')
+  entries.slice(0, 3).forEach(([emoji]) => chip.appendChild(createEmojiImg(emoji)))
+  const count = document.createElement('span')
+  count.className = 'reaction-count'
+  count.textContent = String(total)
+  chip.appendChild(count)
+  chip.addEventListener('click', e => {
+    e.stopPropagation()
+    openReactionsModal(messageId)
   })
-  applyEmojiImages(container)
+  container.appendChild(chip)
 }
 
-// Die Emoji, die im Reagieren-Menü zur Auswahl stehen
-const QUICK_EMOJI = ['👍', '👎', '❤️', '😂', '😮', '😢', '🙏']
+function closeReactionsModal() {
+  document.getElementById('reactions-modal').style.display = 'none'
+}
+
+// Fenster "Reaktionen": Reiter "Alle" + ein Reiter je Emoji, darunter die Personen (Profilbild, Name, Emoji)
+function openReactionsModal(messageId) {
+  closeMessageMenu()
+  hideReactionBar()
+  const info = reactionMap[messageId]
+  const users = info && info.users ? info.users : []
+  if (users.length === 0) return
+
+  const modal = document.getElementById('reactions-modal')
+  const tabs = document.getElementById('reactions-tabs')
+  const list = document.getElementById('reactions-list')
+
+  const counts = {}
+  users.forEach(u => { counts[u.emoji] = (counts[u.emoji] || 0) + 1 })
+  const emojis = Object.keys(counts).sort((a, b) => counts[b] - counts[a])
+  let active = 'all'
+
+  const realName = userId => (profileCache[userId] && profileCache[userId].name) || 'Unbekannt'
+
+  function render() {
+    tabs.innerHTML = ''
+    const defs = [{ key: 'all', emoji: null, count: users.length }]
+      .concat(emojis.map(emoji => ({ key: emoji, emoji, count: counts[emoji] })))
+    defs.forEach(def => {
+      const tab = document.createElement('button')
+      tab.type = 'button'
+      tab.className = 'reactions-tab' + (def.key === active ? ' active' : '')
+      if (def.emoji) tab.appendChild(createEmojiImg(def.emoji))
+      else tab.appendChild(document.createTextNode('Alle'))
+      const count = document.createElement('span')
+      count.textContent = String(def.count)
+      tab.appendChild(count)
+      tab.addEventListener('click', () => { active = def.key; render() })
+      tabs.appendChild(tab)
+    })
+
+    list.innerHTML = ''
+    users
+      .filter(u => active === 'all' || u.emoji === active)
+      .slice()
+      .sort((a, b) => {
+        if (a.user_id === currentUser.id) return -1
+        if (b.user_id === currentUser.id) return 1
+        return realName(a.user_id).localeCompare(realName(b.user_id), 'de')
+      })
+      .forEach(u => {
+        const isMe = u.user_id === currentUser.id
+        const li = document.createElement('li')
+        li.className = 'reactions-item' + (isMe ? ' mine' : '')
+
+        const avatar = document.createElement('div')
+        avatar.className = 'reaction-avatar'
+        avatar.style.background = avatarColor(u.user_id)
+        avatar.textContent = initialsOf(realName(u.user_id))
+
+        const text = document.createElement('div')
+        text.className = 'reactions-item-text'
+        const name = document.createElement('span')
+        name.className = 'reactions-item-name'
+        name.textContent = realName(u.user_id) + (isMe ? ' (Du)' : '')
+        text.appendChild(name)
+        if (isMe) {
+          const hint = document.createElement('span')
+          hint.className = 'reactions-item-hint'
+          hint.textContent = 'Tippen zum Entfernen'
+          text.appendChild(hint)
+        }
+
+        li.append(avatar, text, createEmojiImg(u.emoji))
+
+        if (isMe) {
+          li.addEventListener('click', async () => {
+            await toggleReaction(messageId, u.emoji)
+            const rest = reactionMap[messageId] && reactionMap[messageId].users ? reactionMap[messageId].users : []
+            if (rest.length > 0) openReactionsModal(messageId)
+            else closeReactionsModal()
+          })
+        }
+        list.appendChild(li)
+      })
+  }
+
+  render()
+  modal.style.display = 'flex'
+}
+
+// Die Emoji-Leiste: 6 Standard-Emojis und ganz rechts ein Plus für die volle Auswahl
+function buildReactionBar(msg, { onPick, onMore }) {
+  const bar = document.createElement('div')
+  bar.className = 'reaction-bar'
+  const mine = reactionMap[msg.id] ? reactionMap[msg.id].mine : null
+
+  QUICK_EMOJI.forEach(emoji => {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'reaction-bar-btn' + (mine === emoji ? ' active' : '')
+    btn.appendChild(createEmojiImg(emoji))
+    btn.addEventListener('click', e => {
+      e.stopPropagation()
+      onPick()
+      toggleReaction(msg.id, emoji)
+    })
+    bar.appendChild(btn)
+  })
+
+  const more = document.createElement('button')
+  more.type = 'button'
+  more.className = 'reaction-bar-btn reaction-plus'
+  more.textContent = '+'
+  more.setAttribute('aria-label', 'Weitere Emojis')
+  more.addEventListener('click', e => {
+    e.stopPropagation()
+    onMore()
+  })
+  bar.appendChild(more)
+  return bar
+}
+
+// Die volle Emoji-Auswahl (aus emojis.json) für eine Reaktion, direkt unter oder über der Nachricht
+function openReactionPicker(anchorEl, msg) {
+  closeMessageMenu()
+  hideReactionBar()
+
+  const panel = buildEmojiPanel(emoji => {
+    closeMessageMenu()
+    toggleReaction(msg.id, emoji)
+  })
+  panel.classList.add('reaction-full-picker')
+  document.body.appendChild(panel)
+
+  const margin = 8
+  const rect = anchorEl.getBoundingClientRect()
+  const size = panel.getBoundingClientRect()
+  let top = rect.bottom + 8
+  if (top + size.height > window.innerHeight - margin) top = rect.top - size.height - 8
+  top = Math.min(Math.max(top, margin), Math.max(margin, window.innerHeight - size.height - margin))
+  let left = rect.left + rect.width / 2 - size.width / 2
+  left = Math.min(Math.max(left, margin), Math.max(margin, window.innerWidth - size.width - margin))
+  panel.style.left = left + 'px'
+  panel.style.top = top + 'px'
+
+  openMenuEl = panel
+}
+
+// ----- PC: Beim Darüberfahren mit der Maus erscheint die Emoji-Leiste an der Nachricht -----
+let hoverBarEl = null
+let hoverBarMsgEl = null
+let hoverBarTimer = null
+
+// Nur Geräte mit echter Maus (Hover). Am Handy gibt es stattdessen das Menü beim langen Drücken.
+function canHoverReact() {
+  return window.matchMedia('(hover: hover) and (pointer: fine)').matches
+}
+
+function hideReactionBar() {
+  clearTimeout(hoverBarTimer)
+  if (hoverBarEl) hoverBarEl.remove()
+  hoverBarEl = null
+  hoverBarMsgEl = null
+}
+
+// Kurze Verzögerung, damit die Maus von der Nachricht zur Leiste wandern kann
+function scheduleHideReactionBar() {
+  clearTimeout(hoverBarTimer)
+  hoverBarTimer = setTimeout(hideReactionBar, 250)
+}
+
+function showReactionBar(msgElement, msg) {
+  if (!canHoverReact() || selectMode || openMenuEl) return
+  clearTimeout(hoverBarTimer)
+  if (hoverBarEl && hoverBarMsgEl === msgElement) return
+  hideReactionBar()
+
+  const bar = buildReactionBar(msg, {
+    onPick: hideReactionBar,
+    onMore: () => openReactionPicker(msgElement, msg)
+  })
+  bar.classList.add('floating')
+  bar.addEventListener('mouseenter', () => clearTimeout(hoverBarTimer))
+  bar.addEventListener('mouseleave', scheduleHideReactionBar)
+  document.body.appendChild(bar)
+
+  const margin = 8
+  const rect = msgElement.getBoundingClientRect()
+  const size = bar.getBoundingClientRect()
+  const chatRect = document.getElementById('chat-box').getBoundingClientRect()
+  const isOwn = msgElement.classList.contains('own')
+
+  let top = rect.top - size.height - 2 // direkt über der Sprechblase
+  if (top < chatRect.top) top = rect.bottom + 2 // oben kein Platz: darunter
+  let left = isOwn ? rect.right - size.width : rect.left
+  left = Math.min(Math.max(left, margin), Math.max(margin, window.innerWidth - size.width - margin))
+  top = Math.min(Math.max(top, margin), Math.max(margin, window.innerHeight - size.height - margin))
+  bar.style.left = left + 'px'
+  bar.style.top = top + 'px'
+
+  hoverBarEl = bar
+  hoverBarMsgEl = msgElement
+}
+
+document.getElementById('chat-box').addEventListener('scroll', hideReactionBar, { passive: true })
+
+// Reaktionen anderer Personen live nachladen (wenn die Tabelle in Supabase Realtime freigegeben ist)
+let reactionRefreshTimer = null
+function scheduleReactionRefresh() {
+  clearTimeout(reactionRefreshTimer)
+  reactionRefreshTimer = setTimeout(async () => {
+    const rows = Array.from(document.querySelectorAll('#chat-box .msg-row[data-id]:not(.poll-row)'))
+    const ids = rows.map(row => row.dataset.id)
+    if (ids.length === 0) return
+    const fresh = await loadReactionsFor(ids)
+    rows.forEach(row => {
+      const id = row.dataset.id
+      reactionMap[id] = fresh[id] || { counts: {}, mine: null, users: [] }
+      const reactRow = row.querySelector('.msg-reactions')
+      if (reactRow) renderReactionChips(reactRow, id)
+    })
+  }, 300)
+}
 
 let openMenuEl = null
 
@@ -2508,7 +2758,10 @@ function closeMessageMenu() {
 
 document.addEventListener('click', closeMessageMenu)
 // 'scroll' bubbelt nicht - mit capture:true trifft das trotzdem den Chatverlauf beim Scrollen
-document.addEventListener('scroll', closeMessageMenu, true)
+document.addEventListener('scroll', (e) => {
+  if (openMenuEl && e.target instanceof Node && openMenuEl.contains(e.target)) return // Scrollen im Menü selbst
+  closeMessageMenu()
+}, true)
 
 // Öffnet das Drei-Punkte-Menü neben einer Nachricht
 // Öffnet das Nachrichtenmenü nicht mehr über einen eigenen Button, sondern per Rechtsklick
@@ -2522,11 +2775,19 @@ function attachMessageMenuTriggers(msgElement, msg, options) {
     return target.closest('.msg-ticks, .msg-reply-quote, .reaction-btn')
   }
 
+  // PC: Beim Darüberfahren erscheint die Emoji-Leiste
+  if (options.canReact) {
+    msgElement.addEventListener('mouseenter', () => showReactionBar(msgElement, msg))
+    msgElement.addEventListener('mouseleave', scheduleHideReactionBar)
+  }
+
+  // Rechtsklick (PC): normales Menü mit den Aktionen. Auf Touch-Geräten (auch wenn der Browser das Drücken als
+  // "Rechtsklick" meldet) kommt oben zusätzlich die Emoji-Leiste.
   msgElement.addEventListener('contextmenu', (e) => {
     if (selectMode) { e.preventDefault(); return } // im Auswahlmodus gibt es kein Menü
     if (isExcluded(e.target)) return
     e.preventDefault()
-    openMessageMenu(msgElement, msg, options)
+    openMessageMenu(msgElement, msg, options, { withReactions: !canHoverReact() })
   })
 
   let pressTimer = null
@@ -2535,7 +2796,7 @@ function attachMessageMenuTriggers(msgElement, msg, options) {
     if (selectMode || isExcluded(e.target)) return
     pressTimer = setTimeout(() => {
       pressTimer = null
-      openMessageMenu(msgElement, msg, options)
+      openMessageMenu(msgElement, msg, options, { withReactions: true })
     }, 450)
   }, { passive: true })
 
@@ -2544,8 +2805,9 @@ function attachMessageMenuTriggers(msgElement, msg, options) {
   })
 }
 
-function openMessageMenu(anchorEl, msg, options) {
+function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {}) {
   closeMessageMenu()
+  hideReactionBar()
 
   const menu = document.createElement('div')
   menu.className = 'msg-menu'
@@ -2553,6 +2815,14 @@ function openMessageMenu(anchorEl, msg, options) {
 
   function showMainOptions() {
     menu.innerHTML = ''
+
+    // Handy: oben die Emoji-Leiste, darunter die Aktionen
+    if (withReactions && options.canReact) {
+      menu.appendChild(buildReactionBar(msg, {
+        onPick: closeMessageMenu,
+        onMore: () => openReactionPicker(anchorEl, msg)
+      }))
+    }
 
     if (options.canReply) {
       const replyItem = document.createElement('button')
@@ -2578,14 +2848,6 @@ function openMessageMenu(anchorEl, msg, options) {
         }
       })
       menu.appendChild(copyItem)
-    }
-
-    if (options.canReact) {
-      const reactItem = document.createElement('button')
-      reactItem.className = 'msg-menu-item'
-      reactItem.textContent = 'Reagieren'
-      reactItem.addEventListener('click', showEmojiPicker)
-      menu.appendChild(reactItem)
     }
 
     if (options.canInfo) {
@@ -2629,25 +2891,6 @@ function openMessageMenu(anchorEl, msg, options) {
       })
       menu.appendChild(delItem)
     }
-  }
-
-  function showEmojiPicker() {
-    menu.innerHTML = ''
-    const picker = document.createElement('div')
-    picker.className = 'emoji-picker'
-    QUICK_EMOJI.forEach(emoji => {
-      const btn = document.createElement('button')
-      btn.className = 'emoji-picker-btn'
-      btn.textContent = emoji
-      btn.addEventListener('click', () => {
-        closeMessageMenu()
-        toggleReaction(msg.id, emoji)
-      })
-      picker.appendChild(btn)
-    })
-    applyEmojiImages(picker)
-    menu.appendChild(picker)
-    positionFloatingMenu(menu, anchorEl)
   }
 
   showMainOptions()
@@ -2772,6 +3015,9 @@ function listenForNewMessages() {
     .on('postgres_changes', { event: 'DELETE', schema: 'public', table: table }, (payload) => {
       removeMessageElement(payload.old.id)
     })
+    .on('postgres_changes', { event: '*', schema: 'public', table: isDmRoom() ? 'dm_reactions' : 'message_reactions' }, () => {
+      scheduleReactionRefresh()
+    })
 
   chatChannel = channel.subscribe()
   startPeerListening()
@@ -2779,6 +3025,8 @@ function listenForNewMessages() {
 
 function stopListening() {
   exitSelectMode()
+  hideReactionBar()
+  clearTimeout(reactionRefreshTimer)
   if (chatChannel) {
     supabaseClient.removeChannel(chatChannel)
     chatChannel = null
@@ -2885,6 +3133,7 @@ function makeRowSelectable(row) {
 
 function enterSelectMode(firstId) {
   closeMessageMenu()
+  hideReactionBar()
   if (typeof cancelReplyingTo === 'function') cancelReplyingTo()
   if (typeof cancelEditingMessage === 'function') cancelEditingMessage()
 
@@ -2986,7 +3235,7 @@ document.addEventListener('keydown', (e) => {
 // Reaktion setzen, wechseln oder wieder entfernen (ein Klick auf die bereits aktive schaltet sie aus)
 async function toggleReaction(messageId, emoji) {
   const table = isDmRoom() ? 'dm_reactions' : 'message_reactions'
-  const info = reactionMap[messageId] || { counts: {}, mine: null }
+  const info = reactionMap[messageId] || { counts: {}, mine: null, users: [] }
 
   if (info.mine === emoji) {
     await supabaseClient
@@ -3010,7 +3259,7 @@ async function toggleReaction(messageId, emoji) {
   }
 
   const updated = await loadReactionsFor([messageId])
-  reactionMap[messageId] = updated[messageId] || { counts: {}, mine: null }
+  reactionMap[messageId] = updated[messageId] || { counts: {}, mine: null, users: [] }
 
   const row = document.querySelector(`#chat-box [data-id="${messageId}"] .msg-reactions`)
   if (row) renderReactionChips(row, messageId)

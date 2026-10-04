@@ -495,6 +495,18 @@
   </div>
 
   <!-- Eigenes Bestätigungs-Pop-up, ersetzt die Browser-eigene Meldung -->
+  <!-- Fenster "Reaktionen": wer hat wie auf eine Nachricht reagiert -->
+  <div id="reactions-modal" class="modal-overlay" style="display: none;" onclick="closeReactionsModal()">
+    <div class="modal-box reactions-box" onclick="event.stopPropagation()">
+      <p class="install-title">Reaktionen</p>
+      <div id="reactions-tabs" class="reactions-tabs"></div>
+      <ul id="reactions-list" class="reactions-list"></ul>
+      <div class="modal-actions">
+        <button type="button" class="modal-cancel" onclick="closeReactionsModal()">Schließen</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Pop-up: wer in dieser Gruppe gerade online ist -->
   <div id="online-modal" class="modal-overlay" style="display: none;" onclick="closeOnlineList()">
     <div class="modal-box" onclick="event.stopPropagation()">
