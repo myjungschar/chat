@@ -1055,7 +1055,8 @@ img.emoji {
 }
 
 /* Platzhalter "Nachricht", solange das Feld leer ist */
-.message-input:empty::before {
+.message-input:empty::before,
+.message-input.is-empty::before {
   content: attr(data-placeholder);
   color: #55636f;
   pointer-events: none;

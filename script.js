@@ -4832,8 +4832,17 @@ onEnter('message-input', sendMessage)
 
 const MESSAGE_INPUT_MAX_LINES = 5 // so viele Zeilen wächst das Feld mit - danach scrollt es für sich weiter
 
+// Platzhalter "Nachricht" zeigen, sobald im Feld nichts Sichtbares mehr steht. Das Feld selbst ist danach oft nicht
+// ganz leer (übrig gebliebene Zeilenumbrüche), deshalb reicht der CSS-Test ":empty" allein nicht.
+function updateMessagePlaceholder() {
+  const input = document.getElementById('message-input')
+  const isEmpty = input.textContent.replace(/[\u200b\s]/g, '') === '' && !input.querySelector('img')
+  input.classList.toggle('is-empty', isEmpty)
+}
+
 function autoResizeMessageInput() {
   const input = document.getElementById('message-input')
+  updateMessagePlaceholder()
   input.style.height = 'auto'
 
   // Das Feld rechnet mit Rahmen (border-box): scrollHeight enthält den Rahmen nicht. Ohne diese 2px blieb das Feld
