@@ -3871,7 +3871,7 @@ async function setGender(user, gender) {
   if (!isAdmin()) return
   // Wechsel von einer Gruppe in die andere (z. B. Mädchen -> Junge): erst nachfragen
   if (user.gender && gender && user.gender !== gender) {
-    const question = gender === 'junge' ? 'is das wirklich junge??' : 'is das wirklich mädchen??'
+    const question = gender === 'junge' ? 'Ist das wirklich ein Junge?' : 'Ist das wirklich ein Mädchen?'
     if (!(await askConfirm(question, { okText: 'Ja, wechseln', cancelText: 'Abbrechen' }))) return
   }
 
@@ -4013,6 +4013,9 @@ async function inviteUser() {
     return
   }
 
+  // Vor dem Senden nochmal nachfragen
+  if (!(await askConfirm('Möchtest du die E-Mail wirklich an ' + email + ' senden?', { okText: 'Senden', cancelText: 'Abbrechen' }))) return
+
   btn.disabled = true
 
   // Aktuelle Sitzung holen (erneuert den Token bei Bedarf) und das Admin-JWT ausdrücklich mitschicken
@@ -4052,10 +4055,10 @@ async function inviteUser() {
     genderSaved = !genderError && updated && updated.length > 0
   }
 
-  showToast('E-Mail an ' + email + ' wurde erfolgreich gesendet!', 'success')
   if (!genderSaved) {
-    showToast('Geschlecht konnte nicht gespeichert werden.')
+    showToast('Das Geschlecht konnte nicht gespeichert werden.')
   }
+  await showInfoDialog('Die E-Mail an ' + email + ' wurde erfolgreich gesendet!')
   loadUsers()
 }
 
@@ -4334,6 +4337,45 @@ function askConfirm(message, { okText = 'OK', cancelText = 'Abbrechen', danger =
     cancelBtn.addEventListener('click', () => finish(false))
     okBtn.addEventListener('click', () => finish(true))
     overlay.addEventListener('click', e => { if (e.target === overlay) finish(false) })
+  })
+}
+
+// Einfaches Hinweis-Pop-up mit nur einem "OK"-Knopf
+function showInfoDialog(message, okText = 'OK') {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div')
+    overlay.className = 'confirm-overlay'
+
+    const dialog = document.createElement('div')
+    dialog.className = 'confirm-dialog'
+    dialog.setAttribute('role', 'alertdialog')
+    dialog.setAttribute('aria-modal', 'true')
+
+    const text = document.createElement('p')
+    text.textContent = message
+
+    const buttons = document.createElement('div')
+    buttons.className = 'confirm-buttons'
+    const okBtn = document.createElement('button')
+    okBtn.type = 'button'
+    okBtn.className = 'confirm-ok'
+    okBtn.textContent = okText
+    buttons.appendChild(okBtn)
+
+    dialog.append(text, buttons)
+    overlay.appendChild(dialog)
+    document.body.appendChild(overlay)
+    okBtn.focus()
+
+    const finish = () => {
+      document.removeEventListener('keydown', onKey)
+      overlay.remove()
+      resolve()
+    }
+    const onKey = e => { if (e.key === 'Escape' || e.key === 'Enter') finish() }
+    document.addEventListener('keydown', onKey)
+    okBtn.addEventListener('click', finish)
+    overlay.addEventListener('click', e => { if (e.target === overlay) finish() })
   })
 }
 
