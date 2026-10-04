@@ -3855,7 +3855,9 @@ function renderUserDetail(u) {
 async function deleteUser(user) {
   if (!isAdmin()) return
   const name = user.display_name || 'diesen Nutzer'
-  if (!(await askConfirm(name + ' wirklich löschen? Das Konto kann nicht wiederhergestellt werden.', { okText: 'Löschen', danger: true }))) return
+  // Doppelte Warnung: erst nach beiden Bestätigungen wird wirklich gelöscht
+  if (!(await askConfirm('Bist du dir sicher, dass du diesen Nutzer unwiderruflich löschen möchtest? (' + name + ')', { okText: 'Ja, weiter', danger: true }))) return
+  if (!(await askConfirm('Letzte Warnung: ' + name + ' und das Konto werden endgültig gelöscht und können NICHT wiederhergestellt werden. Wirklich löschen?', { okText: 'Endgültig löschen', danger: true }))) return
 
   const { error } = await supabaseClient.functions.invoke('delete-user', { body: { userId: user.id } })
   if (error) {
@@ -3866,6 +3868,13 @@ async function deleteUser(user) {
 }
 
 async function setGender(user, gender) {
+  if (!isAdmin()) return
+  // Wechsel von einer Gruppe in die andere (z. B. Mädchen -> Junge): erst nachfragen
+  if (user.gender && gender && user.gender !== gender) {
+    const question = gender === 'junge' ? 'is das wirklich junge??' : 'is das wirklich mädchen??'
+    if (!(await askConfirm(question, { okText: 'Ja, wechseln', cancelText: 'Abbrechen' }))) return
+  }
+
   const { error } = await supabaseClient
     .from('profiles')
     .update({ gender: gender || null })
@@ -3883,7 +3892,9 @@ async function setGender(user, gender) {
 async function setBlocked(user, blocked) {
   if (!isAdmin()) return
   const name = user.display_name || 'diesen Nutzer'
-  const question = blocked ? name + ' sperren?' : name + ' wieder entsperren?'
+  const question = blocked
+    ? 'Möchtest du diesen Nutzer wirklich sperren? (' + name + ' kann sich danach nicht mehr im Chat anmelden oder schreiben, bis du die Sperre wieder aufhebst.)'
+    : name + ' wieder entsperren?'
   if (!(await askConfirm(question, { okText: blocked ? 'Sperren' : 'Entsperren', danger: blocked }))) return
 
   const { data, error } = await supabaseClient
@@ -3909,7 +3920,15 @@ async function setBlocked(user, blocked) {
 function openNewUser() {
   showScreen('new-user-bereich')
   document.getElementById('new-user-email').value = ''
+  document.querySelectorAll('#new-user-gender .gender-btn').forEach(b => b.classList.remove('active'))
   document.getElementById('new-user-email').focus()
+}
+
+// Junge/Mädchen im Admin-Formular auswählen (nochmal drücken hebt die Auswahl auf)
+function selectNewUserGender(value) {
+  document.querySelectorAll('#new-user-gender .gender-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.value === value && !b.classList.contains('active'))
+  })
 }
 
 // Edge Functions melden Fehler als "non-2xx" - der eigentliche Grund steckt im Antworttext
@@ -3987,14 +4006,14 @@ async function inviteUser() {
     return
   }
 
-  btn.disabled = true
-
-  // Erst fragen, ob Junge oder Mädchen (bei "Abbrechen" wird nichts gesendet)
-  const gender = await askGender(email)
+  const activeGenderBtn = document.querySelector('#new-user-gender .gender-btn.active')
+  const gender = activeGenderBtn ? activeGenderBtn.dataset.value : null
   if (!gender) {
-    btn.disabled = false
+    showToast('Bitte Junge oder Mädchen auswählen.')
     return
   }
+
+  btn.disabled = true
 
   // Aktuelle Sitzung holen (erneuert den Token bei Bedarf) und das Admin-JWT ausdrücklich mitschicken
   const { data: { session } } = await supabaseClient.auth.getSession()
@@ -4005,7 +4024,7 @@ async function inviteUser() {
   }
 
   const { data, error } = await supabaseClient.functions.invoke('invite-user', {
-    body: { email },
+    body: { email, gender },
     headers: { Authorization: 'Bearer ' + session.access_token }
   })
   btn.disabled = false
@@ -4020,8 +4039,9 @@ async function inviteUser() {
   }
 
   input.value = ''
+  document.querySelectorAll('#new-user-gender .gender-btn').forEach(b => b.classList.remove('active'))
 
-  // Das neue Profil gleich als Junge/Mädchen eintragen (die Funktion liefert die ID des neuen Nutzers zurück)
+  // Das neue Profil gleich mit dem gewählten Geschlecht (= Gruppe) eintragen (die Funktion liefert die ID des neuen Nutzers zurück)
   let genderSaved = false
   if (data && data.userId) {
     const { data: updated, error: genderError } = await supabaseClient
@@ -4032,10 +4052,9 @@ async function inviteUser() {
     genderSaved = !genderError && updated && updated.length > 0
   }
 
-  if (genderSaved) {
-    showToast('Einladung an ' + email + ' gesendet.', 'success')
-  } else {
-    showToast('Einladung an ' + email + ' gesendet. Junge/Mädchen bitte unter „Nutzer verwalten“ noch eintragen.')
+  showToast('E-Mail an ' + email + ' wurde erfolgreich gesendet!', 'success')
+  if (!genderSaved) {
+    showToast('Geschlecht konnte nicht gespeichert werden.')
   }
   loadUsers()
 }

@@ -325,6 +325,14 @@
         <input type="email" id="new-user-email" placeholder="name@adresse.de" autocomplete="off">
       </div>
 
+      <div class="input-group">
+        <label>Geschlecht</label>
+        <div class="gender-choice" id="new-user-gender">
+          <button type="button" class="gender-btn junge" data-value="junge" onclick="selectNewUserGender('junge')">Junge</button>
+          <button type="button" class="gender-btn maedchen" data-value="maedchen" onclick="selectNewUserGender('maedchen')">Mädchen</button>
+        </div>
+      </div>
+
       <button id="invite-user-btn" onclick="inviteUser()">Einladung senden</button>
       <p class="settings-hint">Die Person bekommt einen Link per E-Mail und vergibt darüber ihr eigenes Passwort.</p>
       </div>
