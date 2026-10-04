@@ -2271,6 +2271,7 @@ function renderMessage(msg) {
   // wird gleich als eigenes, rechts schwebendes Element direkt danach eingehängt (siehe unten) -
   // dadurch rutscht sie bei kurzen Nachrichten ans Textende, bei langen presst sie sich unten rechts an
   appendTextWithLinks(textEl, msg.text)
+  markBigEmoji(textEl, msg.text)
 
   const reactRow = document.createElement('div')
   reactRow.className = 'msg-reactions'
@@ -3684,12 +3685,36 @@ async function saveEditedMessage(newText) {
 }
 
 // Text (und ggf. den "bearbeitet"-Hinweis) einer bereits angezeigten Nachricht aktualisieren
+// Besteht eine Nachricht nur aus 1 bis 3 Emojis (sonst nichts), werden sie groß dargestellt wie bei WhatsApp
+const BIG_EMOJI_ONE = '(?:\\p{Regional_Indicator}{2}|[0-9#*]\\uFE0F?\\u20E3|\\p{Extended_Pictographic}(?:\\uFE0F|\\p{Emoji_Modifier})?(?:\\u200D\\p{Extended_Pictographic}(?:\\uFE0F|\\p{Emoji_Modifier})?)*)'
+
+function bigEmojiCount(text) {
+  try {
+    const compact = String(text || '').replace(/\s+/g, '')
+    if (!compact) return 0
+    if (!new RegExp('^' + BIG_EMOJI_ONE + '+$', 'u').test(compact)) return 0
+    const count = (compact.match(new RegExp(BIG_EMOJI_ONE, 'gu')) || []).length
+    return count >= 1 && count <= 3 ? count : 0
+  } catch (e) {
+    return 0 // ältere Browser ohne diese Emoji-Erkennung: normale Größe
+  }
+}
+
+function markBigEmoji(textEl, text) {
+  textEl.classList.remove('emoji-big', 'emoji-big-1', 'emoji-big-2', 'emoji-big-3')
+  const count = bigEmojiCount(text)
+  if (count > 0) textEl.classList.add('emoji-big', 'emoji-big-' + count)
+}
+
 function updateMessageElement(msg) {
   const row = document.querySelector(`#chat-box [data-id="${msg.id}"]`)
   if (!row) return
 
   const textEl = row.querySelector('.msg-text')
-  if (textEl) textEl.textContent = msg.text
+  if (textEl) {
+    textEl.textContent = msg.text
+    markBigEmoji(textEl, msg.text)
+  }
 
   if (msg.edited_at && !row.querySelector('.msg-edited')) {
     const meta = row.querySelector('.msg-meta')

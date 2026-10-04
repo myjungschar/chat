@@ -3013,3 +3013,28 @@ html:has(body.light-theme) {
 .reactions-tab.reactions-add:hover {
   color: var(--text-primary);
 }
+
+/* Nachricht nur aus 1-3 Emojis: groß darstellen (je weniger, desto größer) */
+.msg-text.emoji-big {
+  line-height: 1.15;
+}
+
+.msg-text.emoji-big img.emoji {
+  margin: 0 0.06em;
+  vertical-align: -0.12em;
+}
+
+.msg-text.emoji-big-1 img.emoji {
+  width: 3.4em;
+  height: 3.4em;
+}
+
+.msg-text.emoji-big-2 img.emoji {
+  width: 2.7em;
+  height: 2.7em;
+}
+
+.msg-text.emoji-big-3 img.emoji {
+  width: 2.2em;
+  height: 2.2em;
+}
