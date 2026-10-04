@@ -3164,6 +3164,7 @@ function listenForNewMessages() {
       const msg = payload.new
       if (!profileCache[msg.sender_id]) await fetchProfileName(msg.sender_id)
       renderMessage(msg)
+      if (msg.sender_id !== currentUser.id && !isAdmin()) playMessageSound()
       // Der Chat ist offen, die Nachricht wird gerade gesehen -> nicht später als ungelesen zählen
       if (msg.sender_id !== currentUser.id && document.visibilityState === 'visible') markCurrentRoomRead()
     })
@@ -5641,6 +5642,70 @@ async function fetchMissedMessages() {
   }
   if (added > 0 && document.visibilityState === 'visible') markCurrentRoomRead()
   scheduleReactionRefresh() // Reaktionen, die inzwischen dazugekommen sind
+}
+
+// ===== Ton bei neuen Nachrichten (statt Windows-Banner, solange die App offen und aktiv ist) =====
+// Ist die App im Vordergrund, schickt der Service Worker kein Banner, sondern sagt der Seite, dass sie
+// einen kurzen Ton spielen soll. Der Ton wird direkt im Browser erzeugt (keine Datei nötig).
+const SOUND_OFF_KEY = 'messageSoundOff'
+let audioCtx = null
+let lastSoundAt = 0
+
+function soundEnabled() {
+  return localStorage.getItem(SOUND_OFF_KEY) !== '1'
+}
+
+// Browser erlauben Ton erst nach einem Klick/Tastendruck auf der Seite - das wird hier einmal abgefangen
+function unlockAudio() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+    if (audioCtx.state === 'suspended') audioCtx.resume()
+  } catch (e) { /* Ton nicht verfügbar */ }
+}
+;['pointerdown', 'keydown', 'touchstart'].forEach(evt => {
+  document.addEventListener(evt, unlockAudio, { passive: true })
+})
+
+function playMessageSound() {
+  if (!soundEnabled() || !audioCtx || audioCtx.state !== 'running') return
+  const now = Date.now()
+  if (now - lastSoundAt < 1500) return // nicht doppelt (Push + Live-Nachricht) und nicht wie ein Maschinengewehr
+  lastSoundAt = now
+
+  try {
+    const t = audioCtx.currentTime
+    ;[[880, 0], [1318, 0.12]].forEach(([freq, offset]) => {
+      const osc = audioCtx.createOscillator()
+      const gain = audioCtx.createGain()
+      osc.type = 'sine'
+      osc.frequency.value = freq
+      gain.gain.setValueAtTime(0.0001, t + offset)
+      gain.gain.exponentialRampToValueAtTime(0.18, t + offset + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + offset + 0.22)
+      osc.connect(gain)
+      gain.connect(audioCtx.destination)
+      osc.start(t + offset)
+      osc.stop(t + offset + 0.25)
+    })
+  } catch (e) { /* Ton nicht verfügbar */ }
+}
+
+function onSoundToggleChanged() {
+  const on = document.getElementById('sound-toggle').checked
+  localStorage.setItem(SOUND_OFF_KEY, on ? '0' : '1')
+  if (on) {
+    unlockAudio()
+    lastSoundAt = 0
+    setTimeout(playMessageSound, 50) // kurze Hörprobe
+  }
+}
+
+document.getElementById('sound-toggle').checked = soundEnabled()
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'push-sound') playMessageSound()
+  })
 }
 
 registerServiceWorker()

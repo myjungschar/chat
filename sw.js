@@ -30,7 +30,18 @@ self.addEventListener('push', (event) => {
     data: { url: data.url || './' }
   }
 
-  event.waitUntil(self.registration.showNotification(title, options))
+  event.waitUntil((async () => {
+    // Ist die App gerade offen UND im Vordergrund (Fenster aktiv), kommt kein Banner - stattdessen sagt der
+    // Service Worker der Seite, dass sie einen kurzen Ton abspielen soll. Ist die App zu, im Hintergrund oder
+    // ein anderes Fenster aktiv, kommt wie gewohnt das Banner.
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    const active = windows.filter((c) => c.visibilityState === 'visible' && c.focused)
+    if (active.length > 0) {
+      active.forEach((c) => c.postMessage({ type: 'push-sound', tag: options.tag }))
+      return
+    }
+    await self.registration.showNotification(title, options)
+  })())
 })
 
 // Klick auf die Benachrichtigung: die Seite in den Vordergrund holen (oder neu öffnen)
