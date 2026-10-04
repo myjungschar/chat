@@ -4838,6 +4838,21 @@ function updateMessagePlaceholder() {
   const input = document.getElementById('message-input')
   const isEmpty = input.textContent.replace(/[\u200b\s]/g, '') === '' && !input.querySelector('img')
   input.classList.toggle('is-empty', isEmpty)
+
+  // Leer, aber mit Resten (z. B. einem Zeilenumbruch): ganz leeren, sonst blinkt der Cursor HINTER dem Platzhalter
+  // statt davor. Nicht mitten in einer Tastatur-Eingabe (Handy), die würde dadurch gestört.
+  if (isEmpty && input.innerHTML !== '' && !messageComposing) {
+    input.innerHTML = ''
+    if (document.activeElement === input) {
+      const range = document.createRange()
+      range.selectNodeContents(input)
+      range.collapse(true)
+      const sel = window.getSelection()
+      sel.removeAllRanges()
+      sel.addRange(range)
+      savedMessageRange = range.cloneRange()
+    }
+  }
 }
 
 function autoResizeMessageInput() {
