@@ -3932,7 +3932,7 @@ async function loadUsers() {
       const name = document.createElement('span')
       name.className = 'user-name'
       name.textContent = (u.display_name || 'Ohne Namen') +
-        (vipIds.has(u.id) ? ' (VIP)' : '') +
+        (vipIds.has(u.id) ? ' (besondere Rechte)' : '') +
         (u.is_blocked ? ' (gesperrt)' : '') +
         (u.active === false ? ' (Einladung offen)' : '')
       row.appendChild(name)
@@ -3970,8 +3970,10 @@ function renderUserDetail(u) {
     </div>
     <div class="input-group">
       <label>Besondere Rechte</label>
-      <button type="button" class="vip-btn${vipIds.has(u.id) ? ' active' : ''}" id="user-vip-btn">${vipIds.has(u.id) ? 'VIP: darf Nachrichten anpinnen' : 'Kein VIP'}</button>
-      <p class="vip-hint">VIPs dürfen Nachrichten in Chats anpinnen. Zum Ändern tippen.</p>
+      <div class="gender-choice">
+        <button type="button" class="gender-btn rights${vipIds.has(u.id) ? ' active' : ''}" id="user-rights-yes">Ja</button>
+        <button type="button" class="gender-btn rights${vipIds.has(u.id) ? '' : ' active'}" id="user-rights-no">Nein</button>
+      </div>
     </div>
     <div class="user-actions">
       <button type="button" class="${u.is_blocked ? 'unblock-btn' : 'block-btn'}" id="user-block-btn">${u.is_blocked ? 'Entsperren' : 'Sperren'}</button>
@@ -3984,7 +3986,8 @@ function renderUserDetail(u) {
       setGender(u, btn.classList.contains('active') ? null : btn.dataset.value)
     })
   })
-  document.getElementById('user-vip-btn').addEventListener('click', () => setVip(u, !vipIds.has(u.id)))
+  document.getElementById('user-rights-yes').addEventListener('click', () => { if (!vipIds.has(u.id)) setVip(u, true) })
+  document.getElementById('user-rights-no').addEventListener('click', () => { if (vipIds.has(u.id)) setVip(u, false) })
   document.getElementById('user-block-btn').addEventListener('click', () => setBlocked(u, !u.is_blocked))
   document.getElementById('user-delete-btn').addEventListener('click', () => deleteUser(u))
 }
@@ -4254,7 +4257,15 @@ function openNewUser() {
   showScreen('new-user-bereich')
   document.getElementById('new-user-email').value = ''
   document.querySelectorAll('#new-user-gender .gender-btn').forEach(b => b.classList.remove('active'))
+  selectNewUserRights('nein')
   document.getElementById('new-user-email').focus()
+}
+
+// Besondere Rechte im Admin-Formular: Ja oder Nein (immer genau eins ist gewählt)
+function selectNewUserRights(value) {
+  document.querySelectorAll('#new-user-rights .gender-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.value === value)
+  })
 }
 
 // Junge/Mädchen im Admin-Formular auswählen (nochmal drücken hebt die Auswahl auf)
@@ -4339,6 +4350,7 @@ async function inviteUser() {
     return
   }
 
+  const makeVip = !!document.querySelector('#new-user-rights .gender-btn.active[data-value="ja"]')
   const activeGenderBtn = document.querySelector('#new-user-gender .gender-btn.active')
   const gender = activeGenderBtn ? activeGenderBtn.dataset.value : null
   if (!gender) {
@@ -4348,9 +4360,6 @@ async function inviteUser() {
 
   // Vor dem Senden nochmal nachfragen
   if (!(await askConfirm('Möchtest du die E-Mail wirklich an ' + email + ' senden?', { okText: 'Senden', cancelText: 'Abbrechen' }))) return
-
-  // Zweite Frage: besondere Rechte? (Esc oder daneben tippen zählt als "Nein")
-  const makeVip = await askConfirm('Soll diese Person besondere Rechte (VIP) bekommen? VIPs dürfen Nachrichten anpinnen.', { okText: 'Ja, VIP', cancelText: 'Nein' })
 
   btn.disabled = true
 
@@ -4379,6 +4388,7 @@ async function inviteUser() {
 
   input.value = ''
   document.querySelectorAll('#new-user-gender .gender-btn').forEach(b => b.classList.remove('active'))
+  selectNewUserRights('nein')
 
   // Das neue Profil gleich mit dem gewählten Geschlecht (= Gruppe) eintragen (die Funktion liefert die ID des neuen Nutzers zurück)
   let genderSaved = false
@@ -4396,7 +4406,7 @@ async function inviteUser() {
   }
   if (makeVip && data && data.userId) {
     const { error: vipError } = await supabaseClient.from('vip_users').insert({ user_id: data.userId })
-    if (vipError) showToast('VIP-Rechte konnten nicht gespeichert werden: ' + vipError.message)
+    if (vipError) showToast('Besondere Rechte konnten nicht gespeichert werden: ' + vipError.message)
   }
   await showInfoDialog('Die E-Mail an ' + email + ' wurde erfolgreich gesendet!')
   loadUsers()
