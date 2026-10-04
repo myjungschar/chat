@@ -2362,14 +2362,64 @@ input[type="password"]::-ms-clear {
 
 /* ===== Online-Anzeige neben dem Namen ===== */
 .online-status {
+  --online-color: #34d399;
+  --online-bg: rgba(52, 211, 153, 0.14);
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px 2px 8px;
+  border-radius: 999px;
+  background: var(--online-bg);
   font-size: 12px;
-  font-weight: 400;
-  color: var(--text-secondary);
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.2px;
+  color: var(--online-color);
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+body.light-theme .online-status {
+  --online-color: #0f8a5f;
+  --online-bg: rgba(15, 138, 95, 0.12);
+}
+
+/* Der pulsierende grüne Punkt vor dem Text */
+.online-status::before {
+  content: '';
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--online-color);
+  box-shadow: 0 0 0 0 var(--online-bg);
+  animation: online-pulse 2s ease-out infinite;
+}
+
+@keyframes online-pulse {
+  0%   { box-shadow: 0 0 0 0 var(--online-color); opacity: 1; }
+  70%  { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .online-status::before { animation: none; }
 }
 
 .online-status.clickable {
   cursor: pointer;
+}
+
+.online-status.clickable:hover {
+  background: rgba(52, 211, 153, 0.24);
+}
+
+body.light-theme .online-status.clickable:hover {
+  background: rgba(15, 138, 95, 0.2);
+}
+
+.online-status.clickable:active {
+  transform: scale(0.96);
 }
 
 .online-list {
@@ -2380,8 +2430,25 @@ input[type="password"]::-ms-clear {
 }
 
 .online-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 8px 0;
   font-size: 15px;
+}
+
+/* Grüner Punkt vor jedem Namen in der Online-Liste */
+.online-list li::before {
+  content: '';
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #34d399;
+}
+
+body.light-theme .online-list li::before {
+  background: #0f8a5f;
 }
 
 /* Abbrechen oben auf dem Passwort-setzen-Bildschirm */
@@ -2590,7 +2657,7 @@ html:has(body.light-theme) {
   font-weight: 600;
 }
 
-/* Emoji-Leiste (schwebend am PC, oben im Menü am Handy) */
+/* Emoji-Leiste: eigenständige schwebende Pille, getrennt vom Menü (PC beim Hovern, Handy beim langen Drücken) */
 .reaction-bar {
   display: flex;
   align-items: center;
@@ -2642,15 +2709,6 @@ html:has(body.light-theme) {
   font-size: 22px;
   font-weight: 500;
   color: var(--text-secondary);
-}
-
-.msg-menu .reaction-bar {
-  justify-content: space-between;
-  padding: 8px 8px 6px;
-  border: 0;
-  border-bottom: 1px solid var(--border-subtle);
-  border-radius: 0;
-  box-shadow: none;
 }
 
 /* Volle Emoji-Auswahl für eine Reaktion */

@@ -2675,6 +2675,7 @@ function openReactionPicker(anchorEl, msg) {
 let hoverBarEl = null
 let hoverBarMsgEl = null
 let hoverBarTimer = null
+let hoverBarSticky = false // true = Leiste gehört zum geöffneten Menü (Handy), verschwindet mit ihm statt per Maus
 
 // Nur Geräte mit echter Maus (Hover). Am Handy gibt es stattdessen das Menü beim langen Drücken.
 function canHoverReact() {
@@ -2686,6 +2687,7 @@ function hideReactionBar() {
   if (hoverBarEl) hoverBarEl.remove()
   hoverBarEl = null
   hoverBarMsgEl = null
+  hoverBarSticky = false
 }
 
 // Kurze Verzögerung, damit die Maus von der Nachricht zur Leiste wandern kann
@@ -2754,6 +2756,8 @@ function closeMessageMenu() {
     openMenuEl.remove()
     openMenuEl = null
   }
+  // Die Emoji-Leiste vom Handy (langes Drücken) schließt zusammen mit dem Menü
+  if (hoverBarSticky) hideReactionBar()
 }
 
 document.addEventListener('click', closeMessageMenu)
@@ -2781,8 +2785,9 @@ function attachMessageMenuTriggers(msgElement, msg, options) {
     msgElement.addEventListener('mouseleave', scheduleHideReactionBar)
   }
 
-  // Rechtsklick (PC): normales Menü mit den Aktionen. Auf Touch-Geräten (auch wenn der Browser das Drücken als
-  // "Rechtsklick" meldet) kommt oben zusätzlich die Emoji-Leiste.
+  // Rechtsklick (PC): eigenes Menü mit den Aktionen (die Hover-Leiste bleibt als separates Element daneben stehen).
+  // Auf Touch-Geräten (auch wenn der Browser das Drücken als "Rechtsklick" meldet) erscheint zusätzlich
+  // die Emoji-Leiste als eigenständige Pille an der Nachricht.
   msgElement.addEventListener('contextmenu', (e) => {
     if (selectMode) { e.preventDefault(); return } // im Auswahlmodus gibt es kein Menü
     if (isExcluded(e.target)) return
@@ -2807,7 +2812,22 @@ function attachMessageMenuTriggers(msgElement, msg, options) {
 
 function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {}) {
   closeMessageMenu()
-  hideReactionBar()
+
+  // Handy: die Emoji-Leiste ist ein eigenes, freistehendes Element (nicht im Menü-Kasten)
+  let bar = null
+  if (withReactions && options.canReact) {
+    hideReactionBar()
+    bar = buildReactionBar(msg, {
+      onPick: closeMessageMenu,
+      onMore: () => openReactionPicker(anchorEl, msg)
+    })
+    bar.classList.add('floating')
+    bar.addEventListener('click', (e) => e.stopPropagation())
+    document.body.appendChild(bar)
+    hoverBarEl = bar
+    hoverBarMsgEl = anchorEl
+    hoverBarSticky = true
+  }
 
   const menu = document.createElement('div')
   menu.className = 'msg-menu'
@@ -2815,14 +2835,6 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
 
   function showMainOptions() {
     menu.innerHTML = ''
-
-    // Handy: oben die Emoji-Leiste, darunter die Aktionen
-    if (withReactions && options.canReact) {
-      menu.appendChild(buildReactionBar(msg, {
-        onPick: closeMessageMenu,
-        onMore: () => openReactionPicker(anchorEl, msg)
-      }))
-    }
 
     if (options.canReply) {
       const replyItem = document.createElement('button')
@@ -2894,9 +2906,56 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
   }
 
   showMainOptions()
-  document.body.appendChild(menu)
-  positionFloatingMenu(menu, anchorEl)
-  openMenuEl = menu
+  const hasItems = menu.children.length > 0
+
+  if (hasItems) {
+    document.body.appendChild(menu)
+    openMenuEl = menu
+  }
+
+  if (bar) positionBarAndMenu(bar, hasItems ? menu : null, anchorEl)
+  else if (hasItems) positionFloatingMenu(menu, anchorEl)
+}
+
+// Handy: Emoji-Leiste und Menü-Kasten sind zwei getrennte Elemente. Ideal: Leiste direkt über der Nachricht,
+// Menü darunter. Ist dafür kein Platz, werden beide zusammen unter oder über die Nachricht gesetzt.
+function positionBarAndMenu(bar, menu, anchorEl) {
+  const margin = 8
+  const gap = 6
+  const rect = anchorEl.getBoundingClientRect()
+  const isOwn = anchorEl.classList.contains('own')
+  const barSize = bar.getBoundingClientRect()
+  const menuSize = menu ? menu.getBoundingClientRect() : { width: 0, height: 0 }
+  const stackHeight = barSize.height + (menu ? gap + menuSize.height : 0)
+  const spaceAbove = rect.top - margin
+  const spaceBelow = window.innerHeight - rect.bottom - margin
+
+  let barTop, menuTop
+  if (spaceAbove >= barSize.height + gap && (!menu || spaceBelow >= menuSize.height + gap)) {
+    barTop = rect.top - gap - barSize.height
+    menuTop = rect.bottom + gap
+  } else if (spaceBelow >= stackHeight + gap) {
+    barTop = rect.bottom + gap
+    menuTop = barTop + barSize.height + gap
+  } else if (spaceAbove >= stackHeight + gap) {
+    barTop = rect.top - gap - barSize.height
+    menuTop = rect.top - gap - stackHeight
+  } else {
+    // Sehr hohe Nachricht: beide am Bildschirm halten
+    barTop = Math.max(margin, Math.min(rect.top - gap - barSize.height, window.innerHeight - stackHeight - margin))
+    menuTop = barTop + barSize.height + gap
+  }
+
+  const place = (el, size, top) => {
+    let left = isOwn ? rect.right - size.width : rect.left
+    left = Math.min(Math.max(left, margin), Math.max(margin, window.innerWidth - size.width - margin))
+    top = Math.min(Math.max(top, margin), Math.max(margin, window.innerHeight - size.height - margin))
+    el.style.position = 'fixed'
+    el.style.left = left + 'px'
+    el.style.top = top + 'px'
+  }
+  place(bar, barSize, barTop)
+  if (menu) place(menu, menuSize, menuTop)
 }
 
 // Platziert ein frei schwebendes Menü neben seinem Auslöser, innerhalb des Bildschirms:
