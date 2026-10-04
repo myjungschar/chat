@@ -452,6 +452,7 @@ async function loadChatPreviews() {
   ;(markRows || []).forEach(m => { newMarks[m.chat_key] = new Date(m.last_read_at) })
 
   function countIfUnread(key, row) {
+    if (isAdmin()) return // Der Admin sieht alle Chats neutral: nirgends ein Ungelesen-Zähler
     if (row.sender_id === me) return
     const lastRead = newMarks[key]
     if (!lastRead || new Date(row.created_at) > lastRead) {
@@ -736,6 +737,7 @@ async function renderChatList() {
 
 // Ungelesen-Zähler für die Liste. Der Chat, der am PC gerade rechts offen ist, zeigt keinen.
 function unreadFor(key) {
+  if (isAdmin()) return 0
   if (isSplitView() && isConversationVisible() && key === chatKeyForRoom(currentRoom)) return 0
   return unreadCounts[key]
 }
