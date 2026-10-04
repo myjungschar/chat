@@ -5171,8 +5171,15 @@ async function enablePushNotifications({ silent = false } = {}) {
   try {
     const permission = await Notification.requestPermission()
     if (permission !== 'granted') {
-      if (!silent) showToast('Ohne Erlaubnis im Browser können keine Benachrichtigungen ankommen.')
       refreshPushToggleUI()
+      if (!silent) {
+        if (permission === 'denied') {
+          // Wurde einmal "Blockieren" gedrückt, fragt der Browser nicht mehr nach - das geht nur noch in seinen Einstellungen
+          await showInfoDialog('Benachrichtigungen sind in deinem Browser blockiert. So gibst du sie wieder frei: Tippe oben neben der Adresse auf das Schloss- bzw. Info-Symbol → Berechtigungen → Benachrichtigungen → Zulassen. Bei der installierten App: Handy-Einstellungen → Apps → JungscharChat → Benachrichtigungen → Erlauben. Danach hier den Schalter nochmal aus- und einschalten.')
+        } else {
+          showToast('Ohne Erlaubnis im Browser können keine Benachrichtigungen ankommen.')
+        }
+      }
       return false
     }
 
