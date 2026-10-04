@@ -2841,20 +2841,13 @@ function attachMessageMenuTriggers(msgElement, msg, options) {
     return target.closest('.msg-ticks, .msg-reply-quote, .reaction-btn')
   }
 
-  // PC: Beim Darüberfahren erscheint die Emoji-Leiste
-  if (options.canReact) {
-    msgElement.addEventListener('mouseenter', () => showReactionBar(msgElement, msg))
-    msgElement.addEventListener('mouseleave', scheduleHideReactionBar)
-  }
-
-  // Rechtsklick (PC): eigenes Menü mit den Aktionen (die Hover-Leiste bleibt als separates Element daneben stehen).
-  // Auf Touch-Geräten (auch wenn der Browser das Drücken als "Rechtsklick" meldet) erscheint zusätzlich
-  // die Emoji-Leiste als eigenständige Pille an der Nachricht.
+  // Rechtsklick (PC) und langes Drücken (Handy): Emoji-Leiste und Menü erscheinen gemeinsam,
+  // als zwei getrennte Elemente. Beim bloßen Darüberfahren mit der Maus passiert nichts.
   msgElement.addEventListener('contextmenu', (e) => {
     if (selectMode) { e.preventDefault(); return } // im Auswahlmodus gibt es kein Menü
     if (isExcluded(e.target)) return
     e.preventDefault()
-    openMessageMenu(msgElement, msg, options, { withReactions: !canHoverReact() })
+    openMessageMenu(msgElement, msg, options, { withReactions: true })
   })
 
   let pressTimer = null
