@@ -3,6 +3,9 @@
 //     Das gilt auch, wenn die Nachricht aus dem 300er-Ringpuffer fliegt.
 //  2) Täglicher Aufruf (pg_cron): löscht alle Dateien im Drive-Ordner, die zu keiner Nachricht mehr gehören
 //     (z. B. weil ein Upload klappte, das Senden aber nicht). Sicherheitsnetz für Fall 1.
+//     Außerdem: ist der Ordner größer als das Limit (Secret PHOTO_LIMIT_BYTES, Standard 5 GB), werden die ältesten
+//     Fotos gelöscht, bis er wieder unter 90 % des Limits liegt. Die Nachrichten bleiben, zeigen dann "Foto nicht mehr vorhanden".
+//  Gelöscht wird endgültig (Drive-Papierkorb wird übersprungen bzw. am Ende geleert).
 // Aufruf nur mit dem Header x-cron-secret (Secret CRON_SECRET). Deploy mit --no-verify-jwt.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -11,6 +14,7 @@ const json = (body: unknown, status = 200) =>
 
 const MIN_AGE_MS = 2 * 60 * 60 * 1000 // frische Uploads (noch ohne Nachricht) in Ruhe lassen
 const MAX_DELETES_PER_RUN = 500
+const PHOTO_LIMIT_BYTES = Number(Deno.env.get('PHOTO_LIMIT_BYTES') ?? 5 * 1024 * 1024 * 1024)
 
 let tokenCache: { token: string; exp: number } | null = null
 
@@ -41,15 +45,17 @@ async function deleteFile(id: string): Promise<boolean> {
   return res.ok || res.status === 404 // 404 = war schon weg
 }
 
-async function listDriveFiles(): Promise<{ id: string; createdTime: string }[]> {
+type DriveFile = { id: string; createdTime: string; size?: string }
+
+async function listDriveFiles(): Promise<DriveFile[]> {
   const token = await driveToken()
   const folder = Deno.env.get('DRIVE_FOLDER_ID')
-  const files: { id: string; createdTime: string }[] = []
+  const files: DriveFile[] = []
   let pageToken = ''
   do {
     const params = new URLSearchParams({
       q: `'${folder}' in parents and trashed = false`,
-      fields: 'nextPageToken, files(id, createdTime)',
+      fields: 'nextPageToken, files(id, createdTime, size)',
       pageSize: '1000'
     })
     if (pageToken) params.set('pageToken', pageToken)
@@ -108,7 +114,24 @@ Deno.serve(async (req) => {
 
     let deleted = 0
     for (const f of orphans.slice(0, MAX_DELETES_PER_RUN)) if (await deleteFile(f.id)) deleted++
-    return json({ mode: 'sweep', in_drive: files.length, referenced: referenced.size, orphans: orphans.length, deleted })
+    // Speicher-Limit: die ältesten Fotos löschen, bis der Ordner wieder unter 90 % des Limits liegt
+    const orphanIds = new Set(orphans.map(f => f.id))
+    const kept = files.filter(f => !orphanIds.has(f.id)).sort((a, b) => a.createdTime.localeCompare(b.createdTime))
+    let total = kept.reduce((sum, f) => sum + Number(f.size ?? 0), 0)
+    let trimmed = 0
+    for (const f of kept) {
+      if (total <= PHOTO_LIMIT_BYTES * 0.9 || deleted >= MAX_DELETES_PER_RUN) break
+      if (total <= PHOTO_LIMIT_BYTES) break
+      if (await deleteFile(f.id)) { total -= Number(f.size ?? 0); trimmed++; deleted++ }
+    }
+
+    // Drive-Papierkorb dieses Kontos leeren (das Konto ist nur für den Chat da)
+    try {
+      const token = await driveToken()
+      await fetch('https://www.googleapis.com/drive/v3/files/trash', { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+    } catch { /* nicht schlimm */ }
+
+    return json({ mode: 'sweep', in_drive: files.length, referenced: referenced.size, orphans: orphans.length, trimmed_for_limit: trimmed, deleted })
   } catch (e) {
     console.error('cleanup-photos:', e)
     return json({ error: e instanceof Error ? e.message : 'Unbekannter Fehler' }, 500)

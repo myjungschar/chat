@@ -3101,6 +3101,23 @@ html:has(body.light-theme) {
   animation: photo-spin 0.8s linear infinite;
 }
 
+.msg-photo.gone {
+  cursor: default;
+}
+
+.msg-photo.gone::after {
+  content: 'Foto nicht mehr vorhanden';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
 .msg-photo.failed {
   cursor: pointer;
 }

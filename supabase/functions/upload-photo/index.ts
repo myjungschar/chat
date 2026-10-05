@@ -81,6 +81,14 @@ Deno.serve(async (req) => {
     if (!profile || profile.is_blocked) return json({ error: 'Zugang gesperrt' }, 403)
     if (profile.role === 'admin') return json({ error: 'Der Admin schreibt nicht' }, 403)
 
+    // Hat der Admin dieser Person das Foto-Senden weggenommen? (Tabelle photo_blocked_users)
+    const { data: photoBlock } = await admin
+      .from('photo_blocked_users')
+      .select('user_id')
+      .eq('user_id', userData.user.id)
+      .maybeSingle()
+    if (photoBlock) return json({ error: 'Du darfst im Moment keine Fotos senden' }, 403)
+
     const form = await req.formData()
     const photo = form.get('photo')
     const thumb = form.get('thumb')

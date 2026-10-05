@@ -1711,11 +1711,13 @@ function toggleAttachMenu(anchorBtn, evt) {
   menu.className = 'msg-menu attach-menu'
   menu.addEventListener('click', e => e.stopPropagation())
 
-  const photoItem = document.createElement('button')
-  photoItem.className = 'msg-menu-item'
-  photoItem.textContent = 'Foto'
-  photoItem.addEventListener('click', () => { closeAttachMenu(); startPhotoFlow() })
-  menu.appendChild(photoItem)
+  if (!isPhotoBlockedSelf()) { // wer keine Fotos senden darf, bekommt den Punkt gar nicht erst
+    const photoItem = document.createElement('button')
+    photoItem.className = 'msg-menu-item'
+    photoItem.textContent = 'Foto'
+    photoItem.addEventListener('click', () => { closeAttachMenu(); startPhotoFlow() })
+    menu.appendChild(photoItem)
+  }
 
   const pollItem = document.createElement('button')
   pollItem.className = 'msg-menu-item'
@@ -1780,6 +1782,7 @@ function getPhotoInput() {
 
 function startPhotoFlow(pastedFile) {
   if (!currentUser || isAdmin() || currentRoom.type === 'dm-view') return
+  if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos senden.'); return }
   if (editingMessageId) { showToast('Schließe zuerst das Bearbeiten ab.'); return }
   if (!navigator.onLine) { showToast('Keine Internetverbindung.'); return }
   // Der Hinweis kommt bei JEDEM Foto. Erst danach öffnet sich die Foto-Auswahl.
@@ -2129,7 +2132,11 @@ async function fetchPhotoBlob(id) {
   const res = await fetch(SUPABASE_URL + '/functions/v1/get-photo?id=' + encodeURIComponent(id), {
     headers: { Authorization: 'Bearer ' + session.access_token, apikey: SUPABASE_KEY }
   })
-  if (!res.ok) throw new Error('Foto nicht verfügbar (' + res.status + ')')
+  if (!res.ok) {
+    const err = new Error('Foto nicht verfügbar (' + res.status + ')')
+    err.status = res.status
+    throw err
+  }
   const blob = await res.blob()
 
   if (cache) {
@@ -2156,8 +2163,8 @@ function loadThumbInto(wrap, img, id) {
     try {
       img.src = await getThumbUrl(id)
     } catch (e) {
-      console.error('Foto laden:', e)
-      wrap.classList.add('failed')
+      if (e && e.status === 404) wrap.classList.add('gone') // Foto wurde gelöscht (Nachricht weg oder Speicher voll)
+      else { console.error('Foto laden:', e); wrap.classList.add('failed') }
     }
     wrap.classList.remove('loading')
   })
@@ -2183,7 +2190,7 @@ function buildPhotoElement(msg) {
   const thumbId = msg.photo_thumb_id || msg.photo_id
   wrap.addEventListener('click', () => {
     if (openMenuEl) return // gerade wurde das Nachrichten-Menü per langem Drücken geöffnet
-    if (selectMode) return
+    if (selectMode || wrap.classList.contains('gone')) return
     if (wrap.classList.contains('failed')) { loadThumbInto(wrap, img, thumbId); return }
     openPhotoViewer(msg)
   })
@@ -2279,7 +2286,7 @@ async function openPhotoViewer(msg) {
     overlay.classList.remove('loading')
   } catch (e) {
     console.error('Foto öffnen:', e)
-    if (photoViewerKey === key) status.textContent = 'Das Foto konnte nicht geladen werden.'
+    if (photoViewerKey === key) status.textContent = e && e.status === 404 ? 'Dieses Foto wurde gelöscht.' : 'Das Foto konnte nicht geladen werden.'
   }
 }
 
@@ -4680,6 +4687,15 @@ function renderUserDetail(u) {
         <button type="button" class="rights-switch${vipIds.has(u.id) ? ' on' : ''}" id="user-rights-switch" role="switch" aria-checked="${vipIds.has(u.id)}" aria-label="Besondere Rechte"></button>
       </div>
     </div>
+    <div class="input-group">
+      <div class="rights-row">
+        <div class="rights-row-text">
+          <span class="rights-row-title">Darf Fotos senden</span>
+          <span class="rights-row-state">${photoBlockedIds.has(u.id) ? 'Nein (nur ansehen)' : 'Ja'}</span>
+        </div>
+        <button type="button" class="rights-switch${photoBlockedIds.has(u.id) ? '' : ' on'}" id="user-photo-switch" role="switch" aria-checked="${!photoBlockedIds.has(u.id)}" aria-label="Darf Fotos senden"></button>
+      </div>
+    </div>
     <div class="user-actions">
       <button type="button" class="${u.is_blocked ? 'unblock-btn' : 'block-btn'}" id="user-block-btn">${u.is_blocked ? 'Entsperren' : 'Sperren'}</button>
       <button type="button" class="delete-btn" id="user-delete-btn">Nutzer löschen</button>
@@ -4693,6 +4709,7 @@ function renderUserDetail(u) {
     })
   })
   document.getElementById('user-rights-switch').addEventListener('click', () => setVip(u, !vipIds.has(u.id)))
+  document.getElementById('user-photo-switch').addEventListener('click', () => setPhotoAllowed(u, photoBlockedIds.has(u.id)))
   document.getElementById('user-block-btn').addEventListener('click', () => setBlocked(u, !u.is_blocked))
   document.getElementById('user-delete-btn').addEventListener('click', () => deleteUser(u))
 }
@@ -4720,7 +4737,40 @@ let vipIds = new Set()   // IDs aller VIP-Nutzer
 let currentPin = null    // angepinnte Nachricht des gerade offenen Chats (oder null)
 let pinChannel = null    // Realtime: anpinnen/lösen im offenen Chat
 
+// Wer keine Fotos senden darf (Tabelle photo_blocked_users). Die Person sieht Fotos weiterhin, kann aber keine senden.
+// Der Admin sieht die ganze Liste, alle anderen nur ihre eigene Zeile.
+let photoBlockedIds = new Set()
+
+async function loadPhotoBlockedIds() {
+  const { data, error } = await supabaseClient.from('photo_blocked_users').select('user_id')
+  if (error) {
+    console.error('Foto-Sperrliste konnte nicht geladen werden:', error)
+    return
+  }
+  photoBlockedIds = new Set((data || []).map(r => r.user_id))
+}
+
+function isPhotoBlockedSelf() {
+  return !isAdmin() && !!currentUser && photoBlockedIds.has(currentUser.id)
+}
+
+async function setPhotoAllowed(user, allowed) {
+  if (!isAdmin()) return
+  const { error } = allowed
+    ? await supabaseClient.from('photo_blocked_users').delete().eq('user_id', user.id)
+    : await supabaseClient.from('photo_blocked_users').insert({ user_id: user.id })
+
+  if (error) {
+    showToast('Fehler: ' + error.message)
+    return
+  }
+  if (allowed) photoBlockedIds.delete(user.id)
+  else photoBlockedIds.add(user.id)
+  renderUserDetail(user)
+}
+
 async function loadVipIds() {
+  await loadPhotoBlockedIds()
   const { data, error } = await supabaseClient.from('vip_users').select('user_id')
   if (error) {
     console.error('VIP-Liste konnte nicht geladen werden:', error)
@@ -6332,22 +6382,22 @@ function playMessageSound() {
     const t = audioCtx.currentTime
     const master = audioCtx.createGain()
     master.gain.setValueAtTime(0.0001, t)
-    master.gain.exponentialRampToValueAtTime(0.14, t + 0.012)
+    master.gain.exponentialRampToValueAtTime(0.4, t + 0.012)
     master.gain.exponentialRampToValueAtTime(0.0001, t + 0.2)
 
     const soften = audioCtx.createBiquadFilter() // nimmt dem Ton die Schärfe
     soften.type = 'lowpass'
-    soften.frequency.value = 2200
+    soften.frequency.value = 4000
 
     master.connect(soften)
     soften.connect(audioCtx.destination)
 
-    ;[[1, 1], [2, 0.18]].forEach(([mult, level]) => { // Grundton + ganz leiser Oberton für etwas Wärme
+    ;[[1, 1], [2, 0.12]].forEach(([mult, level]) => { // Grundton + ganz leiser Oberton für etwas Wärme
       const osc = audioCtx.createOscillator()
       const gain = audioCtx.createGain()
       osc.type = 'sine'
-      osc.frequency.setValueAtTime(420 * mult, t)
-      osc.frequency.exponentialRampToValueAtTime(760 * mult, t + 0.07)
+      osc.frequency.setValueAtTime(640 * mult, t)
+      osc.frequency.exponentialRampToValueAtTime(1100 * mult, t + 0.07)
       gain.gain.value = level
       osc.connect(gain)
       gain.connect(master)
