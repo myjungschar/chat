@@ -1778,13 +1778,32 @@ function getPhotoInput() {
   return photoInputEl
 }
 
-function startPhotoFlow() {
+function startPhotoFlow(pastedFile) {
   if (!currentUser || isAdmin() || currentRoom.type === 'dm-view') return
   if (editingMessageId) { showToast('Schließe zuerst das Bearbeiten ab.'); return }
   if (!navigator.onLine) { showToast('Keine Internetverbindung.'); return }
   // Der Hinweis kommt bei JEDEM Foto. Erst danach öffnet sich die Foto-Auswahl.
-  showSwissTransferHint(() => getPhotoInput().click())
+  showSwissTransferHint(() => {
+    if (pastedFile) openPhotoPreview(pastedFile) // Foto kam aus der Zwischenablage
+    else getPhotoInput().click()
+  })
 }
+
+// Foto aus der Zwischenablage einfügen (Strg+V bzw. "Einfügen"), z. B. ein Screenshot
+document.getElementById('message-input').addEventListener('paste', (e) => {
+  const data = e.clipboardData
+  if (!data || !data.items) return
+  if (data.getData('text/plain')) return // normaler Text (auch aus Word/Excel, die zusätzlich ein Bild mitliefern)
+  for (const item of data.items) {
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (!file) continue
+      e.preventDefault()
+      startPhotoFlow(file)
+      return
+    }
+  }
+})
 
 // Pop-up: bei vielen Fotos bitte SwissTransfer nutzen (kommt bei jedem Foto, ohne Wartezeit)
 function showSwissTransferHint(onContinue) {
@@ -1930,7 +1949,7 @@ async function openPhotoPreview(file) {
   const caption = document.createElement('input')
   caption.type = 'text'
   caption.className = 'photo-caption'
-  caption.placeholder = 'Text dazu (optional)'
+  caption.placeholder = 'Nachricht'
   caption.maxLength = PHOTO_CAPTION_MAX
 
   const buttons = document.createElement('div')

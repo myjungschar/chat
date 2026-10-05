@@ -3158,35 +3158,41 @@ html:has(body.light-theme) {
   cursor: not-allowed;
 }
 
-/* Vorschau vor dem Senden */
+/* Vorschau vor dem Senden: Fenster und Bildfeld passen sich der Bildgröße an */
 .photo-dialog {
-  width: min(92vw, 360px);
+  width: fit-content;
+  min-width: 250px;
+  max-width: 92vw;
   max-height: 92vh;
-  padding: 14px;
+  padding: 12px;
   overflow-y: auto;
 }
 
 .photo-dialog-preview {
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: block;
+  width: fit-content;
+  min-width: 200px;
   min-height: 140px;
-  max-height: 50vh;
+  margin: 0 auto;
   border-radius: 12px;
   overflow: hidden;
   background: var(--bg-input);
+  line-height: 0;
 }
 
 .photo-dialog-preview img {
   display: block;
-  max-width: 100%;
+  max-width: min(calc(92vw - 74px), 380px);
   max-height: 50vh;
-  object-fit: contain;
+  width: auto;
+  height: auto;
 }
 
 .photo-dialog-preview img:not([src]) {
   visibility: hidden;
+  width: 200px;
+  height: 140px;
 }
 
 .photo-dialog-preview.loading img {
@@ -3207,26 +3213,27 @@ html:has(body.light-theme) {
   animation: photo-spin 0.8s linear infinite;
 }
 
+/* Kleiner grauer "HD"-Knopf oben rechts im Bild; an = weiß */
 .photo-hd-btn {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 6px;
+  right: 6px;
   z-index: 1;
-  padding: 3px 9px;
-  border: 1.5px solid rgba(255, 255, 255, 0.85);
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.45);
-  color: #fff;
-  font-size: 12px;
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(60, 60, 60, 0.6);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
   font-weight: 700;
+  line-height: 1.4;
   letter-spacing: 0.3px;
   cursor: pointer;
 }
 
 .photo-hd-btn.active {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--text-on-accent);
+  background: rgba(255, 255, 255, 0.92);
+  color: #222;
 }
 
 .photo-hd-btn:disabled {
@@ -3234,17 +3241,25 @@ html:has(body.light-theme) {
   cursor: not-allowed;
 }
 
+/* Nachrichtenfeld unter dem Foto: sieht aus wie das normale Feld im Chat */
 .photo-caption {
+  display: block;
   width: 100%;
   margin: 10px 0 12px 0;
-  padding: 9px 12px;
+  padding: 9px 16px;
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  border-radius: 20px;
   background: var(--bg-input);
   color: var(--text-primary);
-  font: inherit;
-  font-size: 14px;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.35;
   box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.photo-caption::placeholder {
+  color: #55636f;
 }
 
 .photo-caption:focus {

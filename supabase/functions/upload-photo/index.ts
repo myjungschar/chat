@@ -93,8 +93,11 @@ Deno.serve(async (req) => {
     if (!isJpeg(photoBytes) || !isJpeg(thumbBytes)) return json({ error: 'Nur JPEG-Fotos erlaubt' }, 400)
 
     const base = `${Date.now()}_${crypto.randomUUID().slice(0, 8)}`
-    const photoId = await uploadToDrive(photoBytes, `${base}.jpg`)
-    const thumbId = await uploadToDrive(thumbBytes, `${base}_thumb.jpg`)
+    // Beide gleichzeitig hochladen (spart ein paar Sekunden). Klappt einer nicht, räumt cleanup-photos den anderen später auf.
+    const [photoId, thumbId] = await Promise.all([
+      uploadToDrive(photoBytes, `${base}.jpg`),
+      uploadToDrive(thumbBytes, `${base}_thumb.jpg`)
+    ])
 
     return json({ photo_id: photoId, thumb_id: thumbId })
   } catch (e) {
