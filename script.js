@@ -6309,19 +6309,31 @@ function playMessageSound() {
   lastSoundAt = now
 
   try {
+    // Kurzes, weiches "Plopp" (ca. 0,2 Sekunden): ein Sinuston, der schnell nach oben gleitet und sanft ausklingt
     const t = audioCtx.currentTime
-    ;[[880, 0], [1318, 0.12]].forEach(([freq, offset]) => {
+    const master = audioCtx.createGain()
+    master.gain.setValueAtTime(0.0001, t)
+    master.gain.exponentialRampToValueAtTime(0.14, t + 0.012)
+    master.gain.exponentialRampToValueAtTime(0.0001, t + 0.2)
+
+    const soften = audioCtx.createBiquadFilter() // nimmt dem Ton die Schärfe
+    soften.type = 'lowpass'
+    soften.frequency.value = 2200
+
+    master.connect(soften)
+    soften.connect(audioCtx.destination)
+
+    ;[[1, 1], [2, 0.18]].forEach(([mult, level]) => { // Grundton + ganz leiser Oberton für etwas Wärme
       const osc = audioCtx.createOscillator()
       const gain = audioCtx.createGain()
       osc.type = 'sine'
-      osc.frequency.value = freq
-      gain.gain.setValueAtTime(0.0001, t + offset)
-      gain.gain.exponentialRampToValueAtTime(0.18, t + offset + 0.02)
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + offset + 0.22)
+      osc.frequency.setValueAtTime(420 * mult, t)
+      osc.frequency.exponentialRampToValueAtTime(760 * mult, t + 0.07)
+      gain.gain.value = level
       osc.connect(gain)
-      gain.connect(audioCtx.destination)
-      osc.start(t + offset)
-      osc.stop(t + offset + 0.25)
+      gain.connect(master)
+      osc.start(t)
+      osc.stop(t + 0.22)
     })
   } catch (e) { /* Ton nicht verfügbar */ }
 }
