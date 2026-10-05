@@ -502,7 +502,7 @@ async function loadChatPreviews() {
 
   const { data: groupRows } = await supabaseClient
     .from('messages')
-    .select('text, created_at, group_key, sender_id')
+    .select('text, photo_id, created_at, group_key, sender_id')
     .order('created_at', { ascending: false })
     .limit(300)
 
@@ -517,7 +517,7 @@ async function loadChatPreviews() {
 
   const { data: dmRows } = await supabaseClient
     .from('direct_messages')
-    .select('text, created_at, sender_id, recipient_id')
+    .select('text, photo_id, created_at, sender_id, recipient_id')
     .order('created_at', { ascending: false })
     .limit(400)
 
@@ -653,7 +653,7 @@ function truncate(text, max) {
 
 // Baut den Inhalt eines Listeneintrags: Avatar, Name, Vorschau-Text, Uhrzeit, Ungelesen-Zähler
 function chatListItemHTML(avatarHTML, name, preview, unreadCount) {
-  const previewText = preview ? truncate(preview.text, 34) : 'Noch keine Nachrichten'
+  const previewText = preview ? truncate(messageSnippet(preview), 34) : 'Noch keine Nachrichten'
   const timeText = preview ? formatChatListTime(preview.created_at) : 'Keine Nachrichten'
   const badge = unreadCount > 0
     ? `<span class="unread-badge">${unreadCount}</span>`
@@ -883,7 +883,7 @@ async function openAdminContactsFor(userId, name) {
 
   const { data: rows, error } = await supabaseClient
     .from('direct_messages')
-    .select('sender_id, recipient_id, text, created_at')
+    .select('sender_id, recipient_id, text, photo_id, created_at')
     .or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
     .order('created_at', { ascending: false })
 
@@ -1711,6 +1711,12 @@ function toggleAttachMenu(anchorBtn, evt) {
   menu.className = 'msg-menu attach-menu'
   menu.addEventListener('click', e => e.stopPropagation())
 
+  const photoItem = document.createElement('button')
+  photoItem.className = 'msg-menu-item'
+  photoItem.textContent = 'Foto'
+  photoItem.addEventListener('click', () => { closeAttachMenu(); startPhotoFlow() })
+  menu.appendChild(photoItem)
+
   const pollItem = document.createElement('button')
   pollItem.className = 'msg-menu-item'
   pollItem.textContent = 'Umfrage'
@@ -1723,6 +1729,551 @@ function toggleAttachMenu(anchorBtn, evt) {
 }
 
 document.addEventListener('click', closeAttachMenu)
+
+// ===== Fotos =====
+// Ablauf: Plus -> "Foto" -> Hinweis auf SwissTransfer -> Foto aussuchen -> Vorschau (mit "HD"-Schalter und optionaler
+// Bildunterschrift) -> Senden. Das Foto wird im Browser verkleinert und an die Edge Function "upload-photo" geschickt,
+// die es privat in Google Drive ablegt. In der Nachricht stehen nur die Drive-Datei-IDs (photo_id = Foto,
+// photo_thumb_id = kleine Vorschau). Angezeigt wird über die Edge Function "get-photo", die vorher prüft, ob man den Chat sehen darf.
+const PHOTO_MAX_EDGE = 1600           // Standard: längste Seite in Pixeln
+const PHOTO_QUALITY = 0.8
+const PHOTO_MAX_BYTES = 1.5 * 1024 * 1024
+const PHOTO_HD_MAX_EDGE = 4096        // HD: nur begrenzt, nicht im Original (spart Speicher und Zeit)
+const PHOTO_HD_QUALITY = 0.92
+const PHOTO_HD_MAX_BYTES = 8 * 1024 * 1024
+const PHOTO_THUMB_EDGE = 480
+const PHOTO_THUMB_QUALITY = 0.72
+const PHOTO_THUMB_MAX_BYTES = 200 * 1024
+const PHOTO_INPUT_MAX_BYTES = 40 * 1024 * 1024 // größer als das darf die Original-Datei nicht sein
+const PHOTO_CAPTION_MAX = 1000
+const SWISSTRANSFER_URL = 'https://www.swisstransfer.com'
+const SWISSTRANSFER_WAIT_SECONDS = 3  // so lange ist "Weiter" im Hinweis gesperrt (darf ruhig nerven)
+const PHOTO_CACHE_NAME = 'chat-photos'
+const PHOTO_CACHE_MAX_ENTRIES = 150
+
+let photoInputEl = null
+let photoSending = false
+
+function messageSnippet(msg) {
+  return (msg && msg.text) || (msg && msg.photo_id ? '📷 Foto' : '')
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1).replace('.', ',') + ' MB'
+}
+
+function getPhotoInput() {
+  if (!photoInputEl) {
+    photoInputEl = document.createElement('input')
+    photoInputEl.type = 'file'
+    photoInputEl.accept = 'image/*'
+    photoInputEl.style.display = 'none'
+    photoInputEl.addEventListener('change', () => {
+      const file = photoInputEl.files && photoInputEl.files[0]
+      photoInputEl.value = ''
+      if (file) openPhotoPreview(file)
+    })
+    document.body.appendChild(photoInputEl)
+  }
+  return photoInputEl
+}
+
+function startPhotoFlow() {
+  if (!currentUser || isAdmin() || currentRoom.type === 'dm-view') return
+  if (editingMessageId) { showToast('Schließe zuerst das Bearbeiten ab.'); return }
+  if (!navigator.onLine) { showToast('Keine Internetverbindung.'); return }
+  // Der Hinweis kommt bei JEDEM Foto. Erst danach öffnet sich die Foto-Auswahl.
+  showSwissTransferHint(() => getPhotoInput().click())
+}
+
+// Pop-up: bei vielen Fotos bitte SwissTransfer nutzen
+function showSwissTransferHint(onContinue) {
+  const overlay = document.createElement('div')
+  overlay.className = 'confirm-overlay'
+
+  const dialog = document.createElement('div')
+  dialog.className = 'confirm-dialog photo-hint-dialog'
+  dialog.setAttribute('role', 'alertdialog')
+  dialog.setAttribute('aria-modal', 'true')
+
+  const title = document.createElement('p')
+  title.className = 'photo-hint-title'
+  title.textContent = '📷 Viele Fotos?'
+
+  const text = document.createElement('p')
+  text.textContent = 'Der Chat ist für einzelne Fotos gedacht. Wenn du viele Fotos schicken willst, nutze bitte SwissTransfer: Lade die Fotos dort hoch und schicke den Link hier in den Chat.'
+
+  const link = document.createElement('a')
+  link.className = 'photo-hint-link'
+  link.href = SWISSTRANSFER_URL
+  link.target = '_blank'
+  link.rel = 'noopener noreferrer'
+  link.textContent = 'swisstransfer.com öffnen'
+
+  const buttons = document.createElement('div')
+  buttons.className = 'confirm-buttons'
+  const cancelBtn = document.createElement('button')
+  cancelBtn.type = 'button'
+  cancelBtn.className = 'confirm-cancel'
+  cancelBtn.textContent = 'Abbrechen'
+  const okBtn = document.createElement('button')
+  okBtn.type = 'button'
+  okBtn.className = 'confirm-ok'
+  okBtn.disabled = true
+  buttons.append(cancelBtn, okBtn)
+
+  dialog.append(title, text, link, buttons)
+  overlay.appendChild(dialog)
+  document.body.appendChild(overlay)
+
+  let left = SWISSTRANSFER_WAIT_SECONDS
+  const setLabel = () => { okBtn.textContent = left > 0 ? 'Weiter mit Foto (' + left + ')' : 'Weiter mit Foto' }
+  setLabel()
+  const timer = setInterval(() => {
+    left--
+    setLabel()
+    if (left <= 0) { clearInterval(timer); okBtn.disabled = false }
+  }, 1000)
+
+  const finish = () => {
+    clearInterval(timer)
+    document.removeEventListener('keydown', onKey)
+    overlay.remove()
+  }
+  const onKey = e => { if (e.key === 'Escape') finish() }
+  document.addEventListener('keydown', onKey)
+  cancelBtn.addEventListener('click', finish)
+  overlay.addEventListener('click', e => { if (e.target === overlay) finish() })
+  okBtn.addEventListener('click', () => {
+    if (okBtn.disabled) return
+    finish()
+    onContinue() // direkt im Klick, sonst blockt der Browser die Foto-Auswahl
+  })
+}
+
+// ----- Verkleinern im Browser -----
+async function loadImageSource(file) {
+  if (window.createImageBitmap) {
+    try { return await createImageBitmap(file, { imageOrientation: 'from-image' }) } catch (e) { /* Fallback unten */ }
+  }
+  return await new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img) }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Bild nicht lesbar')) }
+    img.src = url
+  })
+}
+
+function drawScaled(src, maxEdge) {
+  const sw = src.naturalWidth || src.width
+  const sh = src.naturalHeight || src.height
+  const scale = Math.min(1, maxEdge / Math.max(sw, sh))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(sw * scale))
+  canvas.height = Math.max(1, Math.round(sh * scale))
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = '#ffffff' // durchsichtige Stellen (PNG) werden weiß statt schwarz
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(src, 0, 0, canvas.width, canvas.height)
+  return canvas
+}
+
+function canvasToBlob(canvas, quality) {
+  return new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality))
+}
+
+// Verkleinert, bis das Ergebnis unter maxBytes liegt (höchstens 5 Versuche)
+async function compressImage(src, maxEdge, quality, maxBytes) {
+  let edge = maxEdge
+  let q = quality
+  for (let i = 0; i < 5; i++) {
+    const canvas = drawScaled(src, edge)
+    const blob = await canvasToBlob(canvas, q)
+    if (!blob) throw new Error('Verkleinern fehlgeschlagen')
+    if (blob.size <= maxBytes || i === 4) return { blob, width: canvas.width, height: canvas.height }
+    q = Math.max(0.6, q - 0.08)
+    edge = Math.round(edge * 0.85)
+  }
+}
+
+// ----- Vorschau vor dem Senden -----
+async function openPhotoPreview(file) {
+  if (!file.type || !file.type.startsWith('image/')) { showToast('Das ist kein Foto.'); return }
+  if (file.size > PHOTO_INPUT_MAX_BYTES) { showToast('Das Foto ist zu groß (höchstens 40 MB).'); return }
+
+  let src
+  try {
+    src = await loadImageSource(file)
+  } catch (e) {
+    showToast('Dieses Foto kann nicht geöffnet werden.')
+    return
+  }
+
+  const results = {}      // 'normal' / 'hd' -> { blob, width, height, url }
+  let thumbResult = null
+  let hd = false
+  let busy = false
+  let closed = false
+
+  const overlay = document.createElement('div')
+  overlay.className = 'confirm-overlay'
+  const dialog = document.createElement('div')
+  dialog.className = 'confirm-dialog photo-dialog'
+  dialog.setAttribute('role', 'dialog')
+  dialog.setAttribute('aria-modal', 'true')
+
+  const title = document.createElement('p')
+  title.className = 'photo-dialog-title'
+  title.textContent = 'Foto senden'
+
+  const previewWrap = document.createElement('div')
+  previewWrap.className = 'photo-dialog-preview'
+  const previewImg = document.createElement('img')
+  previewImg.alt = 'Vorschau'
+  previewWrap.appendChild(previewImg)
+
+  const qualityRow = document.createElement('div')
+  qualityRow.className = 'photo-quality-row'
+  const hdBtn = document.createElement('button')
+  hdBtn.type = 'button'
+  hdBtn.className = 'photo-hd-btn'
+  hdBtn.textContent = 'HD'
+  hdBtn.setAttribute('aria-pressed', 'false')
+  const sizeEl = document.createElement('span')
+  sizeEl.className = 'photo-size'
+  qualityRow.append(hdBtn, sizeEl)
+
+  const hintEl = document.createElement('p')
+  hintEl.className = 'photo-hint'
+
+  const caption = document.createElement('input')
+  caption.type = 'text'
+  caption.className = 'photo-caption'
+  caption.placeholder = 'Bildunterschrift (optional)'
+  caption.maxLength = PHOTO_CAPTION_MAX
+
+  const statusEl = document.createElement('p')
+  statusEl.className = 'photo-status'
+
+  const buttons = document.createElement('div')
+  buttons.className = 'confirm-buttons'
+  const cancelBtn = document.createElement('button')
+  cancelBtn.type = 'button'
+  cancelBtn.className = 'confirm-cancel'
+  cancelBtn.textContent = 'Abbrechen'
+  const sendBtn = document.createElement('button')
+  sendBtn.type = 'button'
+  sendBtn.className = 'confirm-ok'
+  sendBtn.textContent = 'Senden'
+  sendBtn.disabled = true
+  buttons.append(cancelBtn, sendBtn)
+
+  dialog.append(title, previewWrap, qualityRow, hintEl, caption, statusEl, buttons)
+  overlay.appendChild(dialog)
+  document.body.appendChild(overlay)
+
+  function setHint() {
+    hintEl.textContent = hd
+      ? 'HD: sehr hohe Qualität – dauert länger und braucht mehr Speicher. Nur wenn es wirklich nötig ist.'
+      : 'Standard: das Foto wird verkleinert (spart Speicher und geht schnell).'
+  }
+  setHint()
+
+  async function showVersion() {
+    const key = hd ? 'hd' : 'normal'
+    sizeEl.textContent = 'Wird vorbereitet …'
+    sendBtn.disabled = true
+    try {
+      if (!results[key]) {
+        const r = hd
+          ? await compressImage(src, PHOTO_HD_MAX_EDGE, PHOTO_HD_QUALITY, PHOTO_HD_MAX_BYTES)
+          : await compressImage(src, PHOTO_MAX_EDGE, PHOTO_QUALITY, PHOTO_MAX_BYTES)
+        r.url = URL.createObjectURL(r.blob)
+        results[key] = r
+      }
+    } catch (e) {
+      console.error('Foto verkleinern:', e)
+      sizeEl.textContent = 'Fehler beim Vorbereiten'
+      return
+    }
+    if (closed || key !== (hd ? 'hd' : 'normal')) return // inzwischen umgeschaltet oder geschlossen
+    previewImg.src = results[key].url
+    sizeEl.textContent = results[key].width + ' × ' + results[key].height + ' · ' + formatBytes(results[key].blob.size)
+    sendBtn.disabled = busy
+  }
+
+  function close() {
+    closed = true
+    document.removeEventListener('keydown', onKey)
+    overlay.remove()
+    Object.values(results).forEach(r => URL.revokeObjectURL(r.url))
+    if (src && typeof src.close === 'function') src.close()
+  }
+
+  function setBusy(value) {
+    busy = value
+    cancelBtn.disabled = value
+    hdBtn.disabled = value
+    caption.disabled = value
+    sendBtn.disabled = value
+    statusEl.textContent = value ? 'Foto wird hochgeladen …' : ''
+  }
+
+  async function submit() {
+    if (busy || sendBtn.disabled) return
+    setBusy(true)
+    try {
+      const main = results[hd ? 'hd' : 'normal']
+      if (!thumbResult) thumbResult = await compressImage(src, PHOTO_THUMB_EDGE, PHOTO_THUMB_QUALITY, PHOTO_THUMB_MAX_BYTES)
+      const ok = await sendPhotoMessage(main, thumbResult, caption.value.trim())
+      if (ok) { close(); return }
+    } catch (e) {
+      console.error('Foto senden:', e)
+      showToast('Das Foto konnte nicht gesendet werden.')
+    }
+    setBusy(false)
+  }
+
+  const onKey = e => { if (e.key === 'Escape' && !busy) close() }
+  document.addEventListener('keydown', onKey)
+  cancelBtn.addEventListener('click', () => { if (!busy) close() })
+  hdBtn.addEventListener('click', () => {
+    if (busy) return
+    hd = !hd
+    hdBtn.classList.toggle('active', hd)
+    hdBtn.setAttribute('aria-pressed', hd ? 'true' : 'false')
+    setHint()
+    showVersion()
+  })
+  sendBtn.addEventListener('click', submit)
+  caption.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit() } })
+
+  showVersion()
+}
+
+// Lädt das Foto hoch und legt danach die Nachricht an. true = geschafft
+async function sendPhotoMessage(main, thumb, captionText) {
+  if (!currentUser || photoSending) return false
+  photoSending = true
+
+  // Den Chat von jetzt merken - falls man während des Hochladens in einen anderen Chat wechselt
+  const room = currentRoom
+  const table = currentTable()
+  const replyId = replyingToId
+
+  try {
+    const form = new FormData()
+    form.append('photo', main.blob, 'foto.jpg')
+    form.append('thumb', thumb.blob, 'vorschau.jpg')
+
+    const { data: up, error: upError } = await supabaseClient.functions.invoke('upload-photo', { body: form })
+    if (upError || !up || !up.photo_id) {
+      const detail = upError ? await readFunctionError(upError) : 'Unbekannter Fehler'
+      showToast('Foto konnte nicht hochgeladen werden: ' + detail)
+      return false
+    }
+
+    const row = {
+      sender_id: currentUser.id,
+      text: captionText || '',
+      photo_id: up.photo_id,
+      photo_thumb_id: up.thumb_id || null,
+      photo_w: main.width,
+      photo_h: main.height
+    }
+    if (room.type === 'dm') row.recipient_id = room.userId
+    else row.group_key = room.groupKey || null
+    if (replyId) row.reply_to_id = replyId
+
+    const { data: inserted, error } = await supabaseClient
+      .from(table)
+      .insert([row])
+      .select('*, profiles!sender_id(display_name)')
+      .single()
+
+    if (error) {
+      await handleSendError(error)
+      return false
+    }
+
+    if (replyingToId === replyId) cancelReplyingTo()
+    if (currentRoom === room && belongsToCurrentRoom(inserted)) renderMessage(inserted)
+    return true
+  } finally {
+    photoSending = false
+  }
+}
+
+// ----- Anzeigen -----
+const photoMemUrls = {}   // Drive-ID -> Objekt-URL (nur die kleinen Vorschaubilder)
+const photoPending = []
+let photoActive = 0
+let photoViewerEl = null
+let photoViewerUrl = null
+let photoViewerKey = null
+
+function pumpPhotoQueue() {
+  while (photoActive < 4 && photoPending.length) {
+    const job = photoPending.shift()
+    photoActive++
+    job().catch(() => {}).finally(() => { photoActive--; pumpPhotoQueue() })
+  }
+}
+
+// Holt ein Bild: erst aus dem Zwischenspeicher des Browsers, sonst über "get-photo" (mit Rechte-Prüfung)
+async function fetchPhotoBlob(id) {
+  const req = new Request('https://photo-cache.invalid/' + encodeURIComponent(id))
+  let cache = null
+  if ('caches' in window) {
+    try {
+      cache = await caches.open(PHOTO_CACHE_NAME)
+      const hit = await cache.match(req)
+      if (hit) return await hit.blob()
+    } catch (e) { cache = null }
+  }
+
+  const { data: sessionData } = await supabaseClient.auth.getSession()
+  const session = sessionData && sessionData.session
+  if (!session) throw new Error('Nicht angemeldet')
+
+  const res = await fetch(SUPABASE_URL + '/functions/v1/get-photo?id=' + encodeURIComponent(id), {
+    headers: { Authorization: 'Bearer ' + session.access_token, apikey: SUPABASE_KEY }
+  })
+  if (!res.ok) throw new Error('Foto nicht verfügbar (' + res.status + ')')
+  const blob = await res.blob()
+
+  if (cache) {
+    try {
+      await cache.put(req, new Response(blob, { headers: { 'Content-Type': blob.type || 'image/jpeg' } }))
+      const keys = await cache.keys()
+      for (let i = 0; i < keys.length - PHOTO_CACHE_MAX_ENTRIES; i++) await cache.delete(keys[i]) // die ältesten zuerst
+    } catch (e) { /* Zwischenspeicher voll - egal */ }
+  }
+  return blob
+}
+
+async function getThumbUrl(id) {
+  if (photoMemUrls[id]) return photoMemUrls[id]
+  const blob = await fetchPhotoBlob(id)
+  if (!photoMemUrls[id]) photoMemUrls[id] = URL.createObjectURL(blob)
+  return photoMemUrls[id]
+}
+
+function loadThumbInto(wrap, img, id) {
+  wrap.classList.remove('failed')
+  wrap.classList.add('loading')
+  photoPending.push(async () => {
+    try {
+      img.src = await getThumbUrl(id)
+    } catch (e) {
+      console.error('Foto laden:', e)
+      wrap.classList.add('failed')
+    }
+    wrap.classList.remove('loading')
+  })
+  pumpPhotoQueue()
+}
+
+// Das Foto in der Nachrichten-Blase
+function buildPhotoElement(msg) {
+  const wrap = document.createElement('button')
+  wrap.type = 'button'
+  wrap.className = 'msg-photo'
+  wrap.setAttribute('aria-label', 'Foto ansehen')
+
+  const w = Number(msg.photo_w) || 4
+  const h = Number(msg.photo_h) || 3
+  wrap.style.aspectRatio = String(Math.min(1.8, Math.max(0.7, w / h))) // Platz ist reserviert, bevor das Bild da ist
+
+  const img = document.createElement('img')
+  img.alt = 'Foto'
+  img.draggable = false
+  wrap.appendChild(img)
+
+  const thumbId = msg.photo_thumb_id || msg.photo_id
+  wrap.addEventListener('click', () => {
+    if (openMenuEl) return // gerade wurde das Nachrichten-Menü per langem Drücken geöffnet
+    if (selectMode) return
+    if (wrap.classList.contains('failed')) { loadThumbInto(wrap, img, thumbId); return }
+    openPhotoViewer(msg)
+  })
+
+  loadThumbInto(wrap, img, thumbId)
+  return wrap
+}
+
+function closePhotoViewer() {
+  if (photoViewerEl) { photoViewerEl.remove(); photoViewerEl = null }
+  if (photoViewerUrl) { URL.revokeObjectURL(photoViewerUrl); photoViewerUrl = null }
+  photoViewerKey = null
+  document.removeEventListener('keydown', onPhotoViewerKey)
+}
+
+function onPhotoViewerKey(e) {
+  if (e.key === 'Escape') closePhotoViewer()
+}
+
+// Großansicht: erst die Vorschau, dann nachgeladen das Foto in voller Qualität
+async function openPhotoViewer(msg) {
+  closePhotoViewer()
+  const key = msg.photo_id + ':' + Date.now()
+  photoViewerKey = key
+
+  const overlay = document.createElement('div')
+  overlay.className = 'photo-viewer loading'
+
+  const img = document.createElement('img')
+  img.alt = 'Foto'
+  if (msg.photo_thumb_id && photoMemUrls[msg.photo_thumb_id]) img.src = photoMemUrls[msg.photo_thumb_id]
+
+  const bar = document.createElement('div')
+  bar.className = 'photo-viewer-bar'
+  const closeBtn = document.createElement('button')
+  closeBtn.type = 'button'
+  closeBtn.className = 'photo-viewer-btn'
+  closeBtn.setAttribute('aria-label', 'Schließen')
+  closeBtn.textContent = '✕'
+  closeBtn.addEventListener('click', closePhotoViewer)
+  const saveLink = document.createElement('a')
+  saveLink.className = 'photo-viewer-btn'
+  saveLink.textContent = 'Speichern'
+  saveLink.style.display = 'none'
+  bar.append(closeBtn, saveLink)
+
+  const status = document.createElement('div')
+  status.className = 'photo-viewer-status'
+  status.textContent = 'Wird geladen …'
+
+  overlay.append(img, bar, status)
+  overlay.addEventListener('click', e => { if (e.target === overlay) closePhotoViewer() })
+  document.body.appendChild(overlay)
+  photoViewerEl = overlay
+  document.addEventListener('keydown', onPhotoViewerKey)
+
+  try {
+    const blob = await fetchPhotoBlob(msg.photo_id)
+    if (photoViewerKey !== key) return // inzwischen geschlossen
+    photoViewerUrl = URL.createObjectURL(blob)
+    img.src = photoViewerUrl
+    saveLink.href = photoViewerUrl
+    saveLink.download = 'Foto_' + String(msg.created_at || '').slice(0, 10) + '.jpg'
+    saveLink.style.display = ''
+    overlay.classList.remove('loading')
+  } catch (e) {
+    console.error('Foto öffnen:', e)
+    if (photoViewerKey === key) status.textContent = 'Das Foto konnte nicht geladen werden.'
+  }
+}
+
+// Beim Abmelden: Zwischenspeicher leeren (wichtig auf geteilten Geräten)
+async function clearPhotoCache() {
+  closePhotoViewer()
+  Object.keys(photoMemUrls).forEach(id => { URL.revokeObjectURL(photoMemUrls[id]); delete photoMemUrls[id] })
+  try { if ('caches' in window) await caches.delete(PHOTO_CACHE_NAME) } catch (e) { /* egal */ }
+}
 
 // ----- Emoji-Button links im Eingabefeld: fügt ein Emoji im Text ein -----
 let openTextEmojiEl = null
@@ -2255,11 +2806,11 @@ function renderMessage(msg) {
   // Menü öffnen: nicht mehr über einen eigenen Button, sondern per Rechtsklick (PC) oder
   // langem Tippen (Handy) direkt auf der Nachricht - Kopieren geht bei jeder Nachricht,
   // der Rest hängt davon ab, wem sie gehört
-  const canEdit = isOwn && !isAdmin()
+  const canEdit = isOwn && !isAdmin() && !msg.photo_id // Foto-Nachrichten lassen sich nicht bearbeiten
   const canDelete = isOwn || isAdmin()
   const canReact = !isAdmin()
   const canReply = !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
-  const canCopy = true
+  const canCopy = !!msg.text
   // Info (wer hat die Nachricht gelesen/bekommen) und Häkchen gibt es für eigene Nachrichten in Einzelchat und Gruppe
   const canInfo = READ_RECEIPTS_ENABLED && isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
 
@@ -2270,8 +2821,8 @@ function renderMessage(msg) {
   // Der Text selbst steht als reiner Textknoten davor, die Fußzeile (Uhrzeit + Haken)
   // wird gleich als eigenes, rechts schwebendes Element direkt danach eingehängt (siehe unten) -
   // dadurch rutscht sie bei kurzen Nachrichten ans Textende, bei langen presst sie sich unten rechts an
-  appendTextWithLinks(textEl, msg.text)
-  markBigEmoji(textEl, msg.text)
+  appendTextWithLinks(textEl, msg.text || '')
+  markBigEmoji(textEl, msg.text || '')
 
   const reactRow = document.createElement('div')
   reactRow.className = 'msg-reactions'
@@ -2279,6 +2830,11 @@ function renderMessage(msg) {
 
   if (meta.children.length > 0) msgElement.appendChild(meta)
   if (msg.reply_to_id) msgElement.appendChild(buildReplyQuote(msg.reply_to_id))
+  if (msg.photo_id) {
+    msgElement.classList.add('has-photo')
+    msgElement.appendChild(buildPhotoElement(msg))
+    if (!msg.text) textEl.classList.add('photo-only')
+  }
   msgElement.appendChild(textEl)
 
   // Häkchen direkt neben der Uhrzeit (1 grau = gesendet, 2 grau = zugestellt, 2 blau = gelesen)
@@ -3546,7 +4102,7 @@ function buildReplyQuote(replyToId) {
   authorEl.textContent = authorName
   const snippetEl = document.createElement('span')
   snippetEl.className = 'msg-reply-snippet'
-  snippetEl.textContent = original.text
+  snippetEl.textContent = messageSnippet(original)
 
   quote.appendChild(authorEl)
   quote.appendChild(snippetEl)
@@ -3582,7 +4138,7 @@ function startReplyingTo(id) {
     'Unbekannt'
 
   document.getElementById('reply-bar-author').textContent = authorName
-  document.getElementById('reply-bar-snippet').textContent = original.text
+  document.getElementById('reply-bar-snippet').textContent = messageSnippet(original)
   applyEmojiImages(document.getElementById('reply-bar-snippet'))
   document.getElementById('reply-bar').style.display = 'flex'
   document.getElementById('message-input').focus()
@@ -3711,7 +4267,7 @@ function updateMessageElement(msg) {
   if (!row) return
 
   const textEl = row.querySelector('.msg-text')
-  if (textEl) {
+  if (textEl && !msg.photo_id) {
     textEl.textContent = msg.text
     markBigEmoji(textEl, msg.text)
   }
@@ -4180,7 +4736,7 @@ function pinChatKey() {
 function currentPinText() {
   if (!currentPin) return ''
   const live = messagesById[currentPin.message_id]
-  return live ? live.text : currentPin.message_text
+  return live ? messageSnippet(live) : currentPin.message_text
 }
 
 async function loadPinForRoom() {
@@ -4248,7 +4804,7 @@ async function pinMessage(msg) {
     .upsert({
       chat_key: key,
       message_id: String(msg.id),
-      message_text: msg.text,
+      message_text: messageSnippet(msg),
       sender_id: msg.sender_id,
       message_created_at: msg.created_at,
       pinned_by: currentUser.id
@@ -4563,6 +5119,7 @@ async function logout() {
   if (!confirmed) return
 
   await teardownPushSubscription() // vor dem Abmelden, solange die Berechtigung zum Löschen noch da ist
+  await clearPhotoCache()
   await supabaseClient.auth.signOut()
   showLogin()
 }
