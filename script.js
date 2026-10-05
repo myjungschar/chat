@@ -1747,7 +1747,6 @@ const PHOTO_THUMB_MAX_BYTES = 200 * 1024
 const PHOTO_INPUT_MAX_BYTES = 40 * 1024 * 1024 // größer als das darf die Original-Datei nicht sein
 const PHOTO_CAPTION_MAX = 1000
 const SWISSTRANSFER_URL = 'https://www.swisstransfer.com'
-const SWISSTRANSFER_WAIT_SECONDS = 3  // so lange ist "Weiter" im Hinweis gesperrt (darf ruhig nerven)
 const PHOTO_CACHE_NAME = 'chat-photos'
 const PHOTO_CACHE_MAX_ENTRIES = 150
 
@@ -1787,29 +1786,30 @@ function startPhotoFlow() {
   showSwissTransferHint(() => getPhotoInput().click())
 }
 
-// Pop-up: bei vielen Fotos bitte SwissTransfer nutzen
+// Pop-up: bei vielen Fotos bitte SwissTransfer nutzen (kommt bei jedem Foto, ohne Wartezeit)
 function showSwissTransferHint(onContinue) {
   const overlay = document.createElement('div')
   overlay.className = 'confirm-overlay'
 
   const dialog = document.createElement('div')
   dialog.className = 'confirm-dialog photo-hint-dialog'
-  dialog.setAttribute('role', 'alertdialog')
+  dialog.setAttribute('role', 'dialog')
   dialog.setAttribute('aria-modal', 'true')
 
   const title = document.createElement('p')
   title.className = 'photo-hint-title'
-  title.textContent = '📷 Viele Fotos?'
+  title.textContent = 'Viele Fotos?'
 
   const text = document.createElement('p')
-  text.textContent = 'Der Chat ist für einzelne Fotos gedacht. Wenn du viele Fotos schicken willst, nutze bitte SwissTransfer: Lade die Fotos dort hoch und schicke den Link hier in den Chat.'
+  text.className = 'photo-hint-text'
+  text.textContent = 'Nutze dafür bitte SwissTransfer und schick den Link hier in den Chat.'
 
   const link = document.createElement('a')
   link.className = 'photo-hint-link'
   link.href = SWISSTRANSFER_URL
   link.target = '_blank'
   link.rel = 'noopener noreferrer'
-  link.textContent = 'swisstransfer.com öffnen'
+  link.textContent = 'SwissTransfer öffnen'
 
   const buttons = document.createElement('div')
   buttons.className = 'confirm-buttons'
@@ -1820,24 +1820,14 @@ function showSwissTransferHint(onContinue) {
   const okBtn = document.createElement('button')
   okBtn.type = 'button'
   okBtn.className = 'confirm-ok'
-  okBtn.disabled = true
+  okBtn.textContent = 'Ein Foto senden'
   buttons.append(cancelBtn, okBtn)
 
   dialog.append(title, text, link, buttons)
   overlay.appendChild(dialog)
   document.body.appendChild(overlay)
 
-  let left = SWISSTRANSFER_WAIT_SECONDS
-  const setLabel = () => { okBtn.textContent = left > 0 ? 'Weiter mit Foto (' + left + ')' : 'Weiter mit Foto' }
-  setLabel()
-  const timer = setInterval(() => {
-    left--
-    setLabel()
-    if (left <= 0) { clearInterval(timer); okBtn.disabled = false }
-  }, 1000)
-
   const finish = () => {
-    clearInterval(timer)
     document.removeEventListener('keydown', onKey)
     overlay.remove()
   }
@@ -1846,7 +1836,6 @@ function showSwissTransferHint(onContinue) {
   cancelBtn.addEventListener('click', finish)
   overlay.addEventListener('click', e => { if (e.target === overlay) finish() })
   okBtn.addEventListener('click', () => {
-    if (okBtn.disabled) return
     finish()
     onContinue() // direkt im Klick, sonst blockt der Browser die Foto-Auswahl
   })
@@ -1925,38 +1914,24 @@ async function openPhotoPreview(file) {
   dialog.setAttribute('role', 'dialog')
   dialog.setAttribute('aria-modal', 'true')
 
-  const title = document.createElement('p')
-  title.className = 'photo-dialog-title'
-  title.textContent = 'Foto senden'
-
+  // Das Foto mit kleinem "HD"-Knopf oben in der Ecke
   const previewWrap = document.createElement('div')
-  previewWrap.className = 'photo-dialog-preview'
+  previewWrap.className = 'photo-dialog-preview loading'
   const previewImg = document.createElement('img')
   previewImg.alt = 'Vorschau'
-  previewWrap.appendChild(previewImg)
-
-  const qualityRow = document.createElement('div')
-  qualityRow.className = 'photo-quality-row'
   const hdBtn = document.createElement('button')
   hdBtn.type = 'button'
   hdBtn.className = 'photo-hd-btn'
   hdBtn.textContent = 'HD'
+  hdBtn.title = 'Volle Qualität'
   hdBtn.setAttribute('aria-pressed', 'false')
-  const sizeEl = document.createElement('span')
-  sizeEl.className = 'photo-size'
-  qualityRow.append(hdBtn, sizeEl)
-
-  const hintEl = document.createElement('p')
-  hintEl.className = 'photo-hint'
+  previewWrap.append(previewImg, hdBtn)
 
   const caption = document.createElement('input')
   caption.type = 'text'
   caption.className = 'photo-caption'
-  caption.placeholder = 'Bildunterschrift (optional)'
+  caption.placeholder = 'Text dazu (optional)'
   caption.maxLength = PHOTO_CAPTION_MAX
-
-  const statusEl = document.createElement('p')
-  statusEl.className = 'photo-status'
 
   const buttons = document.createElement('div')
   buttons.className = 'confirm-buttons'
@@ -1971,20 +1946,13 @@ async function openPhotoPreview(file) {
   sendBtn.disabled = true
   buttons.append(cancelBtn, sendBtn)
 
-  dialog.append(title, previewWrap, qualityRow, hintEl, caption, statusEl, buttons)
+  dialog.append(previewWrap, caption, buttons)
   overlay.appendChild(dialog)
   document.body.appendChild(overlay)
 
-  function setHint() {
-    hintEl.textContent = hd
-      ? 'HD: sehr hohe Qualität – dauert länger und braucht mehr Speicher. Nur wenn es wirklich nötig ist.'
-      : 'Standard: das Foto wird verkleinert (spart Speicher und geht schnell).'
-  }
-  setHint()
-
   async function showVersion() {
     const key = hd ? 'hd' : 'normal'
-    sizeEl.textContent = 'Wird vorbereitet …'
+    previewWrap.classList.add('loading')
     sendBtn.disabled = true
     try {
       if (!results[key]) {
@@ -1996,12 +1964,13 @@ async function openPhotoPreview(file) {
       }
     } catch (e) {
       console.error('Foto verkleinern:', e)
-      sizeEl.textContent = 'Fehler beim Vorbereiten'
+      previewWrap.classList.remove('loading')
+      showToast('Das Foto konnte nicht vorbereitet werden.')
       return
     }
     if (closed || key !== (hd ? 'hd' : 'normal')) return // inzwischen umgeschaltet oder geschlossen
     previewImg.src = results[key].url
-    sizeEl.textContent = results[key].width + ' × ' + results[key].height + ' · ' + formatBytes(results[key].blob.size)
+    previewWrap.classList.remove('loading')
     sendBtn.disabled = busy
   }
 
@@ -2019,7 +1988,7 @@ async function openPhotoPreview(file) {
     hdBtn.disabled = value
     caption.disabled = value
     sendBtn.disabled = value
-    statusEl.textContent = value ? 'Foto wird hochgeladen …' : ''
+    sendBtn.textContent = value ? 'Sendet …' : 'Senden'
   }
 
   async function submit() {
@@ -2045,7 +2014,6 @@ async function openPhotoPreview(file) {
     hd = !hd
     hdBtn.classList.toggle('active', hd)
     hdBtn.setAttribute('aria-pressed', hd ? 'true' : 'false')
-    setHint()
     showVersion()
   })
   sendBtn.addEventListener('click', submit)
@@ -2216,11 +2184,13 @@ function onPhotoViewerKey(e) {
   if (e.key === 'Escape') closePhotoViewer()
 }
 
-// Großansicht: erst die Vorschau, dann nachgeladen das Foto in voller Qualität
+// Großansicht: erst die Vorschau, dann nachgeladen das Foto in voller Qualität.
+// Oben rechts zwei runde Knöpfe: Speichern (Pfeil nach unten) und Schließen (Kreuz).
 async function openPhotoViewer(msg) {
   closePhotoViewer()
   const key = msg.photo_id + ':' + Date.now()
   photoViewerKey = key
+  let fullBlob = null
 
   const overlay = document.createElement('div')
   overlay.className = 'photo-viewer loading'
@@ -2229,25 +2199,52 @@ async function openPhotoViewer(msg) {
   img.alt = 'Foto'
   if (msg.photo_thumb_id && photoMemUrls[msg.photo_thumb_id]) img.src = photoMemUrls[msg.photo_thumb_id]
 
-  const bar = document.createElement('div')
-  bar.className = 'photo-viewer-bar'
+  const saveBtn = document.createElement('button')
+  saveBtn.type = 'button'
+  saveBtn.className = 'photo-viewer-btn photo-viewer-save'
+  saveBtn.setAttribute('aria-label', 'In der Galerie speichern')
+  saveBtn.title = 'Speichern'
+  saveBtn.disabled = true
+  saveBtn.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>'
+
   const closeBtn = document.createElement('button')
   closeBtn.type = 'button'
-  closeBtn.className = 'photo-viewer-btn'
+  closeBtn.className = 'photo-viewer-btn photo-viewer-close'
   closeBtn.setAttribute('aria-label', 'Schließen')
-  closeBtn.textContent = '✕'
+  closeBtn.title = 'Schließen'
+  closeBtn.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>'
   closeBtn.addEventListener('click', closePhotoViewer)
-  const saveLink = document.createElement('a')
-  saveLink.className = 'photo-viewer-btn'
-  saveLink.textContent = 'Speichern'
-  saveLink.style.display = 'none'
-  bar.append(closeBtn, saveLink)
+
+  const buttons = document.createElement('div')
+  buttons.className = 'photo-viewer-buttons'
+  buttons.append(saveBtn, closeBtn)
 
   const status = document.createElement('div')
   status.className = 'photo-viewer-status'
   status.textContent = 'Wird geladen …'
 
-  overlay.append(img, bar, status)
+  // Speichern: am Handy über das Teilen-Menü ("Bild speichern" -> Galerie), sonst normaler Download
+  saveBtn.addEventListener('click', async () => {
+    if (!fullBlob) return
+    const name = 'Foto_' + String(msg.created_at || '').slice(0, 10) + '.jpg'
+    try {
+      const file = new File([fullBlob], name, { type: 'image/jpeg' })
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file] })
+        return
+      }
+    } catch (e) {
+      if (e && e.name === 'AbortError') return // Teilen-Menü wurde geschlossen
+    }
+    const a = document.createElement('a')
+    a.href = photoViewerUrl
+    a.download = name
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  })
+
+  overlay.append(img, buttons, status)
   overlay.addEventListener('click', e => { if (e.target === overlay) closePhotoViewer() })
   document.body.appendChild(overlay)
   photoViewerEl = overlay
@@ -2256,11 +2253,10 @@ async function openPhotoViewer(msg) {
   try {
     const blob = await fetchPhotoBlob(msg.photo_id)
     if (photoViewerKey !== key) return // inzwischen geschlossen
+    fullBlob = blob
     photoViewerUrl = URL.createObjectURL(blob)
     img.src = photoViewerUrl
-    saveLink.href = photoViewerUrl
-    saveLink.download = 'Foto_' + String(msg.created_at || '').slice(0, 10) + '.jpg'
-    saveLink.style.display = ''
+    saveBtn.disabled = false
     overlay.classList.remove('loading')
   } catch (e) {
     console.error('Foto öffnen:', e)
