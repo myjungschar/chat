@@ -3631,3 +3631,12 @@ input[type="date"]::-webkit-date-and-time-value {
   border-radius: 50%;
   background: var(--accent);
 }
+
+/* Startseite: weniger Abstand zwischen der Linie unter dem Kopf und der Suchleiste */
+#list-bereich .chat-header {
+  margin-bottom: 0;
+}
+
+#list-bereich .chat-search-wrap {
+  margin-top: 10px;
+}
