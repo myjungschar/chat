@@ -41,6 +41,12 @@ let lastMessageDateKey = null // Tag der zuletzt gezeichneten Nachricht, für di
 let selectMode = false          // true, solange mehrere Nachrichten zum Löschen ausgewählt werden
 let selectedMessageIds = new Set() // IDs (als Text) der gerade ausgewählten Nachrichten
 let reactionMap = {}        // message_id -> { up, down, mine }, für den gerade offenen Chat
+let profileEmailCache = {}  // user_id -> E-Mail-Adresse (nur Admin), damit sie nicht bei jedem Öffnen neu geladen wird
+let profileRequestId = 0    // zählt bei jedem Öffnen/Schließen eines Profils hoch, damit späte Antworten nichts mehr überschreiben
+let typingChannel = null    // Realtime (Broadcast): wer im offenen Chat gerade tippt
+let typingSubscribed = false
+let typingUsers = {}        // user_id -> Timer, der "tippt" nach kurzer Zeit wieder ausblendet
+let lastTypingSent = 0      // ms, wann ich zuletzt "ich tippe" gesendet habe
 
 // Welcher Chat ist gerade offen: die Gruppe oder ein Einzelchat mit einer bestimmten Person
 let currentRoom = { type: 'group' }
@@ -280,6 +286,8 @@ function showLogin() {
   unreadCounts = {}
   peerMarks = {}
   pollsMap = {}
+  profileEmailCache = {}
+  closeProfileModals()
 
   const aboutCard = document.getElementById('about-card')
   if (aboutCard) aboutCard.classList.remove('open')
@@ -418,7 +426,8 @@ async function enterApp(user) {
     if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 1200))
     ;({ data: profile, error } = await supabaseClient
       .from('profiles')
-      .select('id, display_name, role, is_blocked, gender')
+      // '*' statt Spaltenliste: so läuft die App auch, solange die Spalte "birthdate" noch nicht angelegt ist
+      .select('*')
       .eq('id', user.id)
       .single())
     if (profile || (error && error.code === 'PGRST116')) break // gefunden, oder es gibt das Profil wirklich nicht
@@ -471,6 +480,7 @@ async function enterApp(user) {
   }
   startPresence()
   warmUpEmojiPicker()
+  ensureBirthdate() // noch kein Geburtsdatum gespeichert? Dann kommt das Pflicht-Fenster
 }
 
 // Letzte Nachricht je Chat laden, für die Vorschau in der Liste
@@ -931,6 +941,7 @@ function openAdminDmView(userA, userB, nameA, nameB) {
 
 async function openConversation(title) {
   document.getElementById('conversation-title').textContent = title
+  updateConversationTitleTap()
   updateOnlineIndicator()
   showScreen('conversation-bereich')
   cancelEditingMessage()
@@ -1045,19 +1056,19 @@ async function loadProfileCache() {
   profileCache = {}
   data.forEach(p => {
     // active = false: eingeladen, aber Einladung noch nicht angenommen / noch kein Passwort gesetzt
-    profileCache[p.id] = { name: p.display_name, role: p.role, blocked: !!p.is_blocked, gender: p.gender, active: p.active !== false }
+    profileCache[p.id] = { name: p.display_name, role: p.role, blocked: !!p.is_blocked, gender: p.gender, active: p.active !== false, birthdate: p.birthdate || null }
   })
 }
 
 async function fetchProfileName(userId) {
   const { data } = await supabaseClient
     .from('profiles')
-    .select('display_name, role, is_blocked, gender')
+    .select('*')
     .eq('id', userId)
     .single()
 
   if (data) {
-    profileCache[userId] = { name: data.display_name, role: data.role, blocked: !!data.is_blocked, gender: data.gender }
+    profileCache[userId] = { name: data.display_name, role: data.role, blocked: !!data.is_blocked, gender: data.gender, birthdate: data.birthdate || null }
   }
 }
 
@@ -3737,6 +3748,7 @@ async function sendMessage() {
     cancelReplyingTo()
     renderMessage(inserted)
     clearMessageInput()
+    notifyTyping() // Feld ist leer -> "tippt" beim anderen ausblenden
     input.focus()
   }
 }
@@ -3772,6 +3784,7 @@ function listenForNewMessages() {
       const msg = payload.new
       if (!profileCache[msg.sender_id]) await fetchProfileName(msg.sender_id)
       renderMessage(msg)
+      clearTyping(msg.sender_id) // die Nachricht ist da, "tippt" ist erledigt
       if (msg.sender_id !== currentUser.id && !isAdmin()) playMessageSound()
       // Der Chat ist offen, die Nachricht wird gerade gesehen -> nicht später als ungelesen zählen
       if (msg.sender_id !== currentUser.id && document.visibilityState === 'visible') markCurrentRoomRead()
@@ -3789,6 +3802,7 @@ function listenForNewMessages() {
 
   chatChannel = channel.subscribe()
   startPeerListening()
+  startTypingChannel()
 }
 
 function stopListening() {
@@ -3802,6 +3816,7 @@ function stopListening() {
   stopPeerListening()
   stopPollListening()
   stopPinListening()
+  stopTypingChannel()
 }
 
 // Solange man eingeloggt ist: bei jeder neuen Nachricht (egal wo) die Chatliste neu sortieren
@@ -5774,6 +5789,7 @@ function onMessageInput() {
     else if (text === '') el.innerHTML = '' // übrig gebliebene Umbrüche entfernen, damit der Platzhalter wieder erscheint
   }
   autoResizeMessageInput()
+  notifyTyping()
 }
 
 ;(function setupMessageInput() {
@@ -6078,6 +6094,13 @@ function updateOnlineIndicator() {
     }
   }
 
+  // Tippt jemand gerade, steht das an derselben Stelle statt "online"
+  const typing = typingText()
+  if (typing) {
+    text = typing
+    clickable = false
+  }
+
   el.textContent = text
   el.style.display = text ? '' : 'none'
   el.classList.toggle('clickable', clickable)
@@ -6103,6 +6126,417 @@ function openOnlineList() {
 function closeOnlineList() {
   document.getElementById('online-modal').style.display = 'none'
 }
+
+// ===== "tippt …" oben im Chat =====
+// Läuft über einen eigenen Broadcast-Channel pro Chat (nichts wird gespeichert). Wer tippt, sendet höchstens alle
+// 2,5 Sekunden ein Zeichen; beim Empfänger verschwindet die Anzeige nach 5 Sekunden ohne neues Zeichen von selbst.
+const TYPING_EXPIRE_MS = 5000
+const TYPING_SEND_EVERY_MS = 2500
+
+function typingChannelName() {
+  if (!currentUser || !currentRoom) return null
+  if (currentRoom.type === 'dm') return 'typing:dm:' + [currentUser.id, currentRoom.userId].sort().join(':')
+  if (currentRoom.type === 'group') return 'typing:group:' + (currentRoom.groupKey || 'main')
+  return null
+}
+
+function startTypingChannel() {
+  stopTypingChannel()
+  const name = typingChannelName()
+  if (!name) return
+  const channel = supabaseClient.channel(name, { config: { broadcast: { self: false } } })
+  channel.on('broadcast', { event: 'typing' }, ({ payload }) => onTypingEvent(payload))
+  channel.subscribe((status) => {
+    if (channel === typingChannel) typingSubscribed = status === 'SUBSCRIBED'
+  })
+  typingChannel = channel
+}
+
+function stopTypingChannel() {
+  Object.values(typingUsers).forEach(timer => clearTimeout(timer))
+  typingUsers = {}
+  lastTypingSent = 0
+  typingSubscribed = false
+  if (typingChannel) {
+    supabaseClient.removeChannel(typingChannel)
+    typingChannel = null
+  }
+  updateOnlineIndicator()
+}
+
+function onTypingEvent(payload) {
+  if (!payload || !payload.userId || !currentUser || !currentRoom) return
+  const id = payload.userId
+  if (id === currentUser.id) return
+  const info = profileCache[id]
+  if (!info || info.role === 'admin') return
+  if (currentRoom.type === 'dm' && id !== currentRoom.userId) return
+  if (currentRoom.type === 'group' && currentRoom.groupKey && info.gender !== currentRoom.groupKey) return
+
+  if (payload.typing) {
+    clearTimeout(typingUsers[id])
+    typingUsers[id] = setTimeout(() => clearTyping(id), TYPING_EXPIRE_MS)
+    updateOnlineIndicator()
+  } else {
+    clearTyping(id)
+  }
+}
+
+function clearTyping(id) {
+  if (!(id in typingUsers)) return
+  clearTimeout(typingUsers[id])
+  delete typingUsers[id]
+  updateOnlineIndicator()
+}
+
+function sendTyping(isTyping) {
+  if (!typingChannel || !typingSubscribed || !currentUser || isAdmin()) return
+  typingChannel.send({ type: 'broadcast', event: 'typing', payload: { userId: currentUser.id, typing: isTyping } })
+}
+
+// Wird bei jeder Eingabe im Nachrichtenfeld aufgerufen
+function notifyTyping() {
+  const hasText = !editingMessageId && getMessageText().trim() !== ''
+  if (hasText) {
+    const now = Date.now()
+    if (now - lastTypingSent >= TYPING_SEND_EVERY_MS) {
+      lastTypingSent = now
+      sendTyping(true)
+    }
+  } else if (lastTypingSent) {
+    lastTypingSent = 0
+    sendTyping(false)
+  }
+}
+
+// Text für den grünen Hinweis oben: "tippt …", "Anna tippt …", "Anna und Ben tippen …", "3 tippen …"
+function typingText() {
+  if (!currentUser || !currentRoom) return ''
+  const ids = Object.keys(typingUsers)
+  if (ids.length === 0) return ''
+  if (currentRoom.type === 'dm') return 'tippt …'
+  const first = id => (((profileCache[id] && profileCache[id].name) || 'Jemand').split(/[\s._-]+/)[0]) || 'Jemand'
+  if (ids.length === 1) return first(ids[0]) + ' tippt …'
+  if (ids.length === 2) return first(ids[0]) + ' und ' + first(ids[1]) + ' tippen …'
+  return ids.length + ' tippen …'
+}
+
+// ===== Geburtsdatum, Profil und Mitgliederliste =====
+// Das Geburtsdatum steht in profiles.birthdate und ist für alle Mitglieder sichtbar. Eingetragen wird es genau einmal:
+// die Datenbankfunktion set_my_birthdate füllt nur eine leere Stelle, ein gespeichertes Datum kann man selbst nicht mehr
+// ändern. Die E-Mail-Adresse steht in auth.users und kommt nur für den Admin über die Edge Function "get-user-email".
+const BIRTH_MIN_AGE = 3    // jünger ist unrealistisch (meist ein Tippfehler im Jahr)
+const BIRTH_MAX_AGE = 100  // älter ebenfalls
+let birthdateSaving = false
+
+function pad2(n) {
+  return String(n).padStart(2, '0')
+}
+
+function toISODate(d) {
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
+}
+
+function isoDateYearsAgo(years) {
+  const d = new Date()
+  d.setFullYear(d.getFullYear() - years)
+  return toISODate(d)
+}
+
+// "2013-05-12" -> "12.05.2013"
+function formatBirthdate(iso) {
+  const [y, m, d] = iso.split('-')
+  return d + '.' + m + '.' + y
+}
+
+function ageFromBirthdate(iso) {
+  const [y, m, d] = iso.split('-').map(Number)
+  const now = new Date()
+  let age = now.getFullYear() - y
+  if (now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d)) age--
+  return age
+}
+
+// Gibt einen Fehlertext zurück, oder null wenn das Datum in Ordnung ist
+function birthdateError(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return 'Bitte gib dein Geburtsdatum ein.'
+  const [y, m, d] = value.split('-').map(Number)
+  const check = new Date(y, m - 1, d)
+  if (check.getFullYear() !== y || check.getMonth() !== m - 1 || check.getDate() !== d) return 'Dieses Datum gibt es nicht.'
+  if (value > toISODate(new Date())) return 'Das Datum liegt in der Zukunft.'
+  if (value > isoDateYearsAgo(BIRTH_MIN_AGE) || value < isoDateYearsAgo(BIRTH_MAX_AGE)) {
+    return 'Dieses Datum ist nicht möglich. Bitte prüfe es noch einmal.'
+  }
+  return null
+}
+
+// Fehlt das Geburtsdatum? Der Admin muss keins eintragen. "'birthdate' in ..." sorgt dafür, dass niemand ausgesperrt
+// wird, solange die Spalte in der Datenbank noch nicht angelegt ist.
+function needsBirthdate() {
+  return !!currentProfile && !isAdmin() && 'birthdate' in currentProfile && !currentProfile.birthdate
+}
+
+function ensureBirthdate() {
+  if (!needsBirthdate()) return
+  const modal = document.getElementById('birthdate-modal')
+  if (modal.style.display === 'flex') return
+  const input = document.getElementById('birthdate-input')
+  input.min = isoDateYearsAgo(BIRTH_MAX_AGE)
+  input.max = isoDateYearsAgo(BIRTH_MIN_AGE)
+  input.value = ''
+  hideBirthdateError()
+  modal.style.display = 'flex'
+  if (desktopQuery.matches) input.focus()
+}
+
+function showBirthdateError(text) {
+  const el = document.getElementById('birthdate-error')
+  el.textContent = text
+  el.style.display = ''
+}
+
+function hideBirthdateError() {
+  const el = document.getElementById('birthdate-error')
+  el.textContent = ''
+  el.style.display = 'none'
+}
+
+function closeBirthdateModal() {
+  document.getElementById('birthdate-modal').style.display = 'none'
+}
+
+async function saveBirthdate() {
+  if (birthdateSaving) return
+  const value = document.getElementById('birthdate-input').value
+  const problem = birthdateError(value)
+  if (problem) {
+    showBirthdateError(problem)
+    return
+  }
+  hideBirthdateError()
+
+  const ok = await askConfirm(
+    'Dein Geburtsdatum ist der ' + formatBirthdate(value) + '. Das kannst du später nicht mehr selbst ändern. Stimmt das?',
+    { okText: 'Ja, speichern', cancelText: 'Ändern' }
+  )
+  if (!ok) return
+
+  birthdateSaving = true
+  const btn = document.getElementById('birthdate-save-btn')
+  btn.disabled = true
+  const { error } = await supabaseClient.rpc('set_my_birthdate', { p_birthdate: value })
+  btn.disabled = false
+  birthdateSaving = false
+
+  if (error) {
+    showBirthdateError(error.message || 'Speichern hat nicht geklappt. Bitte versuche es noch einmal.')
+    return
+  }
+
+  currentProfile.birthdate = value
+  if (currentUser && profileCache[currentUser.id]) profileCache[currentUser.id].birthdate = value
+  closeBirthdateModal()
+  showToast('Geburtsdatum gespeichert.', 'success')
+}
+
+// ----- Profil einer Person (Einzelchat-Name oder Eintrag in der Mitgliederliste) -----
+function addProfileRow(container, label) {
+  const row = document.createElement('div')
+  row.className = 'profile-row'
+  const labelEl = document.createElement('span')
+  labelEl.className = 'profile-row-label'
+  labelEl.textContent = label
+  const valueEl = document.createElement('span')
+  valueEl.className = 'profile-row-value'
+  row.append(labelEl, valueEl)
+  container.appendChild(row)
+  return valueEl
+}
+
+function setProfileValue(el, text, muted) {
+  el.textContent = text
+  el.classList.toggle('empty', !!muted)
+}
+
+// Zwei Zeilen im Profil: Geburtsdatum und Alter
+function setBirthdateValue(birthEl, ageEl, iso) {
+  if (iso) {
+    setProfileValue(birthEl, formatBirthdate(iso), false)
+    setProfileValue(ageEl, ageFromBirthdate(iso) + ' Jahre', false)
+  } else {
+    setProfileValue(birthEl, 'Noch nicht eingetragen', true)
+    setProfileValue(ageEl, '–', true)
+  }
+}
+
+async function openProfile(userId) {
+  if (!userId) return
+  const myRequest = ++profileRequestId
+  const info = profileCache[userId] || {}
+  const name = info.name || 'Ohne Namen'
+
+  const avatar = document.getElementById('profile-avatar')
+  avatar.style.background = avatarColor(userId)
+  avatar.textContent = initialsOf(name)
+  document.getElementById('profile-name').textContent = name
+
+  const rows = document.getElementById('profile-rows')
+  rows.innerHTML = ''
+  const birthEl = addProfileRow(rows, 'Geburtsdatum')
+  const ageEl = addProfileRow(rows, 'Alter')
+  setBirthdateValue(birthEl, ageEl, info.birthdate)
+
+  // Die E-Mail-Adresse sieht nur der Admin - und selbst der bekommt sie nur über die Edge Function
+  if (isAdmin()) {
+    const emailEl = addProfileRow(rows, 'E-Mail-Adresse')
+    setProfileValue(emailEl, 'Lädt …', true)
+    loadProfileEmail(userId, myRequest, emailEl)
+  }
+
+  document.getElementById('profile-modal').style.display = 'flex'
+
+  // Frisch nachladen: die Person könnte ihr Geburtsdatum erst nach dem Start dieser App eingetragen haben
+  const { data } = await supabaseClient.from('profiles').select('birthdate').eq('id', userId).single()
+  if (!data || myRequest !== profileRequestId) return
+  const fresh = data.birthdate || null
+  if (profileCache[userId]) profileCache[userId].birthdate = fresh
+  setBirthdateValue(birthEl, ageEl, fresh)
+}
+
+async function loadProfileEmail(userId, myRequest, el) {
+  let email = profileEmailCache[userId]
+  if (!email) {
+    const { data, error } = await supabaseClient.functions.invoke('get-user-email', { body: { userId } })
+    if (myRequest !== profileRequestId) return
+    if (error || !data || !data.email) {
+      if (error) console.error('E-Mail konnte nicht geladen werden:', await readFunctionError(error))
+      setProfileValue(el, 'Konnte nicht geladen werden', true)
+      return
+    }
+    email = data.email
+    profileEmailCache[userId] = email
+  }
+  if (myRequest !== profileRequestId) return
+  setProfileValue(el, email, false)
+}
+
+function closeProfileModal() {
+  profileRequestId++
+  document.getElementById('profile-modal').style.display = 'none'
+}
+
+// ----- Mitgliederliste einer Gruppe -----
+// Hauptgruppe: alle Mitglieder. Jungs / Mädels: nur die jeweilige Gruppe. Admin, Gesperrte und noch nicht
+// angenommene Einladungen stehen nicht darin (genau wie bei den Empfängern einer Nachricht).
+function memberIdsOfCurrentGroup() {
+  const key = (currentRoom && currentRoom.groupKey) || 'main'
+  return Object.entries(profileCache)
+    .filter(([, info]) => info.role !== 'admin' && !info.blocked && info.active !== false && (key === 'main' || info.gender === key))
+    .map(([id]) => id)
+}
+
+function renderMembersList() {
+  const nameOf = id => (profileCache[id] && profileCache[id].name) || 'Ohne Namen'
+  const ids = memberIdsOfCurrentGroup().sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'de', { sensitivity: 'base' }))
+
+  document.getElementById('members-count').textContent = ids.length
+  const list = document.getElementById('members-list')
+  list.innerHTML = ''
+
+  if (ids.length === 0) {
+    const empty = document.createElement('li')
+    empty.className = 'info-empty'
+    empty.textContent = 'Noch keine Mitglieder.'
+    list.appendChild(empty)
+    return
+  }
+
+  ids.forEach(id => {
+    const name = nameOf(id)
+    const li = document.createElement('li')
+    li.className = 'reactions-item members-item'
+
+    const avatar = document.createElement('div')
+    avatar.className = 'reaction-avatar'
+    avatar.style.background = avatarColor(id)
+    avatar.textContent = initialsOf(name)
+
+    const text = document.createElement('div')
+    text.className = 'reactions-item-text'
+    const nameEl = document.createElement('span')
+    nameEl.className = 'reactions-item-name'
+    nameEl.textContent = name
+    text.appendChild(nameEl)
+    if (currentUser && id === currentUser.id) {
+      const hint = document.createElement('span')
+      hint.className = 'reactions-item-hint'
+      hint.textContent = 'Du'
+      text.appendChild(hint)
+    }
+
+    li.append(avatar, text)
+    li.addEventListener('click', () => openProfile(id))
+    list.appendChild(li)
+  })
+}
+
+function isMembersModalOpen() {
+  return document.getElementById('members-modal').style.display === 'flex'
+}
+
+function openMembersModal() {
+  if (!currentRoom || currentRoom.type !== 'group') return
+  renderMembersList()
+  document.getElementById('members-modal').style.display = 'flex'
+  // Wer erst nach dem Start dieser App dazugekommen ist, soll auch schon drinstehen
+  loadProfileCache().then(() => {
+    if (isMembersModalOpen() && currentRoom && currentRoom.type === 'group') renderMembersList()
+  })
+}
+
+function closeMembersModal() {
+  document.getElementById('members-modal').style.display = 'none'
+}
+
+function closeProfileModals() {
+  closeBirthdateModal()
+  closeProfileModal()
+  closeMembersModal()
+}
+
+// ----- Tipp auf den Namen oben im Chat -----
+function updateConversationTitleTap() {
+  const el = document.getElementById('conversation-title')
+  const tappable = !!currentRoom && (currentRoom.type === 'group' || currentRoom.type === 'dm')
+  el.classList.toggle('tappable', tappable)
+  if (tappable) {
+    el.setAttribute('role', 'button')
+    el.tabIndex = 0
+  } else {
+    el.removeAttribute('role')
+    el.removeAttribute('tabindex')
+  }
+}
+
+function onConversationTitleClick() {
+  if (!currentRoom) return
+  if (currentRoom.type === 'group') openMembersModal()
+  else if (currentRoom.type === 'dm') openProfile(currentRoom.userId)
+}
+
+document.getElementById('conversation-title').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault()
+    onConversationTitleClick()
+  }
+})
+
+// Escape schließt Profil bzw. Mitgliederliste (das Geburtsdatum-Fenster bewusst nicht)
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || document.querySelector('.confirm-overlay')) return
+  if (document.getElementById('profile-modal').style.display === 'flex') closeProfileModal()
+  else if (isMembersModalOpen()) closeMembersModal()
+})
 
 // ===== Als App installieren =====
 // Beim ersten Besuch auf jedem Gerät erscheint kurz nach dem Laden ein Pop-up. Wer nicht will, findet
@@ -6430,4 +6864,4 @@ registerServiceWorker()
 applyEmojiImages(document.body)
 startEmojiObserver()
 init()
-scheduleInstallPopup()
+scheduleInstallPopup()  

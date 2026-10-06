@@ -3356,3 +3356,150 @@ html:has(body.light-theme) {
 .photo-viewer:not(.loading) .photo-viewer-status {
   display: none;
 }
+
+/* ===== Profil, Mitgliederliste, Geburtsdatum ===== */
+
+/* Name oben im Chat ist antippbar (Einzelchat: Profil, Gruppe: Mitglieder) */
+#conversation-title.tappable {
+  cursor: pointer;
+}
+
+#conversation-title.tappable:hover {
+  color: var(--accent);
+}
+
+.members-item {
+  cursor: pointer;
+}
+
+.members-item:hover {
+  background: var(--bg-input);
+}
+
+.profile-box {
+  text-align: center;
+}
+
+.profile-avatar {
+  width: 80px;
+  height: 80px;
+  margin: 4px auto 12px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-on-accent);
+}
+
+.modal-box .profile-name {
+  margin-bottom: 18px;
+  font-size: 20px;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.profile-rows {
+  margin-bottom: 18px;
+  padding: 2px 14px;
+  text-align: left;
+  background: var(--bg-input);
+  border-radius: 12px;
+}
+
+.profile-row {
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.profile-row:last-child {
+  border-bottom: none;
+}
+
+.profile-row-label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.profile-row-value {
+  display: block;
+  font-size: 15px;
+  word-break: break-all;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.profile-row-value.empty {
+  color: var(--text-secondary);
+}
+
+/* Geburtsdatum-Fenster: liegt über allem anderen (auch über dem Installations-Hinweis) */
+#birthdate-modal {
+  z-index: 5000;
+}
+
+.modal-box .birthdate-text {
+  margin-bottom: 14px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.modal-box .field-error {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--danger);
+}
+
+input[type="date"] {
+  min-height: 44px;
+  text-align: left;
+  color-scheme: dark;
+}
+
+body.light-theme input[type="date"] {
+  color-scheme: light;
+}
+
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+}
+
+/* Kopf der Mitgliederliste: Titel links, Anzahl als kleine Pille */
+.popup-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.popup-title {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.popup-count {
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+#members-list {
+  margin-bottom: 16px;
+}
+
+.members-item {
+  padding: 9px 8px;
+}
+
+.members-item::after {
+  content: '›';
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 18px;
+}
