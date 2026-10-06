@@ -3804,7 +3804,8 @@ function listenForNewMessages() {
       if (!profileCache[msg.sender_id]) await fetchProfileName(msg.sender_id)
       renderMessage(msg)
       clearTyping(msg.sender_id) // die Nachricht ist da, "tippt" ist erledigt
-      if (msg.sender_id !== currentUser.id && !isAdmin()) playMessageSound()
+      // Ton nur, wenn das Fenster gerade aktiv ist. Sonst kommt über den Service Worker das Banner - nicht beides.
+      if (msg.sender_id !== currentUser.id && !isAdmin() && document.visibilityState === 'visible' && document.hasFocus()) playMessageSound()
       // Der Chat ist offen, die Nachricht wird gerade gesehen -> nicht später als ungelesen zählen
       if (msg.sender_id !== currentUser.id && document.visibilityState === 'visible') markCurrentRoomRead()
     })
@@ -4707,16 +4708,7 @@ function openUserDetail(u) {
   renderUserDetail(u)
 }
 
-// Nutzer-Seite des Admins: oben Geburtsdatum, Alter und E-Mail-Adresse, darunter die Einstellungen
 function renderUserDetail(u) {
-  renderUserDetailSettings(u)
-  const info = document.createElement('div')
-  info.className = 'profile-rows'
-  document.getElementById('user-detail-content').prepend(info)
-  fillProfileInfo(info, u.id, ++profileRequestId)
-}
-
-function renderUserDetailSettings(u) {
   document.getElementById('user-detail-title').textContent = u.display_name || 'Ohne Namen'
   const box = document.getElementById('user-detail-content')
   box.innerHTML = `
@@ -6471,6 +6463,9 @@ function fillProfileInfo(rows, userId, myRequest) {
     const emailEl = addProfileRow(rows, 'E-Mail-Adresse')
     setProfileValue(emailEl, 'Lädt …', true)
     loadProfileEmail(userId, myRequest, emailEl)
+  } else if (currentUser && userId === currentUser.id && currentUser.email) {
+    // Die eigene E-Mail-Adresse darf jeder im eigenen Profil sehen (die von anderen nur der Admin)
+    setProfileValue(addProfileRow(rows, 'E-Mail-Adresse'), currentUser.email, false)
   }
 
   refreshProfileBirthdate(userId, myRequest, birthEl, ageEl)
