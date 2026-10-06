@@ -27,7 +27,7 @@ self.addEventListener('push', (event) => {
     badge: data.badge || 'favicon.svg',
     tag: data.tag || 'jungschar-chat', // gleicher Chat -> ersetzt die vorherige Meldung statt zu stapeln
     renotify: true,
-    data: { url: data.url || './' }
+    data: { url: data.url || './', chatKey: data.chatKey || data.chat_key || null }
   }
 
   event.waitUntil((async () => {
@@ -44,17 +44,28 @@ self.addEventListener('push', (event) => {
   })())
 })
 
-// Klick auf die Benachrichtigung: die Seite in den Vordergrund holen (oder neu öffnen)
+// Klick auf die Benachrichtigung: die Seite in den Vordergrund holen und ihr sagen, welcher Chat geöffnet werden
+// soll (Nachricht "push-open"). Ist die App ganz zu, wird sie mit ?push=1 (und &chat=...) neu gestartet.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
-  const url = (event.notification.data && event.notification.data.url) || './'
+  const info = event.notification.data || {}
+  const url = info.url || './'
+  const chatKey = info.chatKey || null
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
       for (const client of list) {
-        if ('focus' in client) return client.focus()
+        if ('focus' in client) {
+          client.postMessage({ type: 'push-open', chatKey, url })
+          return client.focus()
+        }
       }
-      if (self.clients.openWindow) return self.clients.openWindow(url)
+      if (self.clients.openWindow) {
+        const target = new URL(url, self.registration.scope)
+        target.searchParams.set('push', '1')
+        if (chatKey) target.searchParams.set('chat', chatKey)
+        return self.clients.openWindow(target.href)
+      }
     })
   )
 })

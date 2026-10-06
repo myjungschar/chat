@@ -244,6 +244,13 @@
                 <span class="switch-slider"></span>
               </label>
             </div>
+            <div class="toggle-row volume-row" id="sound-volume-row">
+              <span>Lautstärke</span>
+              <div class="volume-control">
+                <input type="range" id="sound-volume" min="0" max="100" step="5" aria-label="Lautstärke des Tons" oninput="onSoundVolumeInput()" onchange="onSoundVolumeChange()">
+                <span id="sound-volume-value">70 %</span>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -345,7 +352,7 @@
 
       <div class="input-group">
         <label for="new-user-email">E-Mail-Adresse</label>
-        <input type="email" id="new-user-email" placeholder="name@adresse.de" autocomplete="off">
+        <input type="email" id="new-user-email" placeholder="name@adresse.de" autocomplete="off" oninput="updateInviteButton()">
       </div>
 
       <div class="input-group">
@@ -356,7 +363,7 @@
         </div>
       </div>
 
-      <button id="invite-user-btn" onclick="inviteUser()">Einladung senden</button>
+      <button id="invite-user-btn" onclick="inviteUser()" disabled>Einladung senden</button>
       <p class="settings-hint">Die Person bekommt einen Link per E-Mail und vergibt darüber ihr eigenes Passwort.</p>
       </div>
     </div>
@@ -516,7 +523,7 @@
           <div class="field-scrollbar" id="message-scrollbar" aria-hidden="true"><div class="field-scrollbar-thumb"></div></div>
         </div>
         <button type="button" id="attach-btn" class="input-round-btn" onclick="toggleAttachMenu(this, event)" aria-label="Anhängen">+</button>
-        <button type="button" id="send-btn" class="input-round-btn send" onclick="sendMessage()" aria-label="Senden">➤</button>
+        <button type="button" id="send-btn" class="input-round-btn send" onclick="sendMessage()" aria-label="Senden" disabled>➤</button>
       </div>
 
       <!-- Auswahl-Leiste: ersetzt das Eingabefeld, solange mehrere Nachrichten zum Löschen ausgewählt werden -->
@@ -674,10 +681,10 @@
       <p class="birthdate-text">Bitte trage es einmal ein. Die anderen Mitglieder sehen es in deinem Profil.</p>
       <div class="input-group">
         <label for="birthdate-input">Geburtsdatum</label>
-        <input type="date" id="birthdate-input" autocomplete="bday">
+        <input type="date" id="birthdate-input" autocomplete="bday" oninput="onBirthdateInput()" onchange="onBirthdateInput()">
         <p class="field-error" id="birthdate-error" style="display: none;"></p>
       </div>
-      <button type="submit" id="birthdate-save-btn">Speichern</button>
+      <button type="submit" id="birthdate-save-btn" disabled>Speichern</button>
       <button type="button" class="link-btn" onclick="logout()">Abmelden</button>
     </form>
   </div>

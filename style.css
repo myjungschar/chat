@@ -2574,30 +2574,44 @@ html:has(body.light-theme) {
   --scrollbar-thumb-hover: rgba(0, 136, 204, 0.7);
 }
 
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) transparent;
+/* Firefox kennt nur die Standard-Eigenschaften: dünn und ohne Pfeile */
+@supports (-moz-appearance: none) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
 }
 
-/* Ältere Safari-Versionen kennen die Standard-Eigenschaft oben noch nicht */
-@supports not (scrollbar-color: auto) {
-  *::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
+/* Chrome, Edge, Safari: eigener schlanker, runder Balken ganz ohne Pfeile oben und unten */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
 
-  *::-webkit-scrollbar-track {
-    background: transparent;
-  }
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
 
-  *::-webkit-scrollbar-thumb {
-    background: var(--scrollbar-thumb);
-    border-radius: 999px;
-  }
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
 
-  *::-webkit-scrollbar-thumb:hover {
-    background: var(--scrollbar-thumb-hover);
-  }
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* Emoji-Auswahl: kein Bild-Menü oder Markieren beim langen Drücken, Hinweis unter "Häufig genutzt" */
@@ -3502,4 +3516,118 @@ input[type="date"]::-webkit-date-and-time-value {
   flex-shrink: 0;
   color: var(--text-secondary);
   font-size: 18px;
+}
+
+/* ===== Ausgegraute Knöpfe, solange nichts Gültiges eingegeben ist ===== */
+.input-round-btn.send:disabled,
+.input-round-btn.send:disabled:hover,
+#invite-user-btn:disabled,
+#invite-user-btn:disabled:hover,
+#birthdate-save-btn:disabled,
+#birthdate-save-btn:disabled:hover {
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* ===== Admin: Junge / Mädchen ===== */
+.gender-btn.junge:hover,
+.gender-btn.junge.active {
+  background: #007bff;
+  border-color: #007bff;
+  color: #fff;
+}
+
+.gender-btn.maedchen:hover,
+.gender-btn.maedchen.active {
+  background: #e83e8c;
+  border-color: #e83e8c;
+  color: #fff;
+}
+
+/* Beim Darüberfahren sofort umschalten, ohne weiches Einblenden */
+.gender-btn.junge:hover,
+.gender-btn.maedchen:hover {
+  transition: none;
+}
+
+/* ===== Admin: kompakte Nutzerliste mit begrenzter Höhe ===== */
+#user-list {
+  max-height: min(60vh, 460px);
+  padding-right: 2px;
+}
+
+#user-list li {
+  padding: 7px 6px;
+  font-size: 14px;
+}
+
+.user-filter-bar {
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+/* ===== Einstellungen: Lautstärkeregler ===== */
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.volume-control span {
+  min-width: 40px;
+  text-align: right;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.volume-row.disabled {
+  opacity: 0.5;
+}
+
+#sound-volume {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 130px;
+  height: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--accent) var(--fill, 70%), var(--bg-input) var(--fill, 70%));
+  cursor: pointer;
+}
+
+#sound-volume:disabled {
+  cursor: default;
+}
+
+#sound-volume::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+#sound-volume::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg-input);
+}
+
+#sound-volume::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+#sound-volume::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
 }

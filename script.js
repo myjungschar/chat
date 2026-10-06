@@ -3,6 +3,10 @@ const SUPABASE_URL = 'https://qawjgxikppiumpptchow.supabase.co' // Aus Settings 
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFhd2pneGlrcHBpdW1wcHRjaG93Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwMDc0NDYsImV4cCI6MjEwNTU4MzQ0Nn0.CIhHOS2Zznk9pYbWWTrcqO2A-QWbSSGAJC7TY0UQgTs'     // Aus Settings -> API
 
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: {
+    persistSession: true,   // Anmeldung bleibt auf jedem Gerät gespeichert
+    autoRefreshToken: true  // der Zugangsschlüssel wird im Hintergrund selbst erneuert
+  },
   realtime: {
     // Kürzerer Herzschlag: eine tote Verbindung (z. B. nach Standby oder Netzwechsel) fällt schneller auf
     heartbeatIntervalMs: 15000,
@@ -364,7 +368,7 @@ async function cancelPasswordSetup() {
 
   if (wasRecovery) {
     // "Passwort vergessen": nichts zu merken, die Sitzung einfach beenden
-    await supabaseClient.auth.signOut()
+    await supabaseClient.auth.signOut({ scope: 'local' }) // nur dieses Gerät
     showLogin()
     showToast('Abgebrochen.', 'success')
     return
@@ -481,6 +485,7 @@ async function enterApp(user) {
   startPresence()
   warmUpEmojiPicker()
   ensureBirthdate() // noch kein Geburtsdatum gespeichert? Dann kommt das Pflicht-Fenster
+  consumePendingPushOpen() // die App wurde über den Klick auf eine Benachrichtigung gestartet
 }
 
 // Letzte Nachricht je Chat laden, für die Vorschau in der Liste
@@ -3170,7 +3175,19 @@ function quickEmojiList() {
   return QUICK_EMOJI.concat(extras)
 }
 
+// Eine Reaktion macht die Nachricht höher. Wer unten im Chat ist, bleibt deshalb ganz unten,
+// damit die Reaktion nicht abgeschnitten wird.
 function renderReactionChips(container, messageId) {
+  const chatBox = document.getElementById('chat-box')
+  const wasNearBottom = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 160
+  renderReactionChipsInner(container, messageId)
+  if (wasNearBottom) {
+    chatBox.scrollTop = chatBox.scrollHeight
+    requestAnimationFrame(() => { chatBox.scrollTop = chatBox.scrollHeight })
+  }
+}
+
+function renderReactionChipsInner(container, messageId) {
   container.innerHTML = ''
   const info = reactionMap[messageId] || { counts: {}, mine: null, users: [] }
   const entries = Object.entries(info.counts).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1])
@@ -3726,6 +3743,7 @@ async function sendMessage() {
     return
   }
 
+  sendBtn.dataset.busy = '1'
   sendBtn.disabled = true
 
   const row = { sender_id: currentUser.id, text: text }
@@ -3740,7 +3758,8 @@ async function sendMessage() {
     .select('*, profiles!sender_id(display_name)')
     .single()
 
-  sendBtn.disabled = false
+  delete sendBtn.dataset.busy
+  updateSendButton()
 
   if (error) {
     await handleSendError(error)
@@ -4457,9 +4476,15 @@ async function sendPasswordReset() {
     return
   }
 
-  const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+  const sendResetMail = () => supabaseClient.auth.resetPasswordForEmail(email, {
     redirectTo: window.location.href.split('#')[0].split('?')[0]
   })
+  let { error } = await sendResetMail()
+  if (error && (!error.status || error.status >= 500)) {
+    // Netz- oder Serverfehler beim ersten Versuch: einmal automatisch wiederholen
+    await new Promise(resolve => setTimeout(resolve, 1200))
+    ;({ error } = await sendResetMail())
+  }
 
   btn.disabled = false
 
@@ -4682,7 +4707,16 @@ function openUserDetail(u) {
   renderUserDetail(u)
 }
 
+// Nutzer-Seite des Admins: oben Geburtsdatum, Alter und E-Mail-Adresse, darunter die Einstellungen
 function renderUserDetail(u) {
+  renderUserDetailSettings(u)
+  const info = document.createElement('div')
+  info.className = 'profile-rows'
+  document.getElementById('user-detail-content').prepend(info)
+  fillProfileInfo(info, u.id, ++profileRequestId)
+}
+
+function renderUserDetailSettings(u) {
   document.getElementById('user-detail-title').textContent = u.display_name || 'Ohne Namen'
   const box = document.getElementById('user-detail-content')
   box.innerHTML = `
@@ -5027,7 +5061,32 @@ function openNewUser() {
   showScreen('new-user-bereich')
   document.getElementById('new-user-email').value = ''
   document.querySelectorAll('#new-user-gender .gender-btn').forEach(b => b.classList.remove('active'))
+  updateInviteButton()
   document.getElementById('new-user-email').focus()
+}
+
+// "Einladung senden" ist ausgegraut, bis eine gültige E-Mail-Adresse eingetragen und Junge/Mädchen gewählt ist
+let inviteSending = false
+function updateInviteButton() {
+  const email = document.getElementById('new-user-email').value.trim()
+  const hasGender = !!document.querySelector('#new-user-gender .gender-btn.active')
+  const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  document.getElementById('invite-user-btn').disabled = inviteSending || !validEmail || !hasGender
+}
+
+// Edge Functions antworten beim allerersten Aufruf manchmal nicht ("kalter Start", kurzer Netzaussetzer).
+// Solche Fehler (Netzwerk, Serverfehler, abgelaufener Schlüssel) werden deshalb einmal automatisch wiederholt;
+// echte Fehler der Anfrage (z. B. 400/403) nicht. buildOptions wird bei jedem Versuch neu aufgerufen (frischer Schlüssel).
+async function invokeWithRetry(name, buildOptions, retries = 1) {
+  let result = await supabaseClient.functions.invoke(name, await buildOptions())
+  for (let i = 0; i < retries && result.error; i++) {
+    const status = result.error.context && result.error.context.status
+    if (typeof status === 'number' && status < 500 && status !== 401 && status !== 408 && status !== 429) break
+    if (status === 401) await supabaseClient.auth.refreshSession()
+    await new Promise(resolve => setTimeout(resolve, 1200))
+    result = await supabaseClient.functions.invoke(name, await buildOptions())
+  }
+  return result
 }
 
 // Junge/Mädchen im Admin-Formular auswählen (einmal gewählt bleibt immer eins ausgewählt)
@@ -5035,6 +5094,7 @@ function selectNewUserGender(value) {
   document.querySelectorAll('#new-user-gender .gender-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.value === value)
   })
+  updateInviteButton()
 }
 
 // Edge Functions melden Fehler als "non-2xx" - der eigentliche Grund steckt im Antworttext
@@ -5125,21 +5185,31 @@ async function inviteUser() {
   // Frage 2: wirklich senden?
   if (!(await askConfirm('Möchtest du die E-Mail wirklich an ' + email + ' senden?', { okText: 'Senden', cancelText: 'Abbrechen' }))) return
 
+  inviteSending = true
   btn.disabled = true
+  btn.textContent = 'Wird gesendet …'
+  const finishSending = () => {
+    inviteSending = false
+    btn.textContent = 'Einladung senden'
+    updateInviteButton()
+  }
 
   // Aktuelle Sitzung holen (erneuert den Token bei Bedarf) und das Admin-JWT ausdrücklich mitschicken
   const { data: { session } } = await supabaseClient.auth.getSession()
   if (!session) {
-    btn.disabled = false
+    finishSending()
     showToast('Deine Sitzung ist abgelaufen. Bitte melde dich neu an.')
     return
   }
 
-  const { data, error } = await supabaseClient.functions.invoke('invite-user', {
-    body: { email, gender, vip: makeVip },
-    headers: { Authorization: 'Bearer ' + session.access_token }
+  const { data, error } = await invokeWithRetry('invite-user', async () => {
+    const { data: { session: fresh } } = await supabaseClient.auth.getSession()
+    return {
+      body: { email, gender, vip: makeVip },
+      headers: { Authorization: 'Bearer ' + (fresh || session).access_token }
+    }
   })
-  btn.disabled = false
+  finishSending()
 
   if (error) {
     showToast('Einladung konnte nicht gesendet werden: ' + await readFunctionError(error))
@@ -5200,7 +5270,8 @@ async function logout() {
 
   await teardownPushSubscription() // vor dem Abmelden, solange die Berechtigung zum Löschen noch da ist
   await clearPhotoCache()
-  await supabaseClient.auth.signOut()
+  // scope 'local': nur dieses Gerät melden wir ab, Anmeldungen auf anderen Geräten (z. B. Handy) bleiben unberührt
+  await supabaseClient.auth.signOut({ scope: 'local' })
   showLogin()
 }
 
@@ -5546,7 +5617,15 @@ function updateMessagePlaceholder() {
   }
 }
 
+// Der Senden-Knopf ist ausgegraut, solange nichts im Feld steht (oder gerade gesendet wird)
+function updateSendButton() {
+  const btn = document.getElementById('send-btn')
+  if (!btn) return
+  btn.disabled = !!btn.dataset.busy || getMessageText().trim() === ''
+}
+
 function autoResizeMessageInput() {
+  updateSendButton()
   const input = document.getElementById('message-input')
   updateMessagePlaceholder()
   input.style.height = 'auto'
@@ -6285,6 +6364,7 @@ function ensureBirthdate() {
   input.max = isoDateYearsAgo(BIRTH_MIN_AGE)
   input.value = ''
   hideBirthdateError()
+  document.getElementById('birthdate-save-btn').disabled = true
   modal.style.display = 'flex'
   if (desktopQuery.matches) input.focus()
 }
@@ -6299,6 +6379,15 @@ function hideBirthdateError() {
   const el = document.getElementById('birthdate-error')
   el.textContent = ''
   el.style.display = 'none'
+}
+
+// Bei jeder Eingabe: Fehler zeigen und "Speichern" erst freigeben, wenn das Datum gültig ist
+function onBirthdateInput() {
+  const value = document.getElementById('birthdate-input').value
+  const problem = value ? birthdateError(value) : null
+  if (problem) showBirthdateError(problem)
+  else hideBirthdateError()
+  document.getElementById('birthdate-save-btn').disabled = !value || !!problem || birthdateSaving
 }
 
 function closeBirthdateModal() {
@@ -6325,8 +6414,8 @@ async function saveBirthdate() {
   const btn = document.getElementById('birthdate-save-btn')
   btn.disabled = true
   const { error } = await supabaseClient.rpc('set_my_birthdate', { p_birthdate: value })
-  btn.disabled = false
   birthdateSaving = false
+  onBirthdateInput()
 
   if (error) {
     showBirthdateError(error.message || 'Speichern hat nicht geklappt. Bitte versuche es noch einmal.')
@@ -6369,18 +6458,9 @@ function setBirthdateValue(birthEl, ageEl, iso) {
   }
 }
 
-async function openProfile(userId) {
-  if (!userId) return
-  const myRequest = ++profileRequestId
+// Füllt eine Info-Karte mit Geburtsdatum, Alter und (nur für den Admin) E-Mail-Adresse
+function fillProfileInfo(rows, userId, myRequest) {
   const info = profileCache[userId] || {}
-  const name = info.name || 'Ohne Namen'
-
-  const avatar = document.getElementById('profile-avatar')
-  avatar.style.background = avatarColor(userId)
-  avatar.textContent = initialsOf(name)
-  document.getElementById('profile-name').textContent = name
-
-  const rows = document.getElementById('profile-rows')
   rows.innerHTML = ''
   const birthEl = addProfileRow(rows, 'Geburtsdatum')
   const ageEl = addProfileRow(rows, 'Alter')
@@ -6393,14 +6473,31 @@ async function openProfile(userId) {
     loadProfileEmail(userId, myRequest, emailEl)
   }
 
-  document.getElementById('profile-modal').style.display = 'flex'
+  refreshProfileBirthdate(userId, myRequest, birthEl, ageEl)
+}
 
-  // Frisch nachladen: die Person könnte ihr Geburtsdatum erst nach dem Start dieser App eingetragen haben
+// Frisch nachladen: die Person könnte ihr Geburtsdatum erst nach dem Start dieser App eingetragen haben
+async function refreshProfileBirthdate(userId, myRequest, birthEl, ageEl) {
   const { data } = await supabaseClient.from('profiles').select('birthdate').eq('id', userId).single()
   if (!data || myRequest !== profileRequestId) return
   const fresh = data.birthdate || null
   if (profileCache[userId]) profileCache[userId].birthdate = fresh
   setBirthdateValue(birthEl, ageEl, fresh)
+}
+
+function openProfile(userId) {
+  if (!userId) return
+  const myRequest = ++profileRequestId
+  const info = profileCache[userId] || {}
+  const name = info.name || 'Ohne Namen'
+
+  const avatar = document.getElementById('profile-avatar')
+  avatar.style.background = avatarColor(userId)
+  avatar.textContent = initialsOf(name)
+  document.getElementById('profile-name').textContent = name
+
+  fillProfileInfo(document.getElementById('profile-rows'), userId, myRequest)
+  document.getElementById('profile-modal').style.display = 'flex'
 }
 
 async function loadProfileEmail(userId, myRequest, el) {
@@ -6537,6 +6634,83 @@ document.addEventListener('keydown', (e) => {
   if (document.getElementById('profile-modal').style.display === 'flex') closeProfileModal()
   else if (isMembersModalOpen()) closeMembersModal()
 })
+
+// ===== Klick auf eine Benachrichtigung: den passenden Chat öffnen =====
+// Der Service Worker meldet den Klick (push-open) oder startet die App mit ?push=1&chat=SCHLÜSSEL. Kennt die
+// Benachrichtigung ihren Chat (chatKey: "main", "junge", "maedchen" oder "dm:<Nutzer-ID>"), wird genau er geöffnet;
+// sonst der Chat mit der neuesten ungelesenen Nachricht.
+let pendingPushOpen = null
+
+;(function readPushParams() {
+  const params = new URLSearchParams(window.location.search)
+  if (params.get('push') !== '1') return
+  pendingPushOpen = { chatKey: params.get('chat') || null }
+  params.delete('push')
+  params.delete('chat')
+  const rest = params.toString()
+  history.replaceState(null, '', window.location.pathname + (rest ? '?' + rest : '') + window.location.hash)
+})()
+
+function openChatByKey(key) {
+  if (!key || !currentUser || !currentProfile || isAdmin()) return false
+  if (key === 'main') {
+    openGroupChat()
+    return true
+  }
+  if (key === 'junge' && currentProfile.gender === 'junge') {
+    openGenderGroup('junge', 'Jungs')
+    return true
+  }
+  if (key === 'maedchen' && currentProfile.gender === 'maedchen') {
+    openGenderGroup('maedchen', 'Mädels')
+    return true
+  }
+  if (key.startsWith('dm:')) {
+    const id = key.slice(3)
+    const info = profileCache[id]
+    if (!info || id === currentUser.id) return false
+    openDirectChat(id, info.name)
+    return true
+  }
+  return false
+}
+
+function newestUnreadChatKey() {
+  let best = null
+  let bestTime = -1
+  const consider = (key, preview) => {
+    if (!(unreadFor(key) > 0)) return
+    const time = preview ? new Date(preview.created_at).getTime() : 0
+    if (time > bestTime) {
+      best = key
+      bestTime = time
+    }
+  }
+  ;['main', 'junge', 'maedchen'].forEach(key => consider(key, groupPreviews[key]))
+  Object.keys(dmPreviews).forEach(id => consider('dm:' + id, dmPreviews[id]))
+  return best
+}
+
+async function handlePushOpen(chatKey) {
+  // App noch nicht fertig geladen oder noch nicht angemeldet: nach dem Anmelden erledigen
+  if (!currentUser || !currentProfile) {
+    pendingPushOpen = { chatKey: chatKey || null }
+    return
+  }
+  if (isAdmin()) return
+  if (chatKey && openChatByKey(chatKey)) return
+
+  // Chat unbekannt: frische Zähler holen (die App lag vielleicht im Hintergrund) und den neuesten ungelesenen öffnen
+  await renderChatList()
+  openChatByKey(newestUnreadChatKey())
+}
+
+function consumePendingPushOpen() {
+  if (!pendingPushOpen) return
+  const pending = pendingPushOpen
+  pendingPushOpen = null
+  handlePushOpen(pending.chatKey)
+}
 
 // ===== Als App installieren =====
 // Beim ersten Besuch auf jedem Gerät erscheint kurz nach dem Laden ein Pop-up. Wer nicht will, findet
@@ -6785,10 +6959,16 @@ async function fetchMissedMessages() {
 
 // ===== Ton bei neuen Nachrichten (statt Windows-Banner, solange die App offen und aktiv ist) =====
 // Ist die App im Vordergrund, schickt der Service Worker kein Banner, sondern sagt der Seite, dass sie
-// einen kurzen Ton spielen soll. Der Ton wird direkt im Browser erzeugt (keine Datei nötig).
+// einen kurzen Ton spielen soll: ding.mp3 mit der eingestellten Lautstärke. Fehlt die Datei, spielt ein
+// kurzer, im Browser erzeugter Ton als Ersatz.
 const SOUND_OFF_KEY = 'messageSoundOff'
 let audioCtx = null
 let lastSoundAt = 0
+const SOUND_FILE = 'ding.mp3'                   // liegt neben index.html
+const SOUND_VOLUME_KEY = 'messageSoundVolume'   // 0 bis 1, steht dauerhaft im LocalStorage
+let soundBuffer = null
+let soundBufferLoading = null
+let soundFileMissing = false
 
 function soundEnabled() {
   return localStorage.getItem(SOUND_OFF_KEY) !== '1'
@@ -6797,7 +6977,10 @@ function soundEnabled() {
 // Browser erlauben Ton erst nach einem Klick/Tastendruck auf der Seite - das wird hier einmal abgefangen
 function unlockAudio() {
   try {
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+      loadSoundBuffer() // ding.mp3 schon mal laden, damit der erste Ton nicht wartet
+    }
     if (audioCtx.state === 'suspended') audioCtx.resume()
   } catch (e) { /* Ton nicht verfügbar */ }
 }
@@ -6805,45 +6988,112 @@ function unlockAudio() {
   document.addEventListener(evt, unlockAudio, { passive: true })
 })
 
-function playMessageSound() {
+function soundVolume() {
+  const v = parseFloat(localStorage.getItem(SOUND_VOLUME_KEY))
+  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.7
+}
+
+// Die Lautstärke wirkt "im Quadrat": so klingt 50 % auch wirklich etwa halb so laut
+function soundGain() {
+  const v = soundVolume()
+  return v * v
+}
+
+function loadSoundBuffer() {
+  if (soundBuffer || soundFileMissing || !audioCtx) return Promise.resolve(soundBuffer)
+  if (!soundBufferLoading) {
+    soundBufferLoading = fetch(SOUND_FILE)
+      .then(res => {
+        if (!res.ok) throw new Error('HTTP ' + res.status)
+        return res.arrayBuffer()
+      })
+      .then(data => new Promise((resolve, reject) => audioCtx.decodeAudioData(data, resolve, reject)))
+      .then(buffer => { soundBuffer = buffer; return buffer })
+      .catch(() => { soundFileMissing = true; return null })
+  }
+  return soundBufferLoading
+}
+
+async function playMessageSound() {
   if (!soundEnabled() || !audioCtx || audioCtx.state !== 'running') return
+  if (soundVolume() <= 0) return
   const now = Date.now()
   if (now - lastSoundAt < 1500) return // nicht doppelt (Push + Live-Nachricht) und nicht wie ein Maschinengewehr
   lastSoundAt = now
 
+  const buffer = await loadSoundBuffer()
   try {
-    // Kurzes, weiches "Plopp" (ca. 0,2 Sekunden): ein Sinuston, der schnell nach oben gleitet und sanft ausklingt
-    const t = audioCtx.currentTime
-    const master = audioCtx.createGain()
-    master.gain.setValueAtTime(0.0001, t)
-    master.gain.exponentialRampToValueAtTime(0.4, t + 0.012)
-    master.gain.exponentialRampToValueAtTime(0.0001, t + 0.2)
-
-    const soften = audioCtx.createBiquadFilter() // nimmt dem Ton die Schärfe
-    soften.type = 'lowpass'
-    soften.frequency.value = 4000
-
-    master.connect(soften)
-    soften.connect(audioCtx.destination)
-
-    ;[[1, 1], [2, 0.12]].forEach(([mult, level]) => { // Grundton + ganz leiser Oberton für etwas Wärme
-      const osc = audioCtx.createOscillator()
+    if (buffer) {
+      const source = audioCtx.createBufferSource()
+      source.buffer = buffer
       const gain = audioCtx.createGain()
-      osc.type = 'sine'
-      osc.frequency.setValueAtTime(640 * mult, t)
-      osc.frequency.exponentialRampToValueAtTime(1100 * mult, t + 0.07)
-      gain.gain.value = level
-      osc.connect(gain)
-      gain.connect(master)
-      osc.start(t)
-      osc.stop(t + 0.22)
-    })
+      gain.gain.value = soundGain()
+      source.connect(gain)
+      gain.connect(audioCtx.destination)
+      source.start()
+    } else {
+      playFallbackSound()
+    }
   } catch (e) { /* Ton nicht verfügbar */ }
+}
+
+// Ersatzton, falls ding.mp3 nicht geladen werden kann: kurzes, weiches "Plopp"
+function playFallbackSound() {
+  const t = audioCtx.currentTime
+  const master = audioCtx.createGain()
+  master.gain.setValueAtTime(0.0001, t)
+  master.gain.exponentialRampToValueAtTime(Math.max(0.0002, 0.4 * soundGain()), t + 0.012)
+  master.gain.exponentialRampToValueAtTime(0.0001, t + 0.2)
+
+  const soften = audioCtx.createBiquadFilter() // nimmt dem Ton die Schärfe
+  soften.type = 'lowpass'
+  soften.frequency.value = 4000
+
+  master.connect(soften)
+  soften.connect(audioCtx.destination)
+
+  ;[[1, 1], [2, 0.12]].forEach(([mult, level]) => { // Grundton + ganz leiser Oberton für etwas Wärme
+    const osc = audioCtx.createOscillator()
+    const gain = audioCtx.createGain()
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(640 * mult, t)
+    osc.frequency.exponentialRampToValueAtTime(1100 * mult, t + 0.07)
+    gain.gain.value = level
+    osc.connect(gain)
+    gain.connect(master)
+    osc.start(t)
+    osc.stop(t + 0.22)
+  })
+}
+
+// Regler in den Einstellungen (0 bis 100 %)
+function updateSoundVolumeUI() {
+  const slider = document.getElementById('sound-volume')
+  const pct = Math.round(soundVolume() * 100)
+  slider.value = pct
+  slider.style.setProperty('--fill', pct + '%')
+  document.getElementById('sound-volume-value').textContent = pct + ' %'
+  slider.disabled = !soundEnabled()
+  document.getElementById('sound-volume-row').classList.toggle('disabled', !soundEnabled())
+}
+
+function onSoundVolumeInput() {
+  const pct = Number(document.getElementById('sound-volume').value)
+  localStorage.setItem(SOUND_VOLUME_KEY, String(pct / 100))
+  updateSoundVolumeUI()
+}
+
+// Loslassen: kurze Hörprobe mit der neuen Lautstärke
+function onSoundVolumeChange() {
+  unlockAudio()
+  lastSoundAt = 0
+  setTimeout(playMessageSound, 50)
 }
 
 function onSoundToggleChanged() {
   const on = document.getElementById('sound-toggle').checked
   localStorage.setItem(SOUND_OFF_KEY, on ? '0' : '1')
+  updateSoundVolumeUI()
   if (on) {
     unlockAudio()
     lastSoundAt = 0
@@ -6852,10 +7102,13 @@ function onSoundToggleChanged() {
 }
 
 document.getElementById('sound-toggle').checked = soundEnabled()
+updateSoundVolumeUI()
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', (event) => {
-    if (event.data && event.data.type === 'push-sound') playMessageSound()
+    if (!event.data) return
+    if (event.data.type === 'push-sound') playMessageSound()
+    if (event.data.type === 'push-open') handlePushOpen(event.data.chatKey)
   })
 }
 
@@ -6864,4 +7117,4 @@ registerServiceWorker()
 applyEmojiImages(document.body)
 startEmojiObserver()
 init()
-scheduleInstallPopup()  
+scheduleInstallPopup()
