@@ -2562,35 +2562,37 @@ body.light-theme .online-list li::before {
   line-height: 1.4;
 }
 
-/* ===== Scroll-Balken: im Ruhezustand unsichtbar, beim Scrollen kurz ein schlanker, runder Balken =====
-   Das Skript setzt beim Scrollen kurz das Attribut data-scrolling am scrollenden Element. */
+/* ===== Scroll-Balken: im Ruhezustand unsichtbar, beim Scrollen ein schlanker, runder Balken, der danach weich ausblendet =====
+   Das Skript setzt am scrollenden Element --sb-alpha (1 = voll sichtbar) und blendet den Wert nach dem Scrollen
+   Bild für Bild auf 0 herunter. Der Browser kann Scrollbalken nicht selbst überblenden, deshalb läuft das über das Skript. */
 :root {
-  --scrollbar-thumb: rgba(78, 163, 224, 0.45);
+  --scrollbar-rgb: 78, 163, 224;
+  --scrollbar-max: 0.45;
 }
 
 body.light-theme,
 html:has(body.light-theme) {
-  --scrollbar-thumb: rgba(0, 136, 204, 0.4);
+  --scrollbar-rgb: 0, 136, 204;
+  --scrollbar-max: 0.4;
 }
 
-/* Firefox kennt nur die Standard-Eigenschaften: dünn, ohne Pfeile, Farbe blendet weich ein und aus */
+* {
+  --sb-alpha: 0; /* gilt je Element für sich, damit verschachtelte Scrollbereiche nicht mitleuchten */
+}
+
+/* Firefox kennt nur die Standard-Eigenschaften: dünn und ohne Pfeile */
 @supports (-moz-appearance: none) {
   * {
     scrollbar-width: thin;
-    scrollbar-color: transparent transparent;
-    transition: scrollbar-color 0.4s ease;
-  }
-
-  [data-scrolling] {
-    scrollbar-color: var(--scrollbar-thumb) transparent;
+    scrollbar-color: rgba(var(--scrollbar-rgb), calc(var(--sb-alpha) * var(--scrollbar-max))) transparent;
   }
 }
 
-/* Chrome, Edge, Safari: eigener schlanker, runder Balken ganz ohne Pfeile oben und unten */
-/* 12 px Platz, davon ist der Balken 4 px breit und sitzt in der Mitte: links und rechts je 4 px Abstand */
+/* Chrome, Edge, Safari: schlanker, runder Balken ganz ohne Pfeile.
+   14 px Platz: der Balken ist 4 px breit und sitzt rechts (2 px vom Rand), links davon bleiben 8 px Abstand zum Inhalt. */
 *::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
 }
 
 *::-webkit-scrollbar-track {
@@ -2598,15 +2600,12 @@ html:has(body.light-theme) {
 }
 
 *::-webkit-scrollbar-thumb {
-  background-color: transparent;
-  border: 4px solid transparent;
+  background-color: rgba(var(--scrollbar-rgb), calc(var(--sb-alpha) * var(--scrollbar-max)));
+  border-style: solid;
+  border-color: transparent;
+  border-width: 2px 2px 2px 8px;
   border-radius: 999px;
   background-clip: content-box;
-  transition: background-color 0.4s ease;
-}
-
-[data-scrolling]::-webkit-scrollbar-thumb {
-  background-color: var(--scrollbar-thumb);
 }
 
 *::-webkit-scrollbar-button {
@@ -2617,6 +2616,11 @@ html:has(body.light-theme) {
 
 *::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* Die Listen ragen ein Stück in den Kartenrand hinein: so rückt der Balken weiter nach rechts, der Inhalt bleibt gleich breit */
+#admin-contacts-list {
+  margin-right: -10px;
 }
 
 /* Emoji-Auswahl: kein Bild-Menü oder Markieren beim langen Drücken, Hinweis unter "Häufig genutzt" */
@@ -3807,9 +3811,23 @@ input[type="date"]::-webkit-date-and-time-value {
   cursor: not-allowed;
 }
 
-/* ===== Audio-Nachrichten ===== */
+/* ===== Audio-Nachrichten: schlanker Player (Play/Pause, Titel, Leiste, Zeit, Geschwindigkeit) ===== */
 .msg.has-audio {
-  min-width: 230px;
+  min-width: 250px;
+  --audio-fill: var(--accent);
+  --audio-rest: rgba(127, 127, 127, 0.35);
+  --audio-btn: var(--accent);
+}
+
+/* In den eigenen (blauen) Blasen ist der Knopf ein dunkleres Blau, damit er sich vom Hintergrund abhebt */
+.msg.own.has-audio {
+  --audio-fill: #ffffff;
+  --audio-rest: rgba(255, 255, 255, 0.35);
+  --audio-btn: #16385c;
+}
+
+body.light-theme .msg.own.has-audio {
+  --audio-btn: #005a87;
 }
 
 .msg.has-audio .msg-text {
@@ -3817,52 +3835,187 @@ input[type="date"]::-webkit-date-and-time-value {
 }
 
 .msg-audio {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   width: 100%;
   margin: 2px 0 4px;
 }
 
-.msg-audio-btn {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 9px 12px;
-  background: rgba(127, 127, 127, 0.18);
-  border: none;
-  border-radius: 12px;
-  color: inherit;
-  font-size: 14px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.msg-audio-btn:hover:not(:disabled) {
-  background: rgba(127, 127, 127, 0.3);
-}
-
-.msg-audio-btn:disabled {
-  opacity: 0.7;
-  cursor: default;
-}
-
-.msg-audio-icon {
+.msg-audio-play {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: none;
   border-radius: 50%;
-  background: var(--accent);
-  color: var(--text-on-accent);
-  font-size: 12px;
-  padding-left: 2px;
+  background: var(--audio-btn);
+  color: #ffffff;
+  cursor: pointer;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.msg-audio audio {
+.msg-audio-play:hover:not(:disabled),
+.msg-audio-play:focus-visible {
+  background: var(--audio-btn);
+  filter: brightness(1.15);
+  outline: none;
+}
+
+.msg-audio-play:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.msg-audio-play svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+.msg-audio-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.msg-audio-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+}
+
+.msg-audio-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msg-audio-seek {
+  -webkit-appearance: none;
+  appearance: none;
   display: block;
   width: 100%;
-  height: 38px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+  transition: none;
+  cursor: pointer;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+  --p: 0%;
+}
+
+.msg-audio-seek:focus,
+.msg-audio-seek:focus-visible {
+  border: none;
+  outline: none;
+  box-shadow: none;
+}
+
+.msg-audio-seek:disabled {
+  cursor: default;
+}
+
+.msg-audio-seek::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--audio-fill) var(--p), var(--audio-rest) var(--p));
+}
+
+.msg-audio-seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  border: none;
+  border-radius: 50%;
+  background: var(--audio-fill);
+}
+
+.msg-audio-seek::-moz-range-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--audio-rest);
+}
+
+.msg-audio-seek::-moz-range-progress {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--audio-fill);
+}
+
+.msg-audio-seek::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: var(--audio-fill);
+}
+
+.msg-audio-seek:disabled::-webkit-slider-thumb {
+  opacity: 0;
+}
+
+.msg-audio-seek:disabled::-moz-range-thumb {
+  opacity: 0;
+}
+
+.msg-audio-times {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.msg-audio-times {
+  justify-content: space-between;
+}
+
+.msg-audio-speed {
+  flex-shrink: 0;
+  width: auto;
+  min-width: 38px;
+  padding: 1px 7px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(127, 127, 127, 0.25);
+  color: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.msg-audio-speed[hidden] {
+  display: none;
+}
+
+.msg-audio-speed:hover,
+.msg-audio-speed:focus-visible {
+  background: rgba(127, 127, 127, 0.4);
+  outline: none;
 }
 
 /* ===== Stummgeschaltete Gruppen und Kontextmenü der Chatliste ===== */
@@ -3965,4 +4118,48 @@ select:focus-visible {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   cursor: default;
+}
+
+/* ===== Startseite und Einstellungen: nur der Bereich unter der Linie scrollt =====
+   Suchleiste, Reiter und Chatliste liegen zusammen in .list-scroll und scrollen gemeinsam. Der Scroll-Bereich ragt 14 px
+   in den Kartenrand, damit die Chats genauso breit sind wie die Linie oben und die Suchleiste (der Balken liegt im Rand). */
+.list-scroll {
+  margin-right: -14px;
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+}
+
+#list-bereich #chat-list {
+  max-height: none;
+  overflow: visible;
+}
+
+@media (max-width: 899.98px) {
+  #list-bereich,
+  #settings-bereich {
+    overflow: hidden;
+  }
+
+  #list-bereich .list-scroll,
+  #settings-bereich .settings-groups {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    margin-right: -14px;
+  }
+}
+
+body.split-view #list-bereich,
+body.split-view #settings-bereich {
+  overflow: hidden;
+}
+
+body.split-view #list-bereich .list-scroll,
+body.split-view #settings-bereich .settings-groups {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  margin-right: -14px;
 }

@@ -176,6 +176,9 @@
         </div>
       </header>
 
+      <!-- Suchleiste, Reiter und Chatliste scrollen zusammen (nur dieser Bereich unter der Linie scrollt) -->
+      <div class="list-scroll" id="list-scroll">
+
       <!-- Suchleiste: filtert die Chatliste nach Namen, wirkt zusammen mit den Reitern darunter -->
       <div class="chat-search-wrap">
         <input type="text" id="chat-search" placeholder="Suchen" oninput="applyChatTabFilter()">
@@ -192,6 +195,8 @@
 
       <!-- Gruppe + Einzelchats -->
       <ul id="chat-list"></ul>
+
+      </div>
 
     </div>
 

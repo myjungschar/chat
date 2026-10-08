@@ -2205,6 +2205,7 @@ async function sendAudioMessage(file) {
   showToast('Audio wird hochgeladen …')
 
   try {
+    const duration = await readAudioDuration(file) // Länge steht dann schon vor dem Abspielen in der Nachricht
     const form = new FormData()
     form.append('audio', file, file.name)
 
@@ -2215,7 +2216,11 @@ async function sendAudioMessage(file) {
       return
     }
 
-    const row = { sender_id: currentUser.id, text: '', audio_id: up.audio_id, audio_mime: up.audio_mime || null }
+    const row = {
+      sender_id: currentUser.id, text: '', audio_id: up.audio_id, audio_mime: up.audio_mime || null,
+      audio_name: audioTitleFromFile(file.name), audio_size: file.size
+    }
+    if (duration) row.audio_duration = duration
     if (room.type === 'dm') row.recipient_id = room.userId
     else row.group_key = room.groupKey || null
     if (replyId) row.reply_to_id = replyId
@@ -2238,47 +2243,236 @@ async function sendAudioMessage(file) {
   }
 }
 
-// Der Player in der Nachrichten-Blase: erst ein schlanker "Abspielen"-Knopf (lädt nichts vor), nach dem Antippen
-// wird die Datei geholt und durch den normalen <audio>-Player mit Bedienleiste ersetzt.
+// Titel aus dem Dateinamen: ohne Endung, ohne Unterstriche, höchstens 80 Zeichen
+function audioTitleFromFile(fileName) {
+  const base = String(fileName || '').replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return (base || 'Audio').slice(0, 80)
+}
+
+// Länge der Datei in ganzen Sekunden (oder null, wenn der Browser sie nicht lesen kann)
+function readAudioDuration(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file)
+    const probe = document.createElement('audio')
+    let timer = null
+    const done = (value) => {
+      clearTimeout(timer)
+      probe.removeAttribute('src')
+      URL.revokeObjectURL(url)
+      resolve(value)
+    }
+    timer = setTimeout(() => done(null), 4000)
+    probe.preload = 'metadata'
+    probe.onloadedmetadata = () => done(isFinite(probe.duration) && probe.duration > 0 ? Math.round(probe.duration) : null)
+    probe.onerror = () => done(null)
+    probe.src = url
+  })
+}
+
+function formatAudioTime(seconds) {
+  if (!isFinite(seconds) || seconds < 0) seconds = 0
+  const total = Math.floor(seconds)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const sec = String(total % 60).padStart(2, '0')
+  return h > 0 ? h + ':' + String(m).padStart(2, '0') + ':' + sec : m + ':' + sec
+}
+
+// Dateiendung nach dem gespeicherten Typ (Standard: mp3)
+function audioExtension(msg) {
+  const mime = String((msg && msg.audio_mime) || '').toLowerCase()
+  if (mime.includes('wav')) return 'wav'
+  if (mime.includes('mp4') || mime.includes('m4a') || mime.includes('aac')) return 'm4a'
+  return 'mp3'
+}
+
+async function downloadAudio(msg) {
+  try {
+    showToast('Audio wird geladen …')
+    const blob = await fetchPhotoBlob(msg.audio_id)
+    const mime = msg.audio_mime || 'audio/mpeg'
+    const file = blob.type && blob.type.startsWith('audio/') ? blob : new Blob([blob], { type: mime })
+    const name = String(msg.audio_name || 'Audio').replace(/[\\/:*?"<>|]+/g, '_') + '.' + audioExtension(msg)
+    const url = URL.createObjectURL(file)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = name
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 15000)
+  } catch (e) {
+    console.error('Audio herunterladen:', e)
+    showToast(e && e.status === 404 ? 'Das Audio gibt es nicht mehr.' : 'Herunterladen hat nicht geklappt.')
+  }
+}
+
+const AUDIO_SPEEDS = [1, 1.25, 1.5, 2]
+let audioSpeed = 1          // die gewählte Geschwindigkeit gilt für alle weiteren Audios
+let activeAudioPause = null // es läuft immer nur ein Audio gleichzeitig
+
+const AUDIO_PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>'
+const AUDIO_PAUSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4.2" height="14" rx="1.2"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.2"/></svg>'
+
+function audioSpeedLabel(speed) {
+  return String(speed).replace('.', ',') + 'x'
+}
+
+// Der Player in der Nachrichten-Blase: Play/Pause links, darüber der Titel, eine schlanke Leiste zum Spulen,
+// darunter verstrichene Zeit und Gesamtlänge und die Geschwindigkeit. Die Datei wird erst beim ersten Abspielen geholt.
 function buildAudioElement(msg) {
   const wrap = document.createElement('div')
   wrap.className = 'msg-audio'
 
-  const btn = document.createElement('button')
-  btn.type = 'button'
-  btn.className = 'msg-audio-btn'
-  const icon = document.createElement('span')
-  icon.className = 'msg-audio-icon'
-  icon.textContent = '▶'
-  const label = document.createElement('span')
-  label.textContent = 'Audio abspielen'
-  btn.append(icon, label)
+  const playBtn = document.createElement('button')
+  playBtn.type = 'button'
+  playBtn.className = 'msg-audio-play'
+  playBtn.setAttribute('aria-label', 'Abspielen')
+  playBtn.innerHTML = AUDIO_PLAY_ICON
 
-  btn.addEventListener('click', async () => {
+  const body = document.createElement('div')
+  body.className = 'msg-audio-body'
+
+  const head = document.createElement('div')
+  head.className = 'msg-audio-head'
+  const title = document.createElement('div')
+  title.className = 'msg-audio-title'
+  title.textContent = msg.audio_name || 'Audio'
+  const speedBtn = document.createElement('button')
+  speedBtn.type = 'button'
+  speedBtn.className = 'msg-audio-speed'
+  speedBtn.hidden = true // erscheint erst, wenn das Audio läuft
+  speedBtn.setAttribute('aria-label', 'Wiedergabegeschwindigkeit')
+  head.append(title, speedBtn)
+
+  const seek = document.createElement('input')
+  seek.type = 'range'
+  seek.className = 'msg-audio-seek'
+  seek.min = '0'
+  seek.max = '1000'
+  seek.step = '1'
+  seek.value = '0'
+  seek.disabled = true
+  seek.setAttribute('aria-label', 'Position im Audio')
+
+  const times = document.createElement('div')
+  times.className = 'msg-audio-times'
+  const elapsedEl = document.createElement('span')
+  elapsedEl.className = 'msg-audio-elapsed'
+  elapsedEl.textContent = '0:00'
+  const totalEl = document.createElement('span')
+  totalEl.className = 'msg-audio-total'
+  times.append(elapsedEl, totalEl)
+
+  body.append(head, seek, times)
+  wrap.append(playBtn, body)
+
+  const knownDuration = Number(msg.audio_duration) > 0 ? Number(msg.audio_duration) : null
+  let audio = null
+  let started = false // ab dem ersten Abspielen: links verstrichene Zeit, rechts Gesamtlänge
+  let loading = false
+  let seeking = false
+  let frame = 0
+
+  const durationNow = () => (audio && isFinite(audio.duration) && audio.duration > 0 ? audio.duration : knownDuration)
+  // Vor dem Start: links die Gesamtlänge, rechts die Dateigröße. Danach: links die verstrichene Zeit, rechts die Gesamtlänge.
+  const showTimes = () => {
+    const duration = durationNow()
+    const durationText = duration ? formatAudioTime(duration) : '–:–'
+    if (!started) {
+      elapsedEl.textContent = durationText
+      totalEl.textContent = Number(msg.audio_size) > 0 ? formatBytes(Number(msg.audio_size)) : ''
+      return
+    }
+    elapsedEl.textContent = formatAudioTime(audio ? audio.currentTime : 0)
+    totalEl.textContent = durationText
+  }
+  const showProgress = () => {
+    const duration = durationNow()
+    const current = audio ? audio.currentTime : 0
+    const fraction = duration ? Math.min(1, current / duration) : 0
+    if (!seeking) seek.value = String(Math.round(fraction * 1000))
+    seek.style.setProperty('--p', (Number(seek.value) / 10) + '%')
+    showTimes()
+  }
+  const showSpeed = () => { speedBtn.textContent = audioSpeedLabel(audioSpeed) }
+  const showPlaying = (playing) => {
+    playBtn.innerHTML = playing ? AUDIO_PAUSE_ICON : AUDIO_PLAY_ICON
+    playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Abspielen')
+  }
+  const tick = () => {
+    showProgress()
+    if (audio && !audio.paused && !audio.ended) frame = requestAnimationFrame(tick) // läuft Bild für Bild mit, nicht ruckelig
+  }
+
+  const attach = (blob) => {
+    const playable = blob.type && blob.type.startsWith('audio/') ? blob : new Blob([blob], { type: msg.audio_mime || 'audio/mpeg' })
+    audio = new Audio()
+    audio.preload = 'auto'
+    audio.src = URL.createObjectURL(playable)
+    audio.playbackRate = audioSpeed
+    audio.addEventListener('loadedmetadata', () => { audio.playbackRate = audioSpeed; showProgress() })
+    audio.addEventListener('play', () => {
+      started = true
+      speedBtn.hidden = false
+      if (activeAudioPause && activeAudioPause.audio !== audio) activeAudioPause.pause()
+      activeAudioPause = { audio, pause: () => audio.pause() }
+      showPlaying(true)
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(tick)
+    })
+    audio.addEventListener('pause', () => { showPlaying(false); showProgress() })
+    audio.addEventListener('ended', () => { showPlaying(false); audio.currentTime = 0; showProgress() })
+    seek.disabled = false
+  }
+
+  playBtn.addEventListener('click', async () => {
     if (openMenuEl || selectMode) return // gerade wurde das Nachrichten-Menü per langem Drücken geöffnet
-    btn.disabled = true
-    label.textContent = 'Wird geladen …'
+    if (loading) return
+    if (audio) {
+      if (audio.paused) audio.play().catch(() => {})
+      else audio.pause()
+      return
+    }
+    loading = true
+    playBtn.disabled = true
+    elapsedEl.textContent = 'Lädt …'
     try {
-      const blob = await fetchPhotoBlob(msg.audio_id)
-      const playable = blob.type && blob.type.startsWith('audio/') ? blob : new Blob([blob], { type: msg.audio_mime || 'audio/mpeg' })
-      const audio = document.createElement('audio')
-      audio.controls = true
-      audio.preload = 'auto'
-      audio.src = URL.createObjectURL(playable)
-      wrap.replaceChildren(audio)
+      attach(await fetchPhotoBlob(msg.audio_id))
+      showProgress()
       audio.play().catch(() => { /* manche Handys verlangen noch einen Tipp auf Play */ })
     } catch (e) {
       if (e && e.status === 404) {
-        label.textContent = 'Audio nicht mehr vorhanden'
-      } else {
-        console.error('Audio laden:', e)
-        label.textContent = 'Laden fehlgeschlagen - nochmal tippen'
-        btn.disabled = false
+        elapsedEl.textContent = 'Nicht mehr vorhanden'
+        return
       }
+      console.error('Audio laden:', e)
+      elapsedEl.textContent = 'Laden fehlgeschlagen'
+    } finally {
+      loading = false
+      if (!(audio === null && elapsedEl.textContent === 'Nicht mehr vorhanden')) playBtn.disabled = false
     }
   })
 
-  wrap.appendChild(btn)
+  // Spulen: beim Ziehen springt die Position sofort mit
+  ;['pointerdown', 'touchstart'].forEach(name => seek.addEventListener(name, () => { seeking = true }, { passive: true }))
+  ;['pointerup', 'pointercancel', 'touchend', 'change'].forEach(name => seek.addEventListener(name, () => { seeking = false }))
+  seek.addEventListener('input', () => {
+    if (!audio) return
+    const duration = isFinite(audio.duration) && audio.duration > 0 ? audio.duration : knownDuration
+    if (!duration) return
+    audio.currentTime = (Number(seek.value) / 1000) * duration
+    showProgress()
+  })
+
+  speedBtn.addEventListener('click', () => {
+    audioSpeed = AUDIO_SPEEDS[(AUDIO_SPEEDS.indexOf(audioSpeed) + 1) % AUDIO_SPEEDS.length]
+    if (audio) audio.playbackRate = audioSpeed
+    showSpeed()
+  })
+
+  showSpeed()
+  showProgress()
   return wrap
 }
 
@@ -2810,17 +3004,25 @@ function showEmptyHint() {
   document.getElementById('chat-box').appendChild(hint)
 }
 
-// Zeitstempel: heute nur Uhrzeit, gestern mit "Gestern", sonst Datum
+// "Heute", "Gestern" oder "Vorgestern" für Nachrichten der letzten drei Kalendertage, sonst null
+function relativeDayLabel(date) {
+  const now = new Date()
+  const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate())
+  const days = Math.round((startOf(now) - startOf(date)) / 86400000)
+  if (days === 0) return 'Heute'
+  if (days === 1) return 'Gestern'
+  if (days === 2) return 'Vorgestern'
+  return null
+}
+
+// Zeitstempel: heute nur Uhrzeit, gestern/vorgestern mit Wort, sonst Datum
 function formatTime(isoString) {
   const d = new Date(isoString)
-  const now = new Date()
   const time = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
 
-  if (d.toDateString() === now.toDateString()) return time
-
-  const yesterday = new Date(now)
-  yesterday.setDate(now.getDate() - 1)
-  if (d.toDateString() === yesterday.toDateString()) return 'Gestern, ' + time
+  const label = relativeDayLabel(d)
+  if (label === 'Heute') return time
+  if (label) return label + ', ' + time
 
   const date = d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
   return date + ', ' + time
@@ -2831,13 +3033,14 @@ function formatTimeOnly(isoString) {
   return new Date(isoString).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
 }
 
-// Zeit-Anzeige für die Chatliste: heute nur die Uhrzeit, älter nur das Datum (ohne Uhrzeit dazu)
+// Zeit-Anzeige für die Chatliste: heute die Uhrzeit, dann "Gestern" und "Vorgestern", älter nur das Datum
 function formatChatListTime(isoString) {
   const d = new Date(isoString)
-  const now = new Date()
-  if (d.toDateString() === now.toDateString()) {
+  const label = relativeDayLabel(d)
+  if (label === 'Heute') {
     return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
   }
+  if (label) return label
   return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
 }
 
@@ -3018,10 +3221,11 @@ function renderMessage(msg) {
   const canReact = !isAdmin()
   const canReply = !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   const canCopy = !!msg.text
+  const canDownloadAudio = !!msg.audio_id
   // Info (wer hat die Nachricht gelesen/bekommen) und Häkchen gibt es für eigene Nachrichten in Einzelchat und Gruppe
   const canInfo = READ_RECEIPTS_ENABLED && isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
 
-  attachMessageMenuTriggers(msgElement, msg, { canEdit, canDelete, canReact, canInfo, canReply, canCopy })
+  attachMessageMenuTriggers(msgElement, msg, { canEdit, canDelete, canReact, canInfo, canReply, canCopy, canDownloadAudio })
 
   const textEl = document.createElement('div')
   textEl.className = 'msg-text'
@@ -3670,7 +3874,7 @@ function attachMessageMenuTriggers(msgElement, msg, options) {
   if (!hasMenu) return
 
   function isExcluded(target) {
-    return target.closest('.msg-ticks, .msg-reply-quote, .reaction-btn')
+    return target.closest('.msg-ticks, .msg-reply-quote, .reaction-btn, .msg-audio-seek')
   }
 
   // Rechtsklick (PC) und langes Drücken (Handy): Emoji-Leiste und Menü erscheinen gemeinsam,
@@ -3732,6 +3936,17 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
         startReplyingTo(msg.id)
       })
       menu.appendChild(replyItem)
+    }
+
+    if (options.canDownloadAudio) {
+      const downloadItem = document.createElement('button')
+      downloadItem.className = 'msg-menu-item'
+      downloadItem.textContent = 'Als ' + audioExtension(msg).toUpperCase() + ' herunterladen'
+      downloadItem.addEventListener('click', () => {
+        closeMessageMenu()
+        downloadAudio(msg)
+      })
+      menu.appendChild(downloadItem)
     }
 
     if (options.canCopy) {
@@ -4253,12 +4468,8 @@ function dateKey(iso) {
 
 function formatDateSeparator(iso) {
   const d = new Date(iso)
-  const now = new Date()
-  if (dateKey(iso) === dateKey(now)) return 'Heute'
-
-  const yesterday = new Date(now)
-  yesterday.setDate(yesterday.getDate() - 1)
-  if (dateKey(iso) === dateKey(yesterday)) return 'Gestern'
+  const label = relativeDayLabel(d)
+  if (label) return label
 
   return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
@@ -7310,16 +7521,42 @@ function initChatListMenu() {
 
 initChatListMenu()
 
-// ===== Scroll-Balken: nur beim Scrollen sichtbar =====
+// ===== Scroll-Balken: nur beim Scrollen sichtbar, danach weich ausgeblendet =====
 // Scroll-Ereignisse bubblen nicht, deshalb hört ein Listener in der Capture-Phase mit. Das scrollende Element bekommt
-// kurz das Attribut data-scrolling (das CSS blendet den Balken dann ein) und verliert es nach einer Pause wieder.
-const scrollingTimers = new WeakMap()
+// --sb-alpha = 1 (das CSS zeichnet den Balken damit). Nach einer kurzen Pause wird der Wert in einer Animation auf 0
+// heruntergeblendet, weil Browser Scrollbalken nicht selbst überblenden können.
+const SCROLLBAR_HOLD_MS = 600  // so lange bleibt der Balken nach dem letzten Scrollen voll sichtbar
+const SCROLLBAR_FADE_MS = 900  // so lange dauert das Ausblenden
+const scrollbarFades = new WeakMap()
+
+function startScrollbarFade(target, state) {
+  const startedAt = performance.now()
+  const step = (now) => {
+    const progress = Math.min(1, (now - startedAt) / SCROLLBAR_FADE_MS)
+    if (progress >= 1) {
+      target.style.removeProperty('--sb-alpha')
+      state.frame = 0
+      return
+    }
+    const eased = progress * progress * (3 - 2 * progress) // weicher Anfang und weiches Ende
+    target.style.setProperty('--sb-alpha', String((1 - eased).toFixed(3)))
+    state.frame = requestAnimationFrame(step)
+  }
+  state.frame = requestAnimationFrame(step)
+}
+
 document.addEventListener('scroll', (event) => {
   const target = event.target === document ? document.documentElement : event.target
   if (!target || target.nodeType !== 1) return
-  target.setAttribute('data-scrolling', '')
-  clearTimeout(scrollingTimers.get(target))
-  scrollingTimers.set(target, setTimeout(() => target.removeAttribute('data-scrolling'), 900))
+  let state = scrollbarFades.get(target)
+  if (!state) {
+    state = { timer: null, frame: 0 }
+    scrollbarFades.set(target, state)
+  }
+  clearTimeout(state.timer)
+  cancelAnimationFrame(state.frame)
+  target.style.setProperty('--sb-alpha', '1')
+  state.timer = setTimeout(() => startScrollbarFade(target, state), SCROLLBAR_HOLD_MS)
 }, { capture: true, passive: true })
 
 // ===== Geburtsdatum, Profil und Mitgliederliste =====
