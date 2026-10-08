@@ -59,13 +59,26 @@ function isAdmin() {
   return currentProfile && currentProfile.role === 'admin'
 }
 
-// Kleine, feste Farbpalette für Avatare, damit jeder Nutzer immer dieselbe Farbe bekommt
-const AVATAR_COLORS = ['#5b8def', '#3fb98c', '#e2a33d', '#e2665f', '#9d6fe0', '#3fb0c9', '#d16fa8']
+// Feste Farbpalette für Avatare (ohne Lila). Der Admin kann jeder Person eine Farbe zuweisen (profiles.color);
+// ohne gespeicherte Farbe wird sie aus der ID berechnet, damit jeder Nutzer immer dieselbe Farbe bekommt.
+const AVATAR_COLORS = ['#5b8def', '#3fb98c', '#e2a33d', '#e2665f', '#3fb0c9', '#d16fa8', '#4d6fa3', '#5b8c6b']
+// Berechnete Farbe: dieselbe Reihenfolge wie früher, damit jede Person ihre gewohnte Farbe behält.
+// Nur das frühere Lila ist durch ein blasses Dunkelblau ersetzt.
+const COMPUTED_COLORS = ['#5b8def', '#3fb98c', '#e2a33d', '#e2665f', '#4d6fa3', '#3fb0c9', '#d16fa8']
+const AVATAR_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
 
-function avatarColor(id) {
+function computedAvatarColor(id) {
+  const text = String(id || '')
   let hash = 0
-  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash)
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+  for (let i = 0; i < text.length; i++) hash = text.charCodeAt(i) + ((hash << 5) - hash)
+  return COMPUTED_COLORS[Math.abs(hash) % COMPUTED_COLORS.length]
+}
+
+// Die Farbe landet teils direkt in style="..." - deshalb nur ein echter Hex-Wert, nie beliebiger Text aus der Datenbank
+function avatarColor(id) {
+  const info = profileCache[id]
+  if (info && typeof info.color === 'string' && AVATAR_COLOR_PATTERN.test(info.color)) return info.color
+  return computedAvatarColor(id)
 }
 
 // Initialen für das Profilbild: Anfangsbuchstabe von Vor- UND Nachname ("Levi Betke" -> "LB").
@@ -291,6 +304,9 @@ function showLogin() {
   peerMarks = {}
   pollsMap = {}
   profileEmailCache = {}
+  birthdayTest = false
+  birthdayTestOtherId = null
+  resetGroupState()
   closeProfileModals()
 
   const aboutCard = document.getElementById('about-card')
@@ -486,6 +502,7 @@ async function enterApp(user) {
   warmUpEmojiPicker()
   ensureBirthdate() // noch kein Geburtsdatum gespeichert? Dann kommt das Pflicht-Fenster
   consumePendingPushOpen() // die App wurde über den Klick auf eine Benachrichtigung gestartet
+  showBirthdayAnnouncement() // heute jemand Geburtstag? Einmal am Tag ein Pop-up
 }
 
 // Letzte Nachricht je Chat laden, für die Vorschau in der Liste
@@ -517,7 +534,7 @@ async function loadChatPreviews() {
 
   const { data: groupRows } = await supabaseClient
     .from('messages')
-    .select('text, photo_id, created_at, group_key, sender_id')
+    .select('text, photo_id, audio_id, created_at, group_key, sender_id')
     .order('created_at', { ascending: false })
     .limit(300)
 
@@ -532,7 +549,7 @@ async function loadChatPreviews() {
 
   const { data: dmRows } = await supabaseClient
     .from('direct_messages')
-    .select('text, photo_id, created_at, sender_id, recipient_id')
+    .select('text, photo_id, audio_id, created_at, sender_id, recipient_id')
     .order('created_at', { ascending: false })
     .limit(400)
 
@@ -555,7 +572,7 @@ async function loadChatPreviews() {
   dmPreviews = newDmPreviews
   unreadCounts = newUnread
   readMarks = newMarks
-  updateAppBadge(Object.values(unreadCounts).reduce((sum, n) => sum + n, 0))
+  updateAppBadge(Object.entries(unreadCounts).reduce((sum, [key, n]) => sum + (isChatMuted(key) ? 0 : n), 0))
 }
 
 // ===== Zustellung: "diese Nachricht ist auf dem Gerät des Empfängers angekommen" =====
@@ -666,8 +683,11 @@ function truncate(text, max) {
   return text.length > max ? text.slice(0, max) + '…' : text
 }
 
+// Kleines durchgestrichenes Glocken-Symbol hinter dem Namen stummgeschalteter Gruppen
+const MUTE_ICON_HTML = '<svg class="mute-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Stummgeschaltet"><path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="m2 2 20 20"/></svg>'
+
 // Baut den Inhalt eines Listeneintrags: Avatar, Name, Vorschau-Text, Uhrzeit, Ungelesen-Zähler
-function chatListItemHTML(avatarHTML, name, preview, unreadCount) {
+function chatListItemHTML(avatarHTML, name, preview, unreadCount, muted) {
   const previewText = preview ? truncate(messageSnippet(preview), 34) : 'Noch keine Nachrichten'
   const timeText = preview ? formatChatListTime(preview.created_at) : 'Keine Nachrichten'
   const badge = unreadCount > 0
@@ -676,7 +696,7 @@ function chatListItemHTML(avatarHTML, name, preview, unreadCount) {
   return `
     ${avatarHTML}
     <div class="chat-list-text">
-      <div class="chat-list-name">${escapeHTML(name)}</div>
+      <div class="chat-list-name">${escapeHTML(name)}${muted ? MUTE_ICON_HTML : ''}</div>
       <div class="chat-list-preview">${escapeHTML(previewText)}</div>
     </div>
     <div class="chat-list-time-badge">
@@ -694,20 +714,26 @@ let chatListRenderId = 0
 
 async function renderChatList() {
   const myRenderId = ++chatListRenderId
+  await loadMutedChats()
   await loadChatPreviews()
   // Zwischenzeitlich ausgeloggt oder schon ein neuerer Ladevorgang gestartet? Dann nichts mehr zeichnen
   if (!currentUser || myRenderId !== chatListRenderId) return
+  birthdayDayRendered = toISODate(new Date())
+  await loadChatGroups()
+  if (!currentUser || myRenderId !== chatListRenderId) return
+  updateNewGroupButton()
 
   const list = document.getElementById('chat-list')
   list.innerHTML = ''
 
   const groupItem = document.createElement('li')
-  groupItem.className = 'chat-list-item pinned'
+  groupItem.className = 'chat-list-item pinned' + (isChatMuted('main') ? ' muted' : '')
   groupItem.innerHTML = chatListItemHTML(
     '<div class="chat-list-avatar group-avatar">📌</div>',
     'JungscharChat',
     groupPreviews['main'],
-    unreadFor('main')
+    unreadFor('main'),
+    isChatMuted('main')
   )
   groupItem.dataset.chatKey = 'main'
   groupItem.dataset.tabs = 'alle gruppen'
@@ -715,14 +741,18 @@ async function renderChatList() {
   groupItem.addEventListener('click', openGroupChat)
   list.appendChild(groupItem)
 
+  // Eigene Gruppen: direkt unter der Hauptgruppe
+  appendCustomGroupItems(list)
+
   if (isAdmin() || currentProfile.gender === 'junge') {
     const item = document.createElement('li')
-    item.className = 'chat-list-item pinned'
+    item.className = 'chat-list-item pinned' + (isChatMuted('junge') ? ' muted' : '')
     item.innerHTML = chatListItemHTML(
       '<div class="chat-list-avatar group-avatar">👦</div>',
       'Jungs',
       groupPreviews['junge'],
-      unreadFor('junge')
+      unreadFor('junge'),
+      isChatMuted('junge')
     )
     item.dataset.chatKey = 'junge'
     item.dataset.tabs = 'alle gruppen' // die Gruppe selbst gehört nur unter "Gruppen", die passenden Einzelchats tragen "junge" schon eigenständig
@@ -733,12 +763,13 @@ async function renderChatList() {
 
   if (isAdmin() || currentProfile.gender === 'maedchen') {
     const item = document.createElement('li')
-    item.className = 'chat-list-item pinned'
+    item.className = 'chat-list-item pinned' + (isChatMuted('maedchen') ? ' muted' : '')
     item.innerHTML = chatListItemHTML(
       '<div class="chat-list-avatar group-avatar">👧</div>',
       'Mädels',
       groupPreviews['maedchen'],
-      unreadFor('maedchen')
+      unreadFor('maedchen'),
+      isChatMuted('maedchen')
     )
     item.dataset.chatKey = 'maedchen'
     item.dataset.tabs = 'alle gruppen' // die Gruppe selbst gehört nur unter "Gruppen", die passenden Einzelchats tragen "maedchen" schon eigenständig
@@ -761,8 +792,8 @@ async function renderChatList() {
     const item = document.createElement('li')
     item.className = 'chat-list-item'
     item.innerHTML = chatListItemHTML(
-      `<div class="chat-list-avatar" style="background:${avatarColor(id)}">${initialsOf(name)}</div>`,
-      name || 'Ohne Namen',
+      `<div class="chat-list-avatar${hasBirthdayToday(id) ? ' birthday' : ''}" style="background:${avatarColor(id)}">${initialsOf(name)}</div>`,
+      (name || 'Ohne Namen') + birthdayMark(id),
       dmPreviews[id],
       unreadFor('dm:' + id)
     )
@@ -898,7 +929,7 @@ async function openAdminContactsFor(userId, name) {
 
   const { data: rows, error } = await supabaseClient
     .from('direct_messages')
-    .select('sender_id, recipient_id, text, photo_id, created_at')
+    .select('sender_id, recipient_id, text, photo_id, audio_id, created_at')
     .or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
     .order('created_at', { ascending: false })
 
@@ -945,7 +976,7 @@ function openAdminDmView(userA, userB, nameA, nameB) {
 }
 
 async function openConversation(title) {
-  document.getElementById('conversation-title').textContent = title
+  document.getElementById('conversation-title').textContent = title + (currentRoom && currentRoom.type === 'dm' ? birthdayMark(currentRoom.userId) : '')
   updateConversationTitleTap()
   updateOnlineIndicator()
   showScreen('conversation-bereich')
@@ -1061,7 +1092,7 @@ async function loadProfileCache() {
   profileCache = {}
   data.forEach(p => {
     // active = false: eingeladen, aber Einladung noch nicht angenommen / noch kein Passwort gesetzt
-    profileCache[p.id] = { name: p.display_name, role: p.role, blocked: !!p.is_blocked, gender: p.gender, active: p.active !== false, birthdate: p.birthdate || null }
+    profileCache[p.id] = { name: p.display_name, role: p.role, blocked: !!p.is_blocked, gender: p.gender, active: p.active !== false, birthdate: p.birthdate || null, color: p.color || null }
   })
 }
 
@@ -1073,7 +1104,7 @@ async function fetchProfileName(userId) {
     .single()
 
   if (data) {
-    profileCache[userId] = { name: data.display_name, role: data.role, blocked: !!data.is_blocked, gender: data.gender, birthdate: data.birthdate || null }
+    profileCache[userId] = { name: data.display_name, role: data.role, blocked: !!data.is_blocked, gender: data.gender, birthdate: data.birthdate || null, color: data.color || null }
   }
 }
 
@@ -1727,12 +1758,18 @@ function toggleAttachMenu(anchorBtn, evt) {
   menu.className = 'msg-menu attach-menu'
   menu.addEventListener('click', e => e.stopPropagation())
 
-  if (!isPhotoBlockedSelf()) { // wer keine Fotos senden darf, bekommt den Punkt gar nicht erst
+  if (!isPhotoBlockedSelf()) { // wer keine Fotos senden darf, bekommt die Punkte "Foto" und "Audio" gar nicht erst
     const photoItem = document.createElement('button')
     photoItem.className = 'msg-menu-item'
     photoItem.textContent = 'Foto'
     photoItem.addEventListener('click', () => { closeAttachMenu(); startPhotoFlow() })
     menu.appendChild(photoItem)
+
+    const audioItem = document.createElement('button')
+    audioItem.className = 'msg-menu-item'
+    audioItem.textContent = 'Audio'
+    audioItem.addEventListener('click', () => { closeAttachMenu(); startAudioFlow() })
+    menu.appendChild(audioItem)
   }
 
   const pollItem = document.createElement('button')
@@ -1772,7 +1809,7 @@ let photoInputEl = null
 let photoSending = false
 
 function messageSnippet(msg) {
-  return (msg && msg.text) || (msg && msg.photo_id ? '📷 Foto' : '')
+  return (msg && msg.text) || (msg && msg.photo_id ? '📷 Foto' : '') || (msg && msg.audio_id ? '🎤 Audio' : '')
 }
 
 function formatBytes(bytes) {
@@ -2111,6 +2148,138 @@ async function sendPhotoMessage(main, thumb, captionText) {
   } finally {
     photoSending = false
   }
+}
+
+// ===== Audio =====
+// Ablauf: Plus -> "Audio" -> Datei aussuchen (.mp3, .m4a, .wav, höchstens 10 MB) -> bestätigen. Die Datei geht über
+// dieselbe Edge Function wie die Fotos ("upload-photo") privat nach Google Drive; in der Nachricht stehen nur die
+// Drive-ID (audio_id) und der Typ (audio_mime). Abgespielt wird über "get-photo", das vorher prüft, ob man den Chat sehen darf.
+const AUDIO_MAX_BYTES = 10 * 1024 * 1024
+const AUDIO_EXTENSIONS = ['mp3', 'm4a', 'wav']
+let audioInputEl = null
+let audioSending = false
+
+function getAudioInput() {
+  if (!audioInputEl) {
+    audioInputEl = document.createElement('input')
+    audioInputEl.type = 'file'
+    audioInputEl.accept = '.mp3,.m4a,.wav,audio/mpeg,audio/mp4,audio/x-m4a,audio/wav,audio/x-wav'
+    audioInputEl.style.display = 'none'
+    audioInputEl.addEventListener('change', () => {
+      const file = audioInputEl.files && audioInputEl.files[0]
+      audioInputEl.value = ''
+      if (file) confirmAndSendAudio(file)
+    })
+    document.body.appendChild(audioInputEl)
+  }
+  return audioInputEl
+}
+
+function startAudioFlow() {
+  if (!currentUser || isAdmin() || currentRoom.type === 'dm-view') return
+  if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos und Audios senden.'); return }
+  if (editingMessageId) { showToast('Schließe zuerst das Bearbeiten ab.'); return }
+  if (!navigator.onLine) { showToast('Keine Internetverbindung.'); return }
+  getAudioInput().click()
+}
+
+async function confirmAndSendAudio(file) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase()
+  if (!AUDIO_EXTENSIONS.includes(ext)) { showToast('Erlaubt sind nur .mp3, .m4a und .wav.'); return }
+  if (file.size === 0) { showToast('Die Datei ist leer.'); return }
+  if (file.size > AUDIO_MAX_BYTES) { showToast('Die Datei ist zu groß (höchstens ' + formatBytes(AUDIO_MAX_BYTES) + ').'); return }
+
+  const ok = await askConfirm('"' + file.name + '" (' + formatBytes(file.size) + ') senden?', { okText: 'Senden' })
+  if (ok) await sendAudioMessage(file)
+}
+
+// Lädt die Audio-Datei hoch und legt danach die Nachricht an
+async function sendAudioMessage(file) {
+  if (!currentUser || audioSending) return
+  audioSending = true
+
+  // Den Chat von jetzt merken - falls man während des Hochladens in einen anderen Chat wechselt
+  const room = currentRoom
+  const table = currentTable()
+  const replyId = replyingToId
+  showToast('Audio wird hochgeladen …')
+
+  try {
+    const form = new FormData()
+    form.append('audio', file, file.name)
+
+    const { data: up, error: upError } = await supabaseClient.functions.invoke('upload-photo', { body: form })
+    if (upError || !up || !up.audio_id) {
+      const detail = upError ? await readFunctionError(upError) : 'Unbekannter Fehler'
+      showToast('Audio konnte nicht hochgeladen werden: ' + detail)
+      return
+    }
+
+    const row = { sender_id: currentUser.id, text: '', audio_id: up.audio_id, audio_mime: up.audio_mime || null }
+    if (room.type === 'dm') row.recipient_id = room.userId
+    else row.group_key = room.groupKey || null
+    if (replyId) row.reply_to_id = replyId
+
+    const { data: inserted, error } = await supabaseClient
+      .from(table)
+      .insert([row])
+      .select('*, profiles!sender_id(display_name)')
+      .single()
+
+    if (error) {
+      await handleSendError(error)
+      return
+    }
+
+    if (replyingToId === replyId) cancelReplyingTo()
+    if (currentRoom === room && belongsToCurrentRoom(inserted)) renderMessage(inserted)
+  } finally {
+    audioSending = false
+  }
+}
+
+// Der Player in der Nachrichten-Blase: erst ein schlanker "Abspielen"-Knopf (lädt nichts vor), nach dem Antippen
+// wird die Datei geholt und durch den normalen <audio>-Player mit Bedienleiste ersetzt.
+function buildAudioElement(msg) {
+  const wrap = document.createElement('div')
+  wrap.className = 'msg-audio'
+
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'msg-audio-btn'
+  const icon = document.createElement('span')
+  icon.className = 'msg-audio-icon'
+  icon.textContent = '▶'
+  const label = document.createElement('span')
+  label.textContent = 'Audio abspielen'
+  btn.append(icon, label)
+
+  btn.addEventListener('click', async () => {
+    if (openMenuEl || selectMode) return // gerade wurde das Nachrichten-Menü per langem Drücken geöffnet
+    btn.disabled = true
+    label.textContent = 'Wird geladen …'
+    try {
+      const blob = await fetchPhotoBlob(msg.audio_id)
+      const playable = blob.type && blob.type.startsWith('audio/') ? blob : new Blob([blob], { type: msg.audio_mime || 'audio/mpeg' })
+      const audio = document.createElement('audio')
+      audio.controls = true
+      audio.preload = 'auto'
+      audio.src = URL.createObjectURL(playable)
+      wrap.replaceChildren(audio)
+      audio.play().catch(() => { /* manche Handys verlangen noch einen Tipp auf Play */ })
+    } catch (e) {
+      if (e && e.status === 404) {
+        label.textContent = 'Audio nicht mehr vorhanden'
+      } else {
+        console.error('Audio laden:', e)
+        label.textContent = 'Laden fehlgeschlagen - nochmal tippen'
+        btn.disabled = false
+      }
+    }
+  })
+
+  wrap.appendChild(btn)
+  return wrap
 }
 
 // ----- Anzeigen -----
@@ -2821,7 +2990,7 @@ function renderMessage(msg) {
   if (!isOwn && currentRoom.type === 'group') {
     const authorEl = document.createElement('span')
     authorEl.className = 'msg-author'
-    authorEl.textContent = author
+    authorEl.textContent = author + birthdayMark(msg.sender_id)
     meta.appendChild(authorEl)
   }
 
@@ -2844,7 +3013,7 @@ function renderMessage(msg) {
   // Menü öffnen: nicht mehr über einen eigenen Button, sondern per Rechtsklick (PC) oder
   // langem Tippen (Handy) direkt auf der Nachricht - Kopieren geht bei jeder Nachricht,
   // der Rest hängt davon ab, wem sie gehört
-  const canEdit = isOwn && !isAdmin() && !msg.photo_id // Foto-Nachrichten lassen sich nicht bearbeiten
+  const canEdit = isOwn && !isAdmin() && !msg.photo_id && !msg.audio_id // Foto- und Audio-Nachrichten lassen sich nicht bearbeiten
   const canDelete = isOwn || isAdmin()
   const canReact = !isAdmin()
   const canReply = !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
@@ -2872,6 +3041,10 @@ function renderMessage(msg) {
     msgElement.classList.add('has-photo')
     msgElement.appendChild(buildPhotoElement(msg))
     if (!msg.text) textEl.classList.add('photo-only')
+  }
+  if (msg.audio_id) {
+    msgElement.classList.add('has-audio')
+    msgElement.appendChild(buildAudioElement(msg))
   }
   msgElement.appendChild(textEl)
 
@@ -2931,6 +3104,7 @@ function peerKeyForRoom(room) {
 function recipientIdsForRoom() {
   if (currentRoom.type === 'dm') return [currentRoom.userId]
   if (currentRoom.type !== 'group') return []
+  if (currentRoom.groupId) return customGroupMemberIds(currentRoom.groupId).filter(id => id !== currentUser.id)
 
   const key = currentRoom.groupKey || 'main'
   return Object.entries(profileCache)
@@ -3805,7 +3979,7 @@ function listenForNewMessages() {
       renderMessage(msg)
       clearTyping(msg.sender_id) // die Nachricht ist da, "tippt" ist erledigt
       // Ton nur, wenn das Fenster gerade aktiv ist. Sonst kommt über den Service Worker das Banner - nicht beides.
-      if (msg.sender_id !== currentUser.id && !isAdmin() && document.visibilityState === 'visible' && document.hasFocus()) playMessageSound()
+      if (msg.sender_id !== currentUser.id && !isAdmin() && document.visibilityState === 'visible' && document.hasFocus() && !isChatMuted(chatKeyForRoom(currentRoom))) playMessageSound()
       // Der Chat ist offen, die Nachricht wird gerade gesehen -> nicht später als ungelesen zählen
       if (msg.sender_id !== currentUser.id && document.visibilityState === 'visible') markCurrentRoomRead()
     })
@@ -3862,6 +4036,7 @@ function listenForListUpdates() {
 
 function stopListListening() {
   clearTimeout(listRefreshTimer)
+  stopGroupListening()
   if (listChannel) {
     supabaseClient.removeChannel(listChannel)
     listChannel = null
@@ -4324,7 +4499,7 @@ function updateMessageElement(msg) {
   if (!row) return
 
   const textEl = row.querySelector('.msg-text')
-  if (textEl && !msg.photo_id) {
+  if (textEl && !msg.photo_id && !msg.audio_id) {
     textEl.textContent = msg.text
     markBigEmoji(textEl, msg.text)
   }
@@ -4366,6 +4541,7 @@ function openSettings() {
   showScreen('settings-bereich')
   document.getElementById('admin-group').style.display = isAdmin() ? '' : 'none'
   document.getElementById('push-group').style.display = isAdmin() ? 'none' : ''
+  updateNewGroupButton()
   refreshPushToggleUI()
   updateInstallMenu()
 }
@@ -4737,6 +4913,32 @@ function renderUserDetail(u) {
         <button type="button" class="rights-switch${photoBlockedIds.has(u.id) ? '' : ' on'}" id="user-photo-switch" role="switch" aria-checked="${!photoBlockedIds.has(u.id)}" aria-label="Darf Fotos senden"></button>
       </div>
     </div>
+    <div class="input-group">
+      <div class="rights-row">
+        <div class="rights-row-text">
+          <span class="rights-row-title">Darf Gruppen erstellen</span>
+          <span class="rights-row-state">${groupCreateBlockedIds.has(u.id) ? 'Nein' : 'Ja'}</span>
+        </div>
+        <button type="button" class="rights-switch${groupCreateBlockedIds.has(u.id) ? '' : ' on'}" id="user-group-switch" role="switch" aria-checked="${!groupCreateBlockedIds.has(u.id)}" aria-label="Darf Gruppen erstellen"></button>
+      </div>
+    </div>
+    <div class="input-group">
+      <label>Profilfarbe</label>
+      <div class="user-color-row">
+        <div class="reaction-avatar" id="user-color-preview" style="background:${avatarColor(u.id)}">${escapeHTML(initialsOf(u.display_name || ''))}</div>
+        <button type="button" class="user-color-btn" id="user-color-btn">Farbe neu würfeln</button>
+      </div>
+    </div>
+    <div class="input-group">
+      <label>Geburtsdatum</label>
+      <div class="birth-select-row">
+        <select id="user-birth-day" aria-label="Tag"></select>
+        <select id="user-birth-month" aria-label="Monat"></select>
+        <select id="user-birth-year" aria-label="Jahr"></select>
+      </div>
+      <p class="field-error" id="user-birth-error" style="display: none;"></p>
+      <button type="button" class="user-color-btn" id="user-birth-save-btn" disabled>Geburtsdatum speichern</button>
+    </div>
     <div class="user-actions">
       <button type="button" class="${u.is_blocked ? 'unblock-btn' : 'block-btn'}" id="user-block-btn">${u.is_blocked ? 'Entsperren' : 'Sperren'}</button>
       <button type="button" class="delete-btn" id="user-delete-btn">Nutzer löschen</button>
@@ -4751,8 +4953,113 @@ function renderUserDetail(u) {
   })
   document.getElementById('user-rights-switch').addEventListener('click', () => setVip(u, !vipIds.has(u.id)))
   document.getElementById('user-photo-switch').addEventListener('click', () => setPhotoAllowed(u, photoBlockedIds.has(u.id)))
+  document.getElementById('user-group-switch').addEventListener('click', () => setGroupCreateAllowed(u, groupCreateBlockedIds.has(u.id)))
+  document.getElementById('user-color-btn').addEventListener('click', () => rerollUserColor(u))
+  setupAdminBirthdate(u)
   document.getElementById('user-block-btn').addEventListener('click', () => setBlocked(u, !u.is_blocked))
   document.getElementById('user-delete-btn').addEventListener('click', () => deleteUser(u))
+}
+
+// Admin: der Person zufällig eine neue Farbe aus der Palette geben (gespeichert in profiles.color)
+async function rerollUserColor(user) {
+  if (!isAdmin()) return
+  const current = avatarColor(user.id).toLowerCase()
+  const options = AVATAR_COLORS.filter(c => c.toLowerCase() !== current)
+  const color = options[Math.floor(Math.random() * options.length)]
+
+  const btn = document.getElementById('user-color-btn')
+  if (btn) btn.disabled = true
+  const { data, error } = await supabaseClient.from('profiles').update({ color }).eq('id', user.id).select('id')
+  if (btn) btn.disabled = false
+
+  if (error) {
+    showToast('Fehler: ' + error.message)
+    return
+  }
+  if (!data || data.length === 0) {
+    showToast('Änderung nicht erlaubt (oder die Spalte "color" fehlt noch).')
+    return
+  }
+  user.color = color
+  if (profileCache[user.id]) profileCache[user.id].color = color
+  const preview = document.getElementById('user-color-preview')
+  if (preview) preview.style.background = color
+  renderChatList()
+}
+
+// Admin: Geburtsdatum mit drei Auswahlfeldern (Tag, Monat, Jahr) - das Jahr steht direkt zur Wahl
+const MONTH_NAMES = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
+
+function fillSelect(select, placeholder, options, selected) {
+  select.innerHTML = ''
+  const first = document.createElement('option')
+  first.value = ''
+  first.textContent = placeholder
+  select.appendChild(first)
+  options.forEach(([value, label]) => {
+    const opt = document.createElement('option')
+    opt.value = String(value)
+    opt.textContent = label
+    select.appendChild(opt)
+  })
+  select.value = selected ? String(selected) : ''
+}
+
+function setupAdminBirthdate(user) {
+  const daySel = document.getElementById('user-birth-day')
+  const monthSel = document.getElementById('user-birth-month')
+  const yearSel = document.getElementById('user-birth-year')
+  const saveBtn = document.getElementById('user-birth-save-btn')
+  const errorEl = document.getElementById('user-birth-error')
+  const saved = (profileCache[user.id] && profileCache[user.id].birthdate) || user.birthdate || null
+  const [sy, sm, sd] = saved ? saved.split('-').map(Number) : [0, 0, 0]
+
+  const thisYear = new Date().getFullYear()
+  const years = []
+  for (let y = thisYear - BIRTH_MIN_AGE; y >= thisYear - BIRTH_MAX_AGE; y--) years.push([y, String(y)])
+  const days = []
+  for (let d = 1; d <= 31; d++) days.push([d, String(d)])
+  fillSelect(daySel, 'Tag', days, sd)
+  fillSelect(monthSel, 'Monat', MONTH_NAMES.map((name, i) => [i + 1, name]), sm)
+  fillSelect(yearSel, 'Jahr', years, sy)
+
+  const currentValue = () => {
+    if (!daySel.value || !monthSel.value || !yearSel.value) return null
+    return yearSel.value + '-' + pad2(Number(monthSel.value)) + '-' + pad2(Number(daySel.value))
+  }
+  const refresh = () => {
+    const value = currentValue()
+    const problem = value ? birthdateError(value) : null
+    errorEl.textContent = problem || ''
+    errorEl.style.display = problem ? '' : 'none'
+    saveBtn.disabled = !value || !!problem || value === saved
+  }
+  ;[daySel, monthSel, yearSel].forEach(sel => sel.addEventListener('change', refresh))
+  refresh()
+
+  saveBtn.addEventListener('click', async () => {
+    if (!isAdmin()) return
+    const value = currentValue()
+    const problem = value ? birthdateError(value) : 'Bitte Tag, Monat und Jahr wählen.'
+    if (problem) {
+      errorEl.textContent = problem
+      errorEl.style.display = ''
+      return
+    }
+    saveBtn.disabled = true
+    const { data, error } = await supabaseClient.from('profiles').update({ birthdate: value }).eq('id', user.id).select('id')
+    if (error || !data || data.length === 0) {
+      errorEl.textContent = error ? error.message : 'Änderung nicht erlaubt.'
+      errorEl.style.display = ''
+      saveBtn.disabled = false
+      return
+    }
+    user.birthdate = value
+    if (profileCache[user.id]) profileCache[user.id].birthdate = value
+    showToast('Geburtsdatum gespeichert.', 'success')
+    renderUserDetail(user)
+    renderChatList() // Geburtstags-Markierungen neu setzen
+  })
 }
 
 // Nutzer endgültig löschen - läuft über die Edge Function "delete-user" (braucht den geheimen Schlüssel)
@@ -4810,8 +5117,24 @@ async function setPhotoAllowed(user, allowed) {
   renderUserDetail(user)
 }
 
+async function setGroupCreateAllowed(user, allowed) {
+  if (!isAdmin()) return
+  const { error } = allowed
+    ? await supabaseClient.from('group_create_blocked_users').delete().eq('user_id', user.id)
+    : await supabaseClient.from('group_create_blocked_users').insert({ user_id: user.id })
+
+  if (error) {
+    showToast('Fehler: ' + error.message)
+    return
+  }
+  if (allowed) groupCreateBlockedIds.delete(user.id)
+  else groupCreateBlockedIds.add(user.id)
+  renderUserDetail(user)
+}
+
 async function loadVipIds() {
   await loadPhotoBlockedIds()
+  await loadGroupBlockedIds()
   const { data, error } = await supabaseClient.from('vip_users').select('user_id')
   if (error) {
     console.error('VIP-Liste konnte nicht geladen werden:', error)
@@ -6242,7 +6565,9 @@ function onTypingEvent(payload) {
   const info = profileCache[id]
   if (!info || info.role === 'admin') return
   if (currentRoom.type === 'dm' && id !== currentRoom.userId) return
-  if (currentRoom.type === 'group' && currentRoom.groupKey && info.gender !== currentRoom.groupKey) return
+  if (currentRoom.type === 'group' && currentRoom.groupId) {
+    if (!customGroupMemberIds(currentRoom.groupId).includes(id)) return
+  } else if (currentRoom.type === 'group' && currentRoom.groupKey && info.gender !== currentRoom.groupKey) return
 
   if (payload.typing) {
     clearTimeout(typingUsers[id])
@@ -6291,6 +6616,711 @@ function typingText() {
   if (ids.length === 2) return first(ids[0]) + ' und ' + first(ids[1]) + ' tippen …'
   return ids.length + ' tippen …'
 }
+
+// ===== Geburtstage =====
+// Wer heute Geburtstag hat (nach dem Geburtsdatum im Profil), bekommt ein 🎂 neben dem Namen (Chatliste, Chat-Kopf,
+// Gruppenchat, Mitgliederliste, Profil) und einen goldenen Ring um den Avatar. Beim ersten Öffnen am Tag gibt es
+// einmal ein Pop-up mit Konfetti (pro Gerät, gemerkt im LocalStorage).
+const BIRTHDAY_EMOJI = '🎂'
+const BIRTHDAY_SHOWN_KEY = 'birthdayShownOn'
+let birthdayDayRendered = ''
+let birthdayTest = false       // Test-Modus (nur Admin): so tun, als hätten heute du und die erste Person in deiner Liste Geburtstag
+let birthdayTestOtherId = null
+
+function isBirthdayToday(iso) {
+  if (!iso) return false
+  const [, m, d] = iso.split('-').map(Number)
+  const now = new Date()
+  const year = now.getFullYear()
+  const leapYear = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
+  // Wer am 29. Februar geboren ist, feiert in Jahren ohne Schalttag am 28. Februar
+  if (m === 2 && d === 29 && !leapYear) return now.getMonth() === 1 && now.getDate() === 28
+  return now.getMonth() + 1 === m && now.getDate() === d
+}
+
+function hasBirthdayToday(userId) {
+  if (birthdayTest && currentUser && (userId === currentUser.id || userId === birthdayTestOtherId)) return true
+  const info = profileCache[userId]
+  return !!info && info.role !== 'admin' && !info.blocked && info.active !== false && isBirthdayToday(info.birthdate)
+}
+
+function birthdayMark(userId) {
+  return hasBirthdayToday(userId) ? ' ' + BIRTHDAY_EMOJI : ''
+}
+
+function birthdayTurningAge(userId) {
+  const info = profileCache[userId]
+  if (!info || !info.birthdate) return 12 // nur im Test-Modus: Person ohne Geburtsdatum
+  return new Date().getFullYear() - Number(info.birthdate.slice(0, 4))
+}
+
+function birthdayPeopleToday() {
+  const nameOf = id => (profileCache[id] && profileCache[id].name) || ''
+  return Object.keys(profileCache).filter(hasBirthdayToday).sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'de', { sensitivity: 'base' }))
+}
+
+function launchConfetti(container) {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  const colors = ['#ffc83d', '#ff6b6b', '#4ea3e0', '#6bd68a', '#c77dff', '#ff9f43']
+  const pieces = []
+  for (let i = 0; i < 46; i++) {
+    const piece = document.createElement('span')
+    piece.className = 'confetti-piece'
+    piece.style.left = Math.random() * 100 + '%'
+    piece.style.background = colors[i % colors.length]
+    piece.style.animationDuration = 2.2 + Math.random() * 2 + 's'
+    piece.style.animationDelay = Math.random() * 0.8 + 's'
+    piece.style.setProperty('--drift', (Math.random() * 120 - 60) + 'px')
+    container.appendChild(piece)
+    pieces.push(piece)
+  }
+  setTimeout(() => pieces.forEach(p => p.remove()), 5500)
+}
+
+function showBirthdayAnnouncement(force) {
+  if (!currentUser || !currentProfile) return
+  if (document.getElementById('birthdate-modal').style.display === 'flex') return // erst das Pflicht-Fenster
+  if (document.getElementById('birthday-modal').style.display === 'flex') return
+  const today = toISODate(new Date())
+  if (!force && localStorage.getItem(BIRTHDAY_SHOWN_KEY) === today) return
+  const ids = birthdayPeopleToday()
+  if (ids.length === 0) return
+  if (!force) localStorage.setItem(BIRTHDAY_SHOWN_KEY, today) // der Test zählt nicht als "heute schon gezeigt"
+
+  const nameOf = id => (profileCache[id] && profileCache[id].name) || 'Ohne Namen'
+  const mine = ids.includes(currentUser.id)
+  const others = ids.filter(id => id !== currentUser.id)
+
+  const body = document.getElementById('birthday-body')
+  body.innerHTML = ''
+  const add = (tag, className, text) => {
+    const el = document.createElement(tag)
+    el.className = className
+    el.textContent = text
+    body.appendChild(el)
+    return el
+  }
+  const addList = (people) => {
+    const list = document.createElement('ul')
+    list.className = 'birthday-list'
+    people.forEach(id => {
+      const li = document.createElement('li')
+      li.textContent = BIRTHDAY_EMOJI + ' ' + nameOf(id) + ' wird ' + birthdayTurningAge(id)
+      list.appendChild(li)
+    })
+    body.appendChild(list)
+  }
+
+  add('div', 'birthday-emoji', mine ? '🎉' : BIRTHDAY_EMOJI)
+  if (mine) {
+    add('p', 'birthday-title', 'Alles Gute zum Geburtstag, ' + nameOf(currentUser.id).split(/\s+/)[0] + '!')
+    add('p', 'birthday-sub', 'Du wirst heute ' + birthdayTurningAge(currentUser.id) + ' Jahre alt. 🎈')
+    if (others.length > 0) {
+      add('p', 'birthday-sub', 'Außerdem hat heute Geburtstag:')
+      addList(others)
+    }
+  } else if (others.length === 1) {
+    add('p', 'birthday-title', '🎉 Heute hat ' + nameOf(others[0]) + ' Geburtstag!')
+    add('p', 'birthday-sub', 'Wird heute ' + birthdayTurningAge(others[0]) + ' Jahre alt.')
+  } else {
+    add('p', 'birthday-title', '🎉 Heute haben ' + others.length + ' Geburtstag!')
+    addList(others)
+  }
+
+  const modal = document.getElementById('birthday-modal')
+  modal.style.display = 'flex'
+  launchConfetti(modal)
+}
+
+function closeBirthdayModal() {
+  document.getElementById('birthday-modal').style.display = 'none'
+}
+
+// Test-Modus (Admin, Einstellungen > Verwaltung): zeigt das Pop-up sofort und markiert dich sowie die erste Person
+// in deiner Liste mit 🎂, damit man Chatliste, Chat-Kopf, Mitgliederliste und Profil prüfen kann. Nichts wird gespeichert;
+// nochmal antippen beendet den Test (Abmelden beendet ihn ebenfalls).
+function toggleBirthdayTest() {
+  if (!currentUser) return
+  if (birthdayTest) {
+    birthdayTest = false
+    birthdayTestOtherId = null
+    showToast('Geburtstags-Test beendet.', 'success')
+  } else {
+    const nameOf = id => (profileCache[id] && profileCache[id].name) || ''
+    birthdayTestOtherId = Object.keys(profileCache)
+      .filter(id => id !== currentUser.id && profileCache[id].role !== 'admin' && !profileCache[id].blocked && profileCache[id].active !== false)
+      .sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'de', { sensitivity: 'base' }))[0] || null
+    birthdayTest = true
+    showBirthdayAnnouncement(true)
+    showToast('Test an: du und ' + (nameOf(birthdayTestOtherId) || 'niemand weiter') + ' haben "heute" Geburtstag.', 'success')
+  }
+  updateBirthdayTestLabel()
+  renderChatList()
+}
+
+function updateBirthdayTestLabel() {
+  document.getElementById('birthday-test-label').textContent = birthdayTest ? 'Geburtstags-Test beenden' : 'Geburtstags-Popup testen'
+}
+
+// Wird die App nach Mitternacht aus dem Hintergrund geholt: Markierungen neu setzen und Pop-up zeigen
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !currentUser || !currentProfile) return
+  if (birthdayDayRendered && birthdayDayRendered !== toISODate(new Date())) renderChatList()
+  showBirthdayAnnouncement()
+})
+
+// ===== Eigene Gruppen =====
+// Jedes Mitglied darf Gruppen erstellen (der Admin kann es einzelnen Personen abschalten, siehe "Darf Gruppen erstellen").
+// Eine Gruppe steht in chat_groups, ihre Mitglieder in chat_group_members. Nachrichten liegen wie bei Jungs/Mädels in
+// "messages", mit group_key = "grp_<Gruppen-ID>". Erstellen, Ändern und Löschen laufen über Datenbankfunktionen
+// (create_chat_group, update_chat_group, delete_chat_group, leave_chat_group), die die Rechte auf dem Server prüfen.
+let chatGroups = {}              // Gruppen-ID -> { id, name, created_by, created_at, members: [Nutzer-IDs] }
+let chatGroupsAvailable = false  // false, solange die Tabellen in der Datenbank noch fehlen
+let chatGroupsDirty = true
+let chatGroupsLoadedAt = 0
+let groupCreateBlockedIds = new Set()
+let groupChannel = null
+let groupEditorId = null         // null = neue Gruppe, sonst die Gruppe, die gerade bearbeitet wird
+let groupPicked = new Set()
+let groupSaving = false
+
+function customGroupKey(id) {
+  return 'grp_' + id
+}
+
+async function loadChatGroups(force) {
+  if (!currentUser) return
+  if (!force && !chatGroupsDirty && Date.now() - chatGroupsLoadedAt < 60000) return
+
+  const [groupsRes, membersRes] = await Promise.all([
+    supabaseClient.from('chat_groups').select('id, name, created_by, created_at'),
+    supabaseClient.from('chat_group_members').select('group_id, user_id')
+  ])
+  if (!currentUser) return
+  if (groupsRes.error || membersRes.error) {
+    // Tabellen gibt es noch nicht (SQL noch nicht ausgeführt): dann einfach keine eigenen Gruppen anzeigen
+    chatGroups = {}
+    chatGroupsAvailable = false
+    chatGroupsDirty = false // nicht bei jedem Neuzeichnen erneut fragen, sondern erst in einer Minute wieder
+    chatGroupsLoadedAt = Date.now()
+    return
+  }
+
+  const next = {}
+  ;(groupsRes.data || []).forEach(g => { next[g.id] = { ...g, members: [] } })
+  ;(membersRes.data || []).forEach(m => { if (next[m.group_id]) next[m.group_id].members.push(m.user_id) })
+  chatGroups = next
+  chatGroupsAvailable = true
+  chatGroupsDirty = false
+  chatGroupsLoadedAt = Date.now()
+  listenForGroupUpdates()
+
+  // Die gerade offene Gruppe gibt es nicht mehr (gelöscht oder man wurde entfernt)
+  if (currentRoom && currentRoom.groupId && !chatGroups[currentRoom.groupId]) {
+    showToast('Diese Gruppe gibt es nicht mehr oder du bist nicht mehr dabei.')
+    if (desktopQuery.matches) openGroupChat() // am PC rechts stattdessen die Hauptgruppe zeigen
+    else showList()
+  }
+}
+
+function listenForGroupUpdates() {
+  if (groupChannel || !chatGroupsAvailable) return
+  const changed = () => {
+    chatGroupsDirty = true
+    scheduleListRefresh()
+  }
+  groupChannel = supabaseClient
+    .channel('group-updates')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_group_members' }, changed)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_groups' }, changed)
+    .subscribe()
+}
+
+function stopGroupListening() {
+  if (groupChannel) {
+    supabaseClient.removeChannel(groupChannel)
+    groupChannel = null
+  }
+}
+
+// Beim Abmelden alles Gruppen-Zeug vergessen
+function resetGroupState() {
+  stopGroupListening()
+  chatGroups = {}
+  chatGroupsAvailable = false
+  chatGroupsDirty = true
+  groupCreateBlockedIds = new Set()
+  mutedChatKeys = new Set()
+  mutedChatsLoadedAt = 0
+  closeChatMenu()
+  closeGroupModal()
+}
+
+async function loadGroupBlockedIds() {
+  const { data, error } = await supabaseClient.from('group_create_blocked_users').select('user_id')
+  if (error) return // Tabelle fehlt noch
+  groupCreateBlockedIds = new Set((data || []).map(r => r.user_id))
+}
+
+function canCreateGroups() {
+  return chatGroupsAvailable && !!currentUser && (isAdmin() || !groupCreateBlockedIds.has(currentUser.id))
+}
+
+// Der Eintrag "Neue Gruppe erstellen" sitzt in den Einstellungen und ist nur sichtbar, wenn man Gruppen erstellen darf
+function updateNewGroupButton() {
+  const section = document.getElementById('group-settings-group')
+  if (section) section.style.display = canCreateGroups() ? '' : 'none'
+}
+
+// Aus den Einstellungen: erst zurück zur Chatliste, dann das gewohnte Pop-up
+function openGroupCreatorFromSettings() {
+  if (!canCreateGroups()) return
+  openGroupCreator()
+}
+
+function customGroupMemberIds(groupId) {
+  const group = chatGroups[groupId]
+  if (!group) return []
+  return group.members.filter(id => {
+    const info = profileCache[id]
+    return info && info.role !== 'admin' && !info.blocked && info.active !== false
+  })
+}
+
+function openCustomGroup(groupId) {
+  const group = chatGroups[groupId]
+  if (!group) return
+  switchRoom({ type: 'group', groupKey: customGroupKey(groupId), groupId: groupId })
+  openConversation(group.name)
+}
+
+// Gruppen für die Chatliste: neueste Aktivität zuerst (die frisch erstellte steht also ganz oben, unter der Hauptgruppe)
+function customGroupsForList() {
+  const activity = g => {
+    const preview = groupPreviews[customGroupKey(g.id)]
+    return new Date(preview ? preview.created_at : g.created_at).getTime()
+  }
+  return Object.values(chatGroups).sort((a, b) => activity(b) - activity(a))
+}
+
+function appendCustomGroupItems(list) {
+  customGroupsForList().forEach(group => {
+    const key = customGroupKey(group.id)
+    const item = document.createElement('li')
+    item.className = 'chat-list-item pinned' + (isChatMuted(key) ? ' muted' : '')
+    item.innerHTML = chatListItemHTML(
+      '<div class="chat-list-avatar group-avatar">👥</div>',
+      group.name,
+      groupPreviews[key],
+      unreadFor(key),
+      isChatMuted(key)
+    )
+    item.dataset.chatKey = key
+    item.dataset.tabs = 'alle gruppen'
+    item.dataset.name = group.name
+    item.addEventListener('click', () => openCustomGroup(group.id))
+    list.appendChild(item)
+  })
+}
+
+// ----- Pop-up: Gruppe erstellen / bearbeiten -----
+function groupPickCandidates() {
+  return Object.entries(profileCache)
+    .filter(([id, info]) => id !== currentUser.id && info.role !== 'admin' && !info.blocked && info.active !== false)
+    .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || '', 'de', { sensitivity: 'base' }))
+    .map(([id]) => id)
+}
+
+function openGroupCreator() {
+  if (!canCreateGroups()) return
+  groupEditorId = null
+  groupPicked = new Set()
+  showGroupModal('Neue Gruppe', '')
+}
+
+function openGroupEditor() {
+  const group = currentRoom && currentRoom.groupId ? chatGroups[currentRoom.groupId] : null
+  if (!group) return
+  groupEditorId = group.id
+  groupPicked = new Set(group.members.filter(id => profileCache[id] && profileCache[id].role !== 'admin' && id !== currentUser.id))
+  showGroupModal('Gruppe bearbeiten', group.name)
+}
+
+function showGroupModal(title, name) {
+  document.getElementById('group-modal-title').textContent = title
+  document.getElementById('group-name-input').value = name
+  document.getElementById('group-save-btn').textContent = groupEditorId ? 'Speichern' : 'Erstellen'
+  document.getElementById('group-delete-btn').style.display = groupEditorId ? '' : 'none'
+  renderGroupPicker()
+  document.getElementById('group-modal').style.display = 'flex'
+  if (desktopQuery.matches) document.getElementById('group-name-input').focus()
+}
+
+function closeGroupModal() {
+  document.getElementById('group-modal').style.display = 'none'
+}
+
+function renderGroupPicker() {
+  const list = document.getElementById('group-members-pick')
+  list.innerHTML = ''
+  // Aufgeteilt in Jungs und Mädchen (wer noch kein Geschlecht hat, steht unten ohne Überschrift)
+  const candidates = groupPickCandidates()
+  const sections = [
+    ['Jungs', candidates.filter(id => profileCache[id].gender === 'junge')],
+    ['Mädchen', candidates.filter(id => profileCache[id].gender === 'maedchen')],
+    ['', candidates.filter(id => profileCache[id].gender !== 'junge' && profileCache[id].gender !== 'maedchen')]
+  ]
+  sections.forEach(([title, ids]) => {
+    if (ids.length === 0) return
+    if (title) {
+      const head = document.createElement('li')
+      head.className = 'group-pick-title'
+      head.textContent = title
+      list.appendChild(head)
+    }
+    ids.forEach(id => addGroupPickItem(list, id))
+  })
+  updateGroupModalButton()
+}
+
+function addGroupPickItem(list, id) {
+  const info = profileCache[id]
+  const li = document.createElement('li')
+  li.className = 'group-pick-item' + (groupPicked.has(id) ? ' on' : '')
+  li.setAttribute('role', 'checkbox')
+  li.setAttribute('aria-checked', groupPicked.has(id) ? 'true' : 'false')
+
+  const check = document.createElement('span')
+  check.className = 'group-pick-check'
+  check.textContent = '✓'
+
+  const avatar = document.createElement('div')
+  avatar.className = 'reaction-avatar'
+  avatar.style.background = avatarColor(id)
+  avatar.textContent = initialsOf(info.name || '')
+
+  const name = document.createElement('span')
+  name.className = 'reactions-item-name'
+  name.textContent = info.name || 'Ohne Namen'
+
+  li.append(check, avatar, name)
+  li.addEventListener('click', () => {
+    if (groupPicked.has(id)) groupPicked.delete(id)
+    else groupPicked.add(id)
+    li.classList.toggle('on', groupPicked.has(id))
+    li.setAttribute('aria-checked', groupPicked.has(id) ? 'true' : 'false')
+    updateGroupModalButton()
+  })
+  list.appendChild(li)
+}
+
+// "Erstellen" ist ausgegraut, bis ein Name und mindestens eine Person gewählt sind
+function updateGroupModalButton() {
+  const name = document.getElementById('group-name-input').value.trim()
+  document.getElementById('group-members-count').textContent = groupPicked.size + ' ausgewählt'
+  document.getElementById('group-save-btn').disabled = groupSaving || name.length < 1 || groupPicked.size < 1
+}
+
+async function saveGroup() {
+  if (groupSaving) return
+  const name = document.getElementById('group-name-input').value.trim()
+  if (!name || groupPicked.size < 1) return
+  groupSaving = true
+  updateGroupModalButton()
+
+  const memberIds = [...groupPicked]
+  const { data, error } = groupEditorId
+    ? await supabaseClient.rpc('update_chat_group', { p_group_id: groupEditorId, p_name: name, p_member_ids: memberIds })
+    : await supabaseClient.rpc('create_chat_group', { p_name: name, p_member_ids: memberIds })
+  groupSaving = false
+
+  if (error) {
+    updateGroupModalButton()
+    showToast(error.message || 'Das hat nicht geklappt.')
+    return
+  }
+
+  const editedId = groupEditorId
+  closeGroupModal()
+  await loadChatGroups(true)
+  if (editedId && currentRoom && currentRoom.groupId === editedId && chatGroups[editedId]) {
+    document.getElementById('conversation-title').textContent = chatGroups[editedId].name
+    if (isMembersModalOpen()) renderMembersList()
+  }
+  if (!editedId && !isListVisible() && document.getElementById('settings-bereich').style.display !== 'none') showList()
+  else renderChatList()
+  showToast(editedId ? 'Gruppe gespeichert.' : 'Gruppe erstellt.', 'success')
+}
+
+// Fragt nach und löscht die Gruppe auf dem Server (die Rechte prüft die Datenbankfunktion). true = gelöscht
+async function confirmAndDeleteGroup(group) {
+  const ok = await askConfirm('Die Gruppe "' + group.name + '" mit allen Nachrichten löschen? Das kann nicht rückgängig gemacht werden.', { okText: 'Gruppe löschen', danger: true })
+  if (!ok) return false
+
+  const { error } = await supabaseClient.rpc('delete_chat_group', { p_group_id: group.id })
+  if (error) {
+    showToast(error.message || 'Löschen hat nicht geklappt.')
+    return false
+  }
+  return true
+}
+
+async function deleteGroup() {
+  const group = chatGroups[groupEditorId]
+  if (!group) return
+  if (!(await confirmAndDeleteGroup(group))) return
+  closeGroupModal()
+  closeMembersModal()
+  await loadChatGroups(true) // zeigt bei offener Gruppe den Hinweis und geht zurück zur Liste
+  renderChatList()
+  showToast('Gruppe gelöscht.', 'success')
+}
+
+// Aus dem Kontextmenü der Chatliste
+async function deleteGroupFromList(groupId) {
+  const group = chatGroups[groupId]
+  if (!group) return
+  if (!(await confirmAndDeleteGroup(group))) return
+  await loadChatGroups(true)
+  renderChatList()
+  showToast('Gruppe gelöscht.', 'success')
+}
+
+async function leaveCurrentGroup() {
+  const group = currentRoom && currentRoom.groupId ? chatGroups[currentRoom.groupId] : null
+  if (!group) return
+  const ok = await askConfirm('Die Gruppe "' + group.name + '" verlassen? Du siehst die Nachrichten dann nicht mehr.', { okText: 'Verlassen', danger: true })
+  if (!ok) return
+
+  const { error } = await supabaseClient.rpc('leave_chat_group', { p_group_id: group.id })
+  if (error) {
+    showToast(error.message || 'Das hat nicht geklappt.')
+    return
+  }
+  closeMembersModal()
+  await loadChatGroups(true)
+  renderChatList()
+  showToast('Du hast die Gruppe verlassen.', 'success')
+}
+
+// Knöpfe in der Mitgliederliste: bearbeiten (Ersteller und Admin) bzw. verlassen (alle anderen Mitglieder)
+function updateMembersModalButtons() {
+  const group = currentRoom && currentRoom.groupId ? chatGroups[currentRoom.groupId] : null
+  const mine = !!group && !!currentUser && group.created_by === currentUser.id
+  document.getElementById('members-edit-btn').style.display = group && (isAdmin() || mine) ? '' : 'none'
+  document.getElementById('members-leave-btn').style.display = group && !isAdmin() && !mine ? '' : 'none'
+}
+
+// ===== Stummschalten und Kontextmenü der Chatliste =====
+// Stummgeschaltet werden können die Hauptgruppe, Jungs, Mädels und eigene Gruppen (Tabelle muted_chats, jede Person sieht
+// und ändert nur ihre eigenen Zeilen). Der Server (send-push) schickt dann keine Push-Meldung mehr; hier im Browser
+// bleiben Ton und Zahl auf dem App-Symbol aus. Der Admin bekommt ohnehin nie Ton oder Push und hat den Eintrag nicht.
+let mutedChatKeys = new Set()
+let mutedChatsLoadedAt = 0
+
+function isMutableChatKey(key) {
+  return key === 'main' || key === 'junge' || key === 'maedchen' || (typeof key === 'string' && key.startsWith('grp_'))
+}
+
+function isChatMuted(key) {
+  return !!key && mutedChatKeys.has(key)
+}
+
+async function loadMutedChats(force) {
+  if (!currentUser || isAdmin()) {
+    mutedChatKeys = new Set()
+    return
+  }
+  if (!force && Date.now() - mutedChatsLoadedAt < 30000) return
+  const { data, error } = await supabaseClient.from('muted_chats').select('chat_key').eq('user_id', currentUser.id)
+  if (!currentUser) return
+  mutedChatsLoadedAt = Date.now()
+  if (error) return // Tabelle gibt es noch nicht (SQL noch nicht ausgeführt): dann ist nichts stummgeschaltet
+  mutedChatKeys = new Set((data || []).map(r => r.chat_key))
+}
+
+async function toggleChatMute(key) {
+  if (!currentUser || isAdmin() || !isMutableChatKey(key)) return
+  const muteNow = !mutedChatKeys.has(key)
+  const { error } = muteNow
+    ? await supabaseClient.from('muted_chats').insert({ user_id: currentUser.id, chat_key: key })
+    : await supabaseClient.from('muted_chats').delete().eq('user_id', currentUser.id).eq('chat_key', key)
+
+  if (error && !(muteNow && error.code === '23505')) { // 23505: war schon stummgeschaltet (anderes Gerät) - dann passt es ja
+    showToast('Das hat nicht geklappt: ' + error.message)
+    return
+  }
+  if (muteNow) mutedChatKeys.add(key)
+  else mutedChatKeys.delete(key)
+  mutedChatsLoadedAt = Date.now()
+  renderChatList()
+  showToast(muteNow ? 'Gruppe stummgeschaltet.' : 'Stummschaltung aufgehoben.', 'success')
+}
+
+// Welche Einträge das Menü für diesen Chat hat (leer = gar kein Menü)
+function chatMenuItemsFor(key) {
+  const items = []
+  if (!currentUser || !isMutableChatKey(key)) return items
+  if (!isAdmin()) {
+    items.push({
+      label: isChatMuted(key) ? 'Stummschaltung aufheben' : 'Gruppe stummschalten',
+      run: () => toggleChatMute(key)
+    })
+  }
+  if (key.startsWith('grp_')) {
+    const groupId = key.slice(4)
+    const group = chatGroups[groupId]
+    if (group && (isAdmin() || group.created_by === currentUser.id)) {
+      items.push({ label: 'Gruppe löschen', danger: true, run: () => deleteGroupFromList(groupId) })
+    }
+  }
+  return items
+}
+
+let chatMenuEl = null
+let chatMenuLi = null
+let chatMenuOpenedAt = 0
+let suppressChatClickUntil = 0
+
+function closeChatMenu() {
+  if (chatMenuEl) chatMenuEl.remove()
+  if (chatMenuLi) chatMenuLi.classList.remove('menu-open')
+  chatMenuEl = null
+  chatMenuLi = null
+}
+
+function openChatMenu(li, x, y) {
+  const key = li.dataset.chatKey
+  const items = chatMenuItemsFor(key)
+  if (items.length === 0) return false
+  closeChatMenu()
+
+  const menu = document.createElement('div')
+  menu.className = 'msg-menu chat-menu'
+  menu.setAttribute('role', 'menu')
+  items.forEach(item => {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'msg-menu-item' + (item.danger ? ' danger' : '')
+    btn.setAttribute('role', 'menuitem')
+    btn.textContent = item.label
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation()
+      if (Date.now() - chatMenuOpenedAt < 350) return // der Finger vom langen Drücken soll nichts auslösen
+      closeChatMenu()
+      item.run()
+    })
+    menu.appendChild(btn)
+  })
+  document.body.appendChild(menu)
+
+  const margin = 8
+  const size = menu.getBoundingClientRect()
+  const left = Math.min(Math.max(x, margin), window.innerWidth - size.width - margin)
+  const top = Math.min(Math.max(y, margin), window.innerHeight - size.height - margin)
+  menu.style.left = left + 'px'
+  menu.style.top = top + 'px'
+
+  li.classList.add('menu-open')
+  chatMenuEl = menu
+  chatMenuLi = li
+  chatMenuOpenedAt = Date.now()
+  return true
+}
+
+function initChatListMenu() {
+  const list = document.getElementById('chat-list')
+  const LONG_PRESS_MS = 450
+  let timer = null
+  let pressLi = null
+  let startX = 0
+  let startY = 0
+  let fired = false
+
+  const cancelPress = () => {
+    clearTimeout(timer)
+    timer = null
+    pressLi = null
+  }
+  const itemOf = (event) => event.target.closest ? event.target.closest('.chat-list-item') : null
+
+  // Rechtsklick am PC (und die Menütaste der Tastatur)
+  list.addEventListener('contextmenu', (event) => {
+    const li = itemOf(event)
+    if (!li) return
+    if (chatMenuEl && chatMenuLi === li && Date.now() - chatMenuOpenedAt < 1000) { // Handy: kam gerade schon per langem Drücken
+      event.preventDefault()
+      return
+    }
+    cancelPress()
+    const x = event.clientX || li.getBoundingClientRect().left + 24
+    const y = event.clientY || li.getBoundingClientRect().top + 24
+    if (openChatMenu(li, x, y)) event.preventDefault() // ohne Menü-Einträge bleibt das normale Browser-Menü
+  })
+
+  // Langes Gedrückthalten am Handy
+  list.addEventListener('pointerdown', (event) => {
+    if (event.pointerType === 'mouse') return
+    const li = itemOf(event)
+    if (!li || chatMenuItemsFor(li.dataset.chatKey).length === 0) return
+    cancelPress()
+    pressLi = li
+    startX = event.clientX
+    startY = event.clientY
+    fired = false
+    timer = setTimeout(() => {
+      timer = null
+      if (!pressLi) return
+      if (openChatMenu(pressLi, startX, startY + 12)) {
+        fired = true
+        if (navigator.vibrate) navigator.vibrate(15)
+      }
+    }, LONG_PRESS_MS)
+  })
+  list.addEventListener('pointermove', (event) => {
+    if (timer && Math.hypot(event.clientX - startX, event.clientY - startY) > 10) cancelPress()
+  })
+  ;['pointerup', 'pointercancel'].forEach(name => list.addEventListener(name, () => {
+    cancelPress()
+    if (fired) {
+      fired = false
+      suppressChatClickUntil = Date.now() + 500 // das Loslassen nach dem langen Drücken soll den Chat nicht öffnen
+    }
+  }))
+
+  // Klick abfangen, bevor ihn der Listeneintrag bekommt
+  list.addEventListener('click', (event) => {
+    if (Date.now() < suppressChatClickUntil) {
+      event.stopPropagation()
+      event.preventDefault()
+    }
+  }, true)
+
+  // Menü schließen: Klick/Tipp daneben (der Klick selbst wird verschluckt), Scrollen, Escape, Fenster verlassen
+  document.addEventListener('pointerdown', (event) => {
+    if (!chatMenuEl || chatMenuEl.contains(event.target)) return
+    closeChatMenu()
+    suppressChatClickUntil = Date.now() + 400
+  }, true)
+  document.addEventListener('scroll', () => { if (chatMenuEl && Date.now() - chatMenuOpenedAt > 400) closeChatMenu() }, true)
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeChatMenu() })
+  window.addEventListener('resize', closeChatMenu)
+  window.addEventListener('blur', closeChatMenu)
+}
+
+initChatListMenu()
+
+// ===== Scroll-Balken: nur beim Scrollen sichtbar =====
+// Scroll-Ereignisse bubblen nicht, deshalb hört ein Listener in der Capture-Phase mit. Das scrollende Element bekommt
+// kurz das Attribut data-scrolling (das CSS blendet den Balken dann ein) und verliert es nach einer Pause wieder.
+const scrollingTimers = new WeakMap()
+document.addEventListener('scroll', (event) => {
+  const target = event.target === document ? document.documentElement : event.target
+  if (!target || target.nodeType !== 1) return
+  target.setAttribute('data-scrolling', '')
+  clearTimeout(scrollingTimers.get(target))
+  scrollingTimers.set(target, setTimeout(() => target.removeAttribute('data-scrolling'), 900))
+}, { capture: true, passive: true })
 
 // ===== Geburtsdatum, Profil und Mitgliederliste =====
 // Das Geburtsdatum steht in profiles.birthdate und ist für alle Mitglieder sichtbar. Eingetragen wird es genau einmal:
@@ -6418,6 +7448,7 @@ async function saveBirthdate() {
   if (currentUser && profileCache[currentUser.id]) profileCache[currentUser.id].birthdate = value
   closeBirthdateModal()
   showToast('Geburtsdatum gespeichert.', 'success')
+  showBirthdayAnnouncement()
 }
 
 // ----- Profil einer Person (Einzelchat-Name oder Eintrag in der Mitgliederliste) -----
@@ -6489,7 +7520,11 @@ function openProfile(userId) {
   const avatar = document.getElementById('profile-avatar')
   avatar.style.background = avatarColor(userId)
   avatar.textContent = initialsOf(name)
-  document.getElementById('profile-name').textContent = name
+  avatar.classList.toggle('birthday', hasBirthdayToday(userId))
+  document.getElementById('profile-name').textContent = name + birthdayMark(userId)
+  const pill = document.getElementById('profile-birthday')
+  pill.style.display = hasBirthdayToday(userId) ? '' : 'none'
+  if (hasBirthdayToday(userId)) pill.textContent = '🎉 Hat heute Geburtstag und wird ' + birthdayTurningAge(userId)
 
   fillProfileInfo(document.getElementById('profile-rows'), userId, myRequest)
   document.getElementById('profile-modal').style.display = 'flex'
@@ -6521,6 +7556,7 @@ function closeProfileModal() {
 // Hauptgruppe: alle Mitglieder. Jungs / Mädels: nur die jeweilige Gruppe. Admin, Gesperrte und noch nicht
 // angenommene Einladungen stehen nicht darin (genau wie bei den Empfängern einer Nachricht).
 function memberIdsOfCurrentGroup() {
+  if (currentRoom && currentRoom.groupId) return customGroupMemberIds(currentRoom.groupId)
   const key = (currentRoom && currentRoom.groupKey) || 'main'
   return Object.entries(profileCache)
     .filter(([, info]) => info.role !== 'admin' && !info.blocked && info.active !== false && (key === 'main' || info.gender === key))
@@ -6528,6 +7564,7 @@ function memberIdsOfCurrentGroup() {
 }
 
 function renderMembersList() {
+  updateMembersModalButtons()
   const nameOf = id => (profileCache[id] && profileCache[id].name) || 'Ohne Namen'
   const ids = memberIdsOfCurrentGroup().sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'de', { sensitivity: 'base' }))
 
@@ -6549,7 +7586,7 @@ function renderMembersList() {
     li.className = 'reactions-item members-item'
 
     const avatar = document.createElement('div')
-    avatar.className = 'reaction-avatar'
+    avatar.className = 'reaction-avatar' + (hasBirthdayToday(id) ? ' birthday' : '')
     avatar.style.background = avatarColor(id)
     avatar.textContent = initialsOf(name)
 
@@ -6557,7 +7594,7 @@ function renderMembersList() {
     text.className = 'reactions-item-text'
     const nameEl = document.createElement('span')
     nameEl.className = 'reactions-item-name'
-    nameEl.textContent = name
+    nameEl.textContent = name + birthdayMark(id)
     text.appendChild(nameEl)
     if (currentUser && id === currentUser.id) {
       const hint = document.createElement('span')
@@ -6580,6 +7617,7 @@ function openMembersModal() {
   if (!currentRoom || currentRoom.type !== 'group') return
   renderMembersList()
   document.getElementById('members-modal').style.display = 'flex'
+  if (currentRoom.groupId) loadChatGroups(true).then(() => { if (isMembersModalOpen()) renderMembersList() })
   // Wer erst nach dem Start dieser App dazugekommen ist, soll auch schon drinstehen
   loadProfileCache().then(() => {
     if (isMembersModalOpen() && currentRoom && currentRoom.type === 'group') renderMembersList()
@@ -6591,6 +7629,7 @@ function closeMembersModal() {
 }
 
 function closeProfileModals() {
+  closeBirthdayModal()
   closeBirthdateModal()
   closeProfileModal()
   closeMembersModal()
@@ -6660,6 +7699,12 @@ function openChatByKey(key) {
     openGenderGroup('maedchen', 'Mädels')
     return true
   }
+  if (key.startsWith('grp_')) {
+    const groupId = key.slice(4)
+    if (!chatGroups[groupId]) return false
+    openCustomGroup(groupId)
+    return true
+  }
   if (key.startsWith('dm:')) {
     const id = key.slice(3)
     const info = profileCache[id]
@@ -6683,6 +7728,7 @@ function newestUnreadChatKey() {
   }
   ;['main', 'junge', 'maedchen'].forEach(key => consider(key, groupPreviews[key]))
   Object.keys(dmPreviews).forEach(id => consider('dm:' + id, dmPreviews[id]))
+  Object.keys(chatGroups).forEach(id => consider(customGroupKey(id), groupPreviews[customGroupKey(id)]))
   return best
 }
 
@@ -6903,6 +7949,7 @@ function resubscribeRealtime() {
   if (listChannel) {
     stopListListening()
     listenForListUpdates()
+    listenForGroupUpdates()
   }
   if (presenceChannel) {
     stopPresence()
@@ -7102,7 +8149,7 @@ updateSoundVolumeUI()
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (!event.data) return
-    if (event.data.type === 'push-sound') playMessageSound()
+    if (event.data.type === 'push-sound' && !isChatMuted(event.data.tag)) playMessageSound()
     if (event.data.type === 'push-open') handlePushOpen(event.data.chatKey)
   })
 }

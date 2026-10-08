@@ -19,6 +19,9 @@ webpush.setVapidDetails(
   Deno.env.get("VAPID_PRIVATE_KEY")!
 )
 
+// Eigene Gruppen haben als group_key "grp_<Gruppen-ID>"
+const CUSTOM_GROUP = /^grp_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
 Deno.serve(async (req) => {
   try {
     const payload = await req.json()
@@ -39,11 +42,31 @@ Deno.serve(async (req) => {
       return new Response("Admin-Nachricht - keine Push-Meldung", { status: 200 })
     }
 
-    // Zielgruppe bestimmen: einzelne Person (Direktnachricht) oder eine ganze Gruppe
+    // Zielgruppe bestimmen: einzelne Person (Direktnachricht), eigene Gruppe oder eine der festen Gruppen
     let recipientIds: string[] = []
+    let groupName = ""
 
     if (record.recipient_id) {
       recipientIds = [record.recipient_id]
+    } else if (typeof record.group_key === "string" && record.group_key.startsWith("grp_")) {
+      // Eigene Gruppe: nur deren Mitglieder (ohne den Absender)
+      if (!CUSTOM_GROUP.test(record.group_key)) {
+        return new Response("ungültiger Gruppenschlüssel", { status: 200 })
+      }
+      const groupId = record.group_key.slice(4)
+      const { data: members } = await supabaseAdmin
+        .from("chat_group_members")
+        .select("user_id")
+        .eq("group_id", groupId)
+        .neq("user_id", record.sender_id)
+      recipientIds = (members || []).map((m) => m.user_id)
+
+      const { data: group } = await supabaseAdmin
+        .from("chat_groups")
+        .select("name")
+        .eq("id", groupId)
+        .single()
+      groupName = group?.name || ""
     } else {
       let query = supabaseAdmin
         .from("profiles")
@@ -54,6 +77,24 @@ Deno.serve(async (req) => {
       if (record.group_key) query = query.eq("gender", record.group_key) // "junge" oder "maedchen"
       const { data: members } = await query
       recipientIds = (members || []).map((m) => m.id)
+    }
+
+    // Chat-Schlüssel: "main", "junge", "maedchen", "grp_<id>" oder (Einzelchat) "dm:<Absender>"
+    const chatKey = record.group_key || (record.recipient_id ? "dm:" + record.sender_id : "main")
+
+    // Stummgeschaltete Gruppen: wer den Chat in muted_chats hat, bekommt keine Push-Meldung (Einzelchats sind nicht betroffen)
+    if (!record.recipient_id && recipientIds.length > 0) {
+      const { data: muted, error: mutedError } = await supabaseAdmin
+        .from("muted_chats")
+        .select("user_id")
+        .eq("chat_key", chatKey)
+        .in("user_id", recipientIds)
+      if (mutedError) {
+        console.error("muted_chats konnte nicht gelesen werden:", mutedError) // dann lieber zu viel als zu wenig melden
+      } else {
+        const mutedIds = new Set((muted || []).map((m) => m.user_id))
+        recipientIds = recipientIds.filter((id) => !mutedIds.has(id))
+      }
     }
 
     if (recipientIds.length === 0) {
@@ -69,12 +110,14 @@ Deno.serve(async (req) => {
       return new Response("niemand hat Push aktiviert", { status: 200 })
     }
 
-    const chatKey = record.group_key || (record.recipient_id ? "dm:" + record.sender_id : "main")
-    const bodyText = (record.text || "").slice(0, 120)
+    const senderName = sender.display_name || "Neue Nachricht"
+    // Fotos und Audios haben oft keinen Text: dann steht stattdessen ein kurzer Hinweis in der Meldung
+    const bodyText = (record.text || (record.photo_id ? "📷 Foto" : record.audio_id ? "🎤 Audio" : "")).slice(0, 120)
     const notificationPayload = JSON.stringify({
-      title: sender.display_name || "Neue Nachricht",
+      title: groupName ? senderName + " · " + groupName : senderName,
       body: bodyText,
       tag: chatKey,
+      chatKey, // damit ein Klick auf die Meldung genau diesen Chat öffnet
       url: "./"
     })
 

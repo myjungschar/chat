@@ -2562,30 +2562,35 @@ body.light-theme .online-list li::before {
   line-height: 1.4;
 }
 
-/* ===== Scroll-Balken: dünn, in der Farbe der Seite statt im Standard-Grau des Browsers ===== */
+/* ===== Scroll-Balken: im Ruhezustand unsichtbar, beim Scrollen kurz ein schlanker, runder Balken =====
+   Das Skript setzt beim Scrollen kurz das Attribut data-scrolling am scrollenden Element. */
 :root {
   --scrollbar-thumb: rgba(78, 163, 224, 0.45);
-  --scrollbar-thumb-hover: rgba(78, 163, 224, 0.75);
 }
 
 body.light-theme,
 html:has(body.light-theme) {
   --scrollbar-thumb: rgba(0, 136, 204, 0.4);
-  --scrollbar-thumb-hover: rgba(0, 136, 204, 0.7);
 }
 
-/* Firefox kennt nur die Standard-Eigenschaften: dünn und ohne Pfeile */
+/* Firefox kennt nur die Standard-Eigenschaften: dünn, ohne Pfeile, Farbe blendet weich ein und aus */
 @supports (-moz-appearance: none) {
   * {
     scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color 0.4s ease;
+  }
+
+  [data-scrolling] {
     scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 }
 
 /* Chrome, Edge, Safari: eigener schlanker, runder Balken ganz ohne Pfeile oben und unten */
+/* 12 px Platz, davon ist der Balken 4 px breit und sitzt in der Mitte: links und rechts je 4 px Abstand */
 *::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 
 *::-webkit-scrollbar-track {
@@ -2593,15 +2598,15 @@ html:has(body.light-theme) {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border: 2px solid transparent;
+  background-color: transparent;
+  border: 4px solid transparent;
   border-radius: 999px;
   background-clip: content-box;
+  transition: background-color 0.4s ease;
 }
 
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
-  background-clip: content-box;
+[data-scrolling]::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
 }
 
 *::-webkit-scrollbar-button {
@@ -3639,4 +3644,325 @@ input[type="date"]::-webkit-date-and-time-value {
 
 #list-bereich .chat-search-wrap {
   margin-top: 10px;
+}
+
+/* ===== Geburtstag ===== */
+
+/* goldener Ring um den Avatar */
+.chat-list-avatar.birthday,
+.reaction-avatar.birthday,
+.profile-avatar.birthday {
+  box-shadow: 0 0 0 2px #ffc83d, 0 0 10px rgba(255, 200, 61, 0.55);
+}
+
+.modal-box .profile-birthday {
+  margin: -8px 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffc83d;
+}
+
+#birthday-modal {
+  overflow: hidden;
+}
+
+.birthday-box {
+  text-align: center;
+  position: relative;
+}
+
+.birthday-emoji {
+  margin-bottom: 8px;
+  font-size: 56px;
+  line-height: 1;
+  animation: birthday-bounce 1.3s ease-in-out infinite;
+}
+
+.modal-box .birthday-title {
+  margin-bottom: 6px;
+  font-size: 18px;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.modal-box .birthday-sub {
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.birthday-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 6px 12px;
+  text-align: left;
+  background: var(--bg-input);
+  border-radius: 12px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.birthday-list li {
+  padding: 6px 0;
+  font-size: 14px;
+}
+
+.confetti-piece {
+  position: absolute;
+  top: -16px;
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  pointer-events: none;
+  animation: confetti-fall linear forwards;
+}
+
+@keyframes confetti-fall {
+  to {
+    transform: translate(var(--drift, 0px), 110vh) rotate(600deg);
+    opacity: 0.9;
+  }
+}
+
+@keyframes birthday-bounce {
+  0%, 100% { transform: translateY(0) rotate(-4deg); }
+  50% { transform: translateY(-8px) rotate(4deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .birthday-emoji { animation: none; }
+  .confetti-piece { display: none; }
+}
+
+/* ===== Eigene Gruppen ===== */
+.group-box {
+  max-width: 360px;
+}
+
+.group-pick-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.group-pick-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  max-height: 34vh;
+  overflow-y: auto;
+  background: var(--bg-input);
+  border-radius: 12px;
+}
+
+.group-pick-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.group-pick-item:hover {
+  background: rgba(127, 127, 127, 0.12);
+}
+
+.group-pick-check {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--text-secondary);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1;
+  color: transparent;
+}
+
+.group-pick-item.on .group-pick-check {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
+}
+
+#group-modal .modal-actions,
+#members-modal .modal-actions {
+  flex-wrap: wrap;
+}
+
+#group-delete-btn,
+#members-edit-btn,
+#members-leave-btn {
+  flex: 1 1 100%;
+}
+
+#group-save-btn:disabled,
+#group-save-btn:disabled:hover {
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+/* ===== Audio-Nachrichten ===== */
+.msg.has-audio {
+  min-width: 230px;
+}
+
+.msg.has-audio .msg-text {
+  min-height: 0;
+}
+
+.msg-audio {
+  width: 100%;
+  margin: 2px 0 4px;
+}
+
+.msg-audio-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  background: rgba(127, 127, 127, 0.18);
+  border: none;
+  border-radius: 12px;
+  color: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.msg-audio-btn:hover:not(:disabled) {
+  background: rgba(127, 127, 127, 0.3);
+}
+
+.msg-audio-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.msg-audio-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 12px;
+  padding-left: 2px;
+}
+
+.msg-audio audio {
+  display: block;
+  width: 100%;
+  height: 38px;
+}
+
+/* ===== Stummgeschaltete Gruppen und Kontextmenü der Chatliste ===== */
+.chat-list-item {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.chat-list-item.menu-open {
+  background: var(--bg-input);
+}
+
+.chat-list-item.muted .chat-list-name {
+  color: var(--text-secondary);
+}
+
+.chat-list-item.muted .unread-badge {
+  background: var(--text-secondary);
+}
+
+.mute-icon {
+  margin-left: 6px;
+  vertical-align: -1px;
+  color: var(--text-secondary);
+}
+
+.chat-menu {
+  min-width: 190px;
+}
+
+/* ===== Admin: Profilfarbe und Geburtsdatum ===== */
+.user-color-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-color-row .user-color-btn {
+  flex: 1;
+}
+
+.user-color-btn {
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+}
+
+.user-color-btn:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+
+.birth-select-row {
+  display: flex;
+  gap: 8px;
+}
+
+.birth-select-row select {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+#user-birth-save-btn {
+  margin-top: 10px;
+}
+
+#user-birth-error {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--danger);
+}
+
+select {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 15px;
+  color-scheme: dark;
+}
+
+body.light-theme select {
+  color-scheme: light;
+}
+
+select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.group-pick-title {
+  padding: 10px 10px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: default;
 }

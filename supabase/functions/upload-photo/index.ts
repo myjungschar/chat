@@ -1,5 +1,6 @@
-// Edge Function "upload-photo": nimmt ein (schon im Browser verkleinertes) Foto + Vorschaubild entgegen
-// und legt beides privat in Google Drive ab. Antwort: { photo_id, thumb_id } (Drive-Datei-IDs).
+// Edge Function "upload-photo": nimmt entweder ein (schon im Browser verkleinertes) Foto + Vorschaubild
+// ODER eine Audio-Datei (.mp3, .m4a, .wav) entgegen und legt alles privat in Google Drive ab.
+// Antwort bei Fotos: { photo_id, thumb_id }, bei Audio: { audio_id, audio_mime } (Drive-Datei-IDs).
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const cors = {
@@ -12,6 +13,7 @@ const json = (body: unknown, status = 200) =>
 
 const MAX_PHOTO = 10 * 1024 * 1024
 const MAX_THUMB = 400 * 1024
+const MAX_AUDIO = 10 * 1024 * 1024
 
 let tokenCache: { token: string; exp: number } | null = null
 
@@ -35,13 +37,13 @@ async function driveToken(): Promise<string> {
   return data.access_token
 }
 
-async function uploadToDrive(bytes: Uint8Array, name: string): Promise<string> {
+async function uploadToDrive(bytes: Uint8Array, name: string, mimeType = 'image/jpeg'): Promise<string> {
   const token = await driveToken()
   const boundary = 'chat' + crypto.randomUUID()
   const enc = new TextEncoder()
-  const meta = JSON.stringify({ name, parents: [Deno.env.get('DRIVE_FOLDER_ID')], mimeType: 'image/jpeg' })
+  const meta = JSON.stringify({ name, parents: [Deno.env.get('DRIVE_FOLDER_ID')], mimeType })
   const head = enc.encode(
-    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: image/jpeg\r\n\r\n`
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`
   )
   const tail = enc.encode(`\r\n--${boundary}--`)
   const body = new Uint8Array(head.length + bytes.length + tail.length)
@@ -60,6 +62,22 @@ async function uploadToDrive(bytes: Uint8Array, name: string): Promise<string> {
 }
 
 const isJpeg = (b: Uint8Array) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff
+
+const ascii = (b: Uint8Array, from: number, to: number) => String.fromCharCode(...b.slice(from, to))
+
+// Erkennt am Dateiinhalt (nicht am Namen), ob es wirklich MP3, M4A oder WAV ist. null = nicht erlaubt.
+function detectAudio(b: Uint8Array): { ext: string; mime: string } | null {
+  if (b.length < 16) return null
+  // MP3: entweder ID3-Kennung vorn oder direkt ein MPEG-Frame (0xFF 0xE?/0xF?)
+  if (ascii(b, 0, 3) === 'ID3' || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0)) return { ext: 'mp3', mime: 'audio/mpeg' }
+  // M4A: "ftyp" ab Byte 4, danach die Markenkennung
+  if (ascii(b, 4, 8) === 'ftyp' && ['M4A ', 'M4B ', 'mp42', 'isom', 'iso2', 'f4a '].includes(ascii(b, 8, 12))) {
+    return { ext: 'm4a', mime: 'audio/mp4' }
+  }
+  // WAV: "RIFF" .... "WAVE"
+  if (ascii(b, 0, 4) === 'RIFF' && ascii(b, 8, 12) === 'WAVE') return { ext: 'wav', mime: 'audio/wav' }
+  return null
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
@@ -81,15 +99,29 @@ Deno.serve(async (req) => {
     if (!profile || profile.is_blocked) return json({ error: 'Zugang gesperrt' }, 403)
     if (profile.role === 'admin') return json({ error: 'Der Admin schreibt nicht' }, 403)
 
-    // Hat der Admin dieser Person das Foto-Senden weggenommen? (Tabelle photo_blocked_users)
+    // Hat der Admin dieser Person das Foto-Senden weggenommen? (Tabelle photo_blocked_users) Gilt auch für Audio.
     const { data: photoBlock } = await admin
       .from('photo_blocked_users')
       .select('user_id')
       .eq('user_id', userData.user.id)
       .maybeSingle()
-    if (photoBlock) return json({ error: 'Du darfst im Moment keine Fotos senden' }, 403)
+    if (photoBlock) return json({ error: 'Du darfst im Moment keine Fotos und Audios senden' }, 403)
 
     const form = await req.formData()
+
+    // ----- Audio -----
+    const audio = form.get('audio')
+    if (audio instanceof File) {
+      if (audio.size > MAX_AUDIO) return json({ error: 'Die Datei ist zu groß (höchstens 10 MB)' }, 413)
+      const audioBytes = new Uint8Array(await audio.arrayBuffer())
+      const kind = detectAudio(audioBytes)
+      if (!kind) return json({ error: 'Nur MP3-, M4A- und WAV-Dateien erlaubt' }, 400)
+
+      const audioId = await uploadToDrive(audioBytes, `${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${kind.ext}`, kind.mime)
+      return json({ audio_id: audioId, audio_mime: kind.mime })
+    }
+
+    // ----- Foto -----
     const photo = form.get('photo')
     const thumb = form.get('thumb')
     if (!(photo instanceof File) || !(thumb instanceof File)) return json({ error: 'Foto oder Vorschau fehlt' }, 400)

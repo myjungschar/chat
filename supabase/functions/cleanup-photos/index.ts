@@ -1,10 +1,10 @@
-// Edge Function "cleanup-photos": räumt Fotos in Google Drive auf.
-//  1) Datenbank-Webhook (DELETE auf messages / direct_messages): löscht das Foto der gelöschten Nachricht sofort.
+// Edge Function "cleanup-photos": räumt Fotos und Audio-Dateien in Google Drive auf.
+//  1) Datenbank-Webhook (DELETE auf messages / direct_messages): löscht die Dateien der gelöschten Nachricht sofort.
 //     Das gilt auch, wenn die Nachricht aus dem 300er-Ringpuffer fliegt.
 //  2) Täglicher Aufruf (pg_cron): löscht alle Dateien im Drive-Ordner, die zu keiner Nachricht mehr gehören
 //     (z. B. weil ein Upload klappte, das Senden aber nicht). Sicherheitsnetz für Fall 1.
 //     Außerdem: ist der Ordner größer als das Limit (Secret PHOTO_LIMIT_BYTES, Standard 5 GB), werden die ältesten
-//     Fotos gelöscht, bis er wieder unter 90 % des Limits liegt. Die Nachrichten bleiben, zeigen dann "Foto nicht mehr vorhanden".
+//     Dateien gelöscht, bis er wieder unter 90 % des Limits liegt. Die Nachrichten bleiben, zeigen dann "nicht mehr vorhanden".
 //  Gelöscht wird endgültig (Drive-Papierkorb wird übersprungen bzw. am Ende geleert).
 // Aufruf nur mit dem Header x-cron-secret (Secret CRON_SECRET). Deploy mit --no-verify-jwt.
 import { createClient } from 'npm:@supabase/supabase-js@2'
@@ -81,7 +81,7 @@ Deno.serve(async (req) => {
 
     // Fall 1: Webhook einer gelöschten Nachricht
     if (payload && payload.type === 'DELETE' && payload.old_record) {
-      const ids = [payload.old_record.photo_id, payload.old_record.photo_thumb_id].filter(Boolean)
+      const ids = [payload.old_record.photo_id, payload.old_record.photo_thumb_id, payload.old_record.audio_id].filter(Boolean)
       let deleted = 0
       for (const id of ids) if (await deleteFile(id)) deleted++
       return json({ mode: 'webhook', deleted })
@@ -95,13 +95,14 @@ Deno.serve(async (req) => {
       while (true) {
         const { data, error } = await admin
           .from(table)
-          .select('photo_id, photo_thumb_id')
-          .not('photo_id', 'is', null)
+          .select('photo_id, photo_thumb_id, audio_id')
+          .or('photo_id.not.is.null,audio_id.not.is.null')
           .range(from, from + 999)
         if (error) return json({ error: 'Datenbank-Abfrage fehlgeschlagen: ' + error.message }, 500) // lieber nichts löschen
         for (const row of data ?? []) {
           if (row.photo_id) referenced.add(row.photo_id)
           if (row.photo_thumb_id) referenced.add(row.photo_thumb_id)
+          if (row.audio_id) referenced.add(row.audio_id)
         }
         if (!data || data.length < 1000) break
         from += 1000
@@ -114,7 +115,7 @@ Deno.serve(async (req) => {
 
     let deleted = 0
     for (const f of orphans.slice(0, MAX_DELETES_PER_RUN)) if (await deleteFile(f.id)) deleted++
-    // Speicher-Limit: die ältesten Fotos löschen, bis der Ordner wieder unter 90 % des Limits liegt
+    // Speicher-Limit: die ältesten Dateien löschen, bis der Ordner wieder unter 90 % des Limits liegt
     const orphanIds = new Set(orphans.map(f => f.id))
     const kept = files.filter(f => !orphanIds.has(f.id)).sort((a, b) => a.createdTime.localeCompare(b.createdTime))
     let total = kept.reduce((sum, f) => sum + Number(f.size ?? 0), 0)
