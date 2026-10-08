@@ -304,8 +304,6 @@ function showLogin() {
   peerMarks = {}
   pollsMap = {}
   profileEmailCache = {}
-  birthdayTest = false
-  birthdayTestOtherId = null
   resetGroupState()
   closeProfileModals()
 
@@ -2154,7 +2152,7 @@ async function sendPhotoMessage(main, thumb, captionText) {
 // Ablauf: Plus -> "Audio" -> Datei aussuchen (.mp3, .m4a, .wav, höchstens 10 MB) -> bestätigen. Die Datei geht über
 // dieselbe Edge Function wie die Fotos ("upload-photo") privat nach Google Drive; in der Nachricht stehen nur die
 // Drive-ID (audio_id) und der Typ (audio_mime). Abgespielt wird über "get-photo", das vorher prüft, ob man den Chat sehen darf.
-const AUDIO_MAX_BYTES = 10 * 1024 * 1024
+const AUDIO_MAX_BYTES = 50 * 1024 * 1024
 const AUDIO_EXTENSIONS = ['mp3', 'm4a', 'wav']
 let audioInputEl = null
 let audioSending = false
@@ -2243,10 +2241,20 @@ async function sendAudioMessage(file) {
   }
 }
 
-// Titel aus dem Dateinamen: ohne Endung, ohne Unterstriche, höchstens 80 Zeichen
+// Titel = der echte Dateiname, unverändert (nur auf 120 Zeichen gekürzt, die Endung bleibt am Ende erhalten)
 function audioTitleFromFile(fileName) {
-  const base = String(fileName || '').replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim()
-  return (base || 'Audio').slice(0, 80)
+  const name = String(fileName || '').trim()
+  if (name.length <= 120) return name || 'Audio'
+  const dot = name.lastIndexOf('.')
+  const ext = dot > 0 && name.length - dot <= 6 ? name.slice(dot) : ''
+  return name.slice(0, 120 - ext.length) + ext
+}
+
+// Titel für die Anzeige. Ältere Audios haben keinen gespeicherten Namen: dann steht das Datum dabei statt nur "Audio".
+function audioDisplayTitle(msg) {
+  if (msg.audio_name) return msg.audio_name
+  const d = msg.created_at ? new Date(msg.created_at) : null
+  return d && !isNaN(d) ? 'Audio vom ' + d.toLocaleDateString('de-DE') : 'Audio'
 }
 
 // Länge der Datei in ganzen Sekunden (oder null, wenn der Browser sie nicht lesen kann)
@@ -2292,7 +2300,8 @@ async function downloadAudio(msg) {
     const blob = await fetchPhotoBlob(msg.audio_id)
     const mime = msg.audio_mime || 'audio/mpeg'
     const file = blob.type && blob.type.startsWith('audio/') ? blob : new Blob([blob], { type: mime })
-    const name = String(msg.audio_name || 'Audio').replace(/[\\/:*?"<>|]+/g, '_') + '.' + audioExtension(msg)
+    let name = audioDisplayTitle(msg).replace(/[\\/:*?"<>|]+/g, '_')
+    if (!/\.(mp3|m4a|wav)$/i.test(name)) name += '.' + audioExtension(msg)
     const url = URL.createObjectURL(file)
     const link = document.createElement('a')
     link.href = url
@@ -2342,7 +2351,7 @@ function buildAudioElement(msg) {
 
   const title = document.createElement('div')
   title.className = 'msg-audio-title'
-  title.textContent = msg.audio_name || 'Audio'
+  title.textContent = audioDisplayTitle(msg)
 
   const metaEl = document.createElement('div')
   metaEl.className = 'msg-audio-meta'
@@ -2380,7 +2389,11 @@ function buildAudioElement(msg) {
     const duration = durationNow()
     const durationText = duration ? formatAudioTime(duration) : '–:–'
     if (!started) {
-      metaEl.textContent = durationText + (Number(msg.audio_size) > 0 ? ', ' + formatBytes(Number(msg.audio_size)) : '')
+      // Nur anzeigen, was bekannt ist (bei älteren Audios fehlen Länge und Größe in der Datenbank)
+      const parts = []
+      if (duration) parts.push(durationText)
+      if (Number(msg.audio_size) > 0) parts.push(formatBytes(Number(msg.audio_size)))
+      metaEl.textContent = parts.join(', ')
       return
     }
     elapsedEl.textContent = formatAudioTime(audio ? audio.currentTime : 0)
@@ -3950,7 +3963,7 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
     if (options.canDownloadAudio) {
       const downloadItem = document.createElement('button')
       downloadItem.className = 'msg-menu-item'
-      downloadItem.textContent = 'Als ' + audioExtension(msg).toUpperCase() + ' herunterladen'
+      downloadItem.textContent = 'Herunterladen'
       downloadItem.addEventListener('click', () => {
         closeMessageMenu()
         downloadAudio(msg)
@@ -3961,7 +3974,7 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
     if (options.canDownloadAudio) {
       const speedItem = document.createElement('button')
       speedItem.className = 'msg-menu-item'
-      speedItem.textContent = 'Geschwindigkeit (' + audioSpeedLabel(audioSpeed) + ')'
+      speedItem.textContent = 'Geschwindigkeit'
       speedItem.addEventListener('click', showSpeedOptions)
       menu.appendChild(speedItem)
     }
@@ -5117,6 +5130,14 @@ function renderUserDetail(u) {
   const box = document.getElementById('user-detail-content')
   box.innerHTML = `
     <div class="input-group">
+      <label for="user-name-input">Name (zugleich der Benutzername zum Anmelden)</label>
+      <input type="text" id="user-name-input" maxlength="40" autocomplete="off" value="${escapeHTML(u.display_name || '')}">
+      <label for="user-email-input" class="user-edit-label">E-Mail-Adresse</label>
+      <input type="email" id="user-email-input" autocomplete="off" placeholder="Wird geladen …" disabled>
+      <p class="field-error" id="user-identity-error" style="display: none;"></p>
+      <button type="button" class="user-color-btn" id="user-identity-save-btn" disabled>Speichern</button>
+    </div>
+    <div class="input-group">
       <label>Geschlecht</label>
       <div class="gender-choice">
         <button type="button" class="gender-btn junge${u.gender === 'junge' ? ' active' : ''}" data-value="junge">Junge</button>
@@ -5182,10 +5203,119 @@ function renderUserDetail(u) {
   document.getElementById('user-rights-switch').addEventListener('click', () => setVip(u, !vipIds.has(u.id)))
   document.getElementById('user-photo-switch').addEventListener('click', () => setPhotoAllowed(u, photoBlockedIds.has(u.id)))
   document.getElementById('user-group-switch').addEventListener('click', () => setGroupCreateAllowed(u, groupCreateBlockedIds.has(u.id)))
+  setupAdminIdentity(u)
   document.getElementById('user-color-btn').addEventListener('click', () => rerollUserColor(u))
   setupAdminBirthdate(u)
   document.getElementById('user-block-btn').addEventListener('click', () => setBlocked(u, !u.is_blocked))
   document.getElementById('user-delete-btn').addEventListener('click', () => deleteUser(u))
+}
+
+// Admin: Name (= Benutzername zum Anmelden) und E-Mail-Adresse einer Person ändern.
+// Der Name steht in "profiles" (Admin-Policy), die E-Mail in auth.users und lässt sich nur über die Edge Function
+// "admin-update-user" ändern, die serverseitig prüft, ob der Aufrufer Admin ist.
+function setupAdminIdentity(user) {
+  const nameInput = document.getElementById('user-name-input')
+  const emailInput = document.getElementById('user-email-input')
+  const saveBtn = document.getElementById('user-identity-save-btn')
+  const errorEl = document.getElementById('user-identity-error')
+  let savedName = user.display_name || ''
+  let savedEmail = profileEmailCache[user.id] || ''
+  nameInput.value = savedName
+  let emailLoaded = !!savedEmail
+  let saving = false
+
+  const showError = (text) => {
+    errorEl.textContent = text || ''
+    errorEl.style.display = text ? '' : 'none'
+  }
+  const nameProblem = (name) => {
+    if (name.length < 2) return 'Der Name ist zu kurz.'
+    const taken = allUsers.some(o => o.id !== user.id && (o.display_name || '').trim().toLowerCase() === name.toLowerCase())
+    return taken ? 'Diesen Namen gibt es schon.' : ''
+  }
+  const emailProblem = (email) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? '' : 'Bitte eine gültige E-Mail-Adresse eingeben.')
+  const refresh = () => {
+    const name = nameInput.value.trim()
+    const email = emailInput.value.trim()
+    const nameChanged = name !== savedName
+    const emailChanged = emailLoaded && email !== savedEmail
+    const problem = (nameChanged ? nameProblem(name) : '') || (emailChanged ? emailProblem(email) : '')
+    showError(problem)
+    saveBtn.disabled = saving || !(nameChanged || emailChanged) || !!problem
+  }
+  nameInput.addEventListener('input', refresh)
+  emailInput.addEventListener('input', refresh)
+
+  // Aktuelle E-Mail-Adresse holen (kommt nur für den Admin über die Edge Function "get-user-email")
+  const showEmail = () => {
+    emailInput.value = savedEmail
+    emailInput.disabled = false
+    emailInput.placeholder = ''
+    refresh()
+  }
+  if (emailLoaded) showEmail()
+  else {
+    supabaseClient.functions.invoke('get-user-email', { body: { userId: user.id } }).then(({ data, error }) => {
+      if (!document.body.contains(emailInput)) return
+      if (error || !data || !data.email) {
+        emailInput.placeholder = 'Konnte nicht geladen werden'
+        return
+      }
+      savedEmail = data.email
+      emailLoaded = true
+      profileEmailCache[user.id] = savedEmail
+      showEmail()
+    })
+  }
+
+  saveBtn.addEventListener('click', async () => {
+    if (!isAdmin() || saving) return
+    const name = nameInput.value.trim()
+    const email = emailInput.value.trim()
+    const nameChanged = name !== savedName
+    const emailChanged = emailLoaded && email !== savedEmail
+    if (!nameChanged && !emailChanged) return
+    if ((nameChanged && nameProblem(name)) || (emailChanged && emailProblem(email))) return
+
+    if (emailChanged && !(await askConfirm('Die E-Mail-Adresse von ' + (savedName || 'dieser Person') + ' wirklich auf ' + email + ' ändern? Einladungs- und Passwort-Mails gehen dann dorthin.', { okText: 'Ändern' }))) return
+
+    saving = true
+    saveBtn.disabled = true
+    showError('')
+    try {
+      if (nameChanged) {
+        const { data, error } = await supabaseClient.from('profiles').update({ display_name: name }).eq('id', user.id).select('id')
+        if (error) throw new Error(error.code === '23505' ? 'Diesen Namen gibt es schon.' : error.message)
+        if (!data || data.length === 0) throw new Error('Änderung nicht erlaubt.')
+        user.display_name = name
+        savedName = name
+        if (profileCache[user.id]) profileCache[user.id].name = name
+        document.getElementById('user-detail-title').textContent = name
+        const preview = document.getElementById('user-color-preview')
+        if (preview) preview.textContent = initialsOf(name)
+        renderUserList()
+        renderChatList()
+      }
+      if (emailChanged) {
+        const { data: session } = await supabaseClient.auth.getSession()
+        if (!session || !session.session) throw new Error('Deine Sitzung ist abgelaufen. Bitte melde dich neu an.')
+        const { data, error } = await supabaseClient.functions.invoke('admin-update-user', {
+          body: { userId: user.id, email },
+          headers: { Authorization: 'Bearer ' + session.session.access_token }
+        })
+        if (error) throw new Error(await readFunctionError(error))
+        if (data && data.error) throw new Error(data.error)
+        savedEmail = email
+        profileEmailCache[user.id] = email
+      }
+      showToast('Gespeichert.', 'success')
+    } catch (e) {
+      showError(e.message || 'Speichern hat nicht geklappt.')
+    } finally {
+      saving = false
+      refresh()
+    }
+  })
 }
 
 // Admin: der Person zufällig eine neue Farbe aus der Palette geben (gespeichert in profiles.color)
@@ -6852,8 +6982,6 @@ function typingText() {
 const BIRTHDAY_EMOJI = '🎂'
 const BIRTHDAY_SHOWN_KEY = 'birthdayShownOn'
 let birthdayDayRendered = ''
-let birthdayTest = false       // Test-Modus (nur Admin): so tun, als hätten heute du und die erste Person in deiner Liste Geburtstag
-let birthdayTestOtherId = null
 
 function isBirthdayToday(iso) {
   if (!iso) return false
@@ -6867,7 +6995,6 @@ function isBirthdayToday(iso) {
 }
 
 function hasBirthdayToday(userId) {
-  if (birthdayTest && currentUser && (userId === currentUser.id || userId === birthdayTestOtherId)) return true
   const info = profileCache[userId]
   return !!info && info.role !== 'admin' && !info.blocked && info.active !== false && isBirthdayToday(info.birthdate)
 }
@@ -6878,7 +7005,7 @@ function birthdayMark(userId) {
 
 function birthdayTurningAge(userId) {
   const info = profileCache[userId]
-  if (!info || !info.birthdate) return 12 // nur im Test-Modus: Person ohne Geburtsdatum
+  if (!info || !info.birthdate) return 0
   return new Date().getFullYear() - Number(info.birthdate.slice(0, 4))
 }
 
@@ -6905,15 +7032,15 @@ function launchConfetti(container) {
   setTimeout(() => pieces.forEach(p => p.remove()), 5500)
 }
 
-function showBirthdayAnnouncement(force) {
+function showBirthdayAnnouncement() {
   if (!currentUser || !currentProfile) return
   if (document.getElementById('birthdate-modal').style.display === 'flex') return // erst das Pflicht-Fenster
   if (document.getElementById('birthday-modal').style.display === 'flex') return
   const today = toISODate(new Date())
-  if (!force && localStorage.getItem(BIRTHDAY_SHOWN_KEY) === today) return
+  if (localStorage.getItem(BIRTHDAY_SHOWN_KEY) === today) return
   const ids = birthdayPeopleToday()
   if (ids.length === 0) return
-  if (!force) localStorage.setItem(BIRTHDAY_SHOWN_KEY, today) // der Test zählt nicht als "heute schon gezeigt"
+  localStorage.setItem(BIRTHDAY_SHOWN_KEY, today)
 
   const nameOf = id => (profileCache[id] && profileCache[id].name) || 'Ohne Namen'
   const mine = ids.includes(currentUser.id)
@@ -6962,32 +7089,6 @@ function showBirthdayAnnouncement(force) {
 
 function closeBirthdayModal() {
   document.getElementById('birthday-modal').style.display = 'none'
-}
-
-// Test-Modus (Admin, Einstellungen > Verwaltung): zeigt das Pop-up sofort und markiert dich sowie die erste Person
-// in deiner Liste mit 🎂, damit man Chatliste, Chat-Kopf, Mitgliederliste und Profil prüfen kann. Nichts wird gespeichert;
-// nochmal antippen beendet den Test (Abmelden beendet ihn ebenfalls).
-function toggleBirthdayTest() {
-  if (!currentUser) return
-  if (birthdayTest) {
-    birthdayTest = false
-    birthdayTestOtherId = null
-    showToast('Geburtstags-Test beendet.', 'success')
-  } else {
-    const nameOf = id => (profileCache[id] && profileCache[id].name) || ''
-    birthdayTestOtherId = Object.keys(profileCache)
-      .filter(id => id !== currentUser.id && profileCache[id].role !== 'admin' && !profileCache[id].blocked && profileCache[id].active !== false)
-      .sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'de', { sensitivity: 'base' }))[0] || null
-    birthdayTest = true
-    showBirthdayAnnouncement(true)
-    showToast('Test an: du und ' + (nameOf(birthdayTestOtherId) || 'niemand weiter') + ' haben "heute" Geburtstag.', 'success')
-  }
-  updateBirthdayTestLabel()
-  renderChatList()
-}
-
-function updateBirthdayTestLabel() {
-  document.getElementById('birthday-test-label').textContent = birthdayTest ? 'Geburtstags-Test beenden' : 'Geburtstags-Popup testen'
 }
 
 // Wird die App nach Mitternacht aus dem Hintergrund geholt: Markierungen neu setzen und Pop-up zeigen

@@ -1,3 +1,5 @@
+// @ts-nocheck
+// (Die Zeile oben schaltet nur die roten Wellenlinien im Editor aus - der Editor kennt Deno nicht. Das Deployen ist davon unabhängig.)
 // Supabase Edge Function "send-push"
 // Wird über einen Database Webhook aufgerufen, sobald eine neue Zeile in "messages" oder
 // "direct_messages" eingefügt wird, und verschickt dafür echte Web-Push-Benachrichtigungen -
