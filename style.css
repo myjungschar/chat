@@ -3811,7 +3811,7 @@ input[type="date"]::-webkit-date-and-time-value {
   cursor: not-allowed;
 }
 
-/* ===== Audio-Nachrichten: schlanker Player (Play/Pause, Titel, Leiste, Zeit, Geschwindigkeit) ===== */
+/* ===== Audio-Nachrichten: schlanker Player ===== */
 .msg.has-audio {
   min-width: 250px;
   --audio-fill: var(--accent);
@@ -3819,7 +3819,7 @@ input[type="date"]::-webkit-date-and-time-value {
   --audio-btn: var(--accent);
 }
 
-/* In den eigenen (blauen) Blasen ist der Knopf ein dunkleres Blau, damit er sich vom Hintergrund abhebt */
+/* In den eigenen (blauen) Blasen ist nur der Knopf ein dunkleres Blau, damit er sich abhebt; die Blase bleibt einfarbig */
 .msg.own.has-audio {
   --audio-fill: #ffffff;
   --audio-rest: rgba(255, 255, 255, 0.35);
@@ -3839,7 +3839,9 @@ body.light-theme .msg.own.has-audio {
   align-items: center;
   gap: 12px;
   width: 100%;
+  min-height: 46px;
   margin: 2px 0 4px;
+  background: none;
 }
 
 .msg-audio-play {
@@ -3880,21 +3882,14 @@ body.light-theme .msg.own.has-audio {
 .msg-audio-body {
   flex: 1;
   min-width: 0;
+  min-height: 46px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-}
-
-.msg-audio-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 20px;
+  justify-content: center;
+  gap: 1px;
 }
 
 .msg-audio-title {
-  flex: 1;
-  min-width: 0;
   font-weight: 700;
   font-size: 14px;
   line-height: 1.25;
@@ -3903,12 +3898,30 @@ body.light-theme .msg.own.has-audio {
   white-space: nowrap;
 }
 
+/* Vor dem Start: "Länge, Größe" unter dem Titel */
+.msg-audio-meta {
+  font-size: 12px;
+  line-height: 1.3;
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+.msg-audio.started .msg-audio-meta {
+  display: none;
+}
+
+/* Ab dem Start: Leiste und Zeiten statt der Zeile "Länge, Größe" */
+.msg-audio:not(.started) .msg-audio-seek,
+.msg-audio:not(.started) .msg-audio-times {
+  display: none;
+}
+
 .msg-audio-seek {
   -webkit-appearance: none;
   appearance: none;
   display: block;
   width: 100%;
-  height: 16px;
+  height: 12px;
   margin: 0;
   padding: 0;
   background: transparent;
@@ -3943,9 +3956,9 @@ body.light-theme .msg.own.has-audio {
 .msg-audio-seek::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 12px;
-  height: 12px;
-  margin-top: -4.5px;
+  width: 11px;
+  height: 11px;
+  margin-top: -4px;
   border: none;
   border-radius: 50%;
   background: var(--audio-fill);
@@ -3964,58 +3977,21 @@ body.light-theme .msg.own.has-audio {
 }
 
 .msg-audio-seek::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
   border: none;
   border-radius: 50%;
   background: var(--audio-fill);
 }
 
-.msg-audio-seek:disabled::-webkit-slider-thumb {
-  opacity: 0;
-}
-
-.msg-audio-seek:disabled::-moz-range-thumb {
-  opacity: 0;
-}
-
 .msg-audio-times {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  justify-content: space-between;
+  font-size: 11px;
+  line-height: 1.3;
   font-variant-numeric: tabular-nums;
   opacity: 0.85;
-}
-
-.msg-audio-times {
-  justify-content: space-between;
-}
-
-.msg-audio-speed {
-  flex-shrink: 0;
-  width: auto;
-  min-width: 38px;
-  padding: 1px 7px;
-  border: none;
-  border-radius: 10px;
-  background: rgba(127, 127, 127, 0.25);
-  color: inherit;
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-  outline: none;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.msg-audio-speed[hidden] {
-  display: none;
-}
-
-.msg-audio-speed:hover,
-.msg-audio-speed:focus-visible {
-  background: rgba(127, 127, 127, 0.4);
-  outline: none;
 }
 
 /* ===== Stummgeschaltete Gruppen und Kontextmenü der Chatliste ===== */

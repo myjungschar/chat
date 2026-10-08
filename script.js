@@ -2308,7 +2308,7 @@ async function downloadAudio(msg) {
 }
 
 const AUDIO_SPEEDS = [1, 1.25, 1.5, 2]
-let audioSpeed = 1          // die gewählte Geschwindigkeit gilt für alle weiteren Audios
+let audioSpeed = 1          // die gewählte Geschwindigkeit gilt für alle Audios (Auswahl über das Menü der Nachricht)
 let activeAudioPause = null // es läuft immer nur ein Audio gleichzeitig
 
 const AUDIO_PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>'
@@ -2318,8 +2318,15 @@ function audioSpeedLabel(speed) {
   return String(speed).replace('.', ',') + 'x'
 }
 
-// Der Player in der Nachrichten-Blase: Play/Pause links, darüber der Titel, eine schlanke Leiste zum Spulen,
-// darunter verstrichene Zeit und Gesamtlänge und die Geschwindigkeit. Die Datei wird erst beim ersten Abspielen geholt.
+// Geschwindigkeit setzen: wirkt sofort auf das laufende Audio und auf alle weiteren
+function setAudioSpeed(speed) {
+  audioSpeed = speed
+  if (activeAudioPause && activeAudioPause.audio) activeAudioPause.audio.playbackRate = speed
+}
+
+// Der Player in der Nachrichten-Blase. Vor dem Start: Knopf, Titel und darunter "Länge, Größe" (wie bei Telegram).
+// Ab dem Start: der Titel rückt nach oben, darunter die schlanke Leiste und darunter links die verstrichene Zeit,
+// rechts die Gesamtlänge. Die Höhe bleibt gleich. Die Datei wird erst beim ersten Abspielen geholt.
 function buildAudioElement(msg) {
   const wrap = document.createElement('div')
   wrap.className = 'msg-audio'
@@ -2333,17 +2340,12 @@ function buildAudioElement(msg) {
   const body = document.createElement('div')
   body.className = 'msg-audio-body'
 
-  const head = document.createElement('div')
-  head.className = 'msg-audio-head'
   const title = document.createElement('div')
   title.className = 'msg-audio-title'
   title.textContent = msg.audio_name || 'Audio'
-  const speedBtn = document.createElement('button')
-  speedBtn.type = 'button'
-  speedBtn.className = 'msg-audio-speed'
-  speedBtn.hidden = true // erscheint erst, wenn das Audio läuft
-  speedBtn.setAttribute('aria-label', 'Wiedergabegeschwindigkeit')
-  head.append(title, speedBtn)
+
+  const metaEl = document.createElement('div')
+  metaEl.className = 'msg-audio-meta'
 
   const seek = document.createElement('input')
   seek.type = 'range'
@@ -2359,29 +2361,26 @@ function buildAudioElement(msg) {
   times.className = 'msg-audio-times'
   const elapsedEl = document.createElement('span')
   elapsedEl.className = 'msg-audio-elapsed'
-  elapsedEl.textContent = '0:00'
   const totalEl = document.createElement('span')
   totalEl.className = 'msg-audio-total'
   times.append(elapsedEl, totalEl)
 
-  body.append(head, seek, times)
+  body.append(title, metaEl, seek, times)
   wrap.append(playBtn, body)
 
   const knownDuration = Number(msg.audio_duration) > 0 ? Number(msg.audio_duration) : null
   let audio = null
-  let started = false // ab dem ersten Abspielen: links verstrichene Zeit, rechts Gesamtlänge
+  let started = false // ab dem ersten Abspielen gilt die Ansicht mit Leiste und Zeiten
   let loading = false
   let seeking = false
   let frame = 0
 
   const durationNow = () => (audio && isFinite(audio.duration) && audio.duration > 0 ? audio.duration : knownDuration)
-  // Vor dem Start: links die Gesamtlänge, rechts die Dateigröße. Danach: links die verstrichene Zeit, rechts die Gesamtlänge.
   const showTimes = () => {
     const duration = durationNow()
     const durationText = duration ? formatAudioTime(duration) : '–:–'
     if (!started) {
-      elapsedEl.textContent = durationText
-      totalEl.textContent = Number(msg.audio_size) > 0 ? formatBytes(Number(msg.audio_size)) : ''
+      metaEl.textContent = durationText + (Number(msg.audio_size) > 0 ? ', ' + formatBytes(Number(msg.audio_size)) : '')
       return
     }
     elapsedEl.textContent = formatAudioTime(audio ? audio.currentTime : 0)
@@ -2395,7 +2394,6 @@ function buildAudioElement(msg) {
     seek.style.setProperty('--p', (Number(seek.value) / 10) + '%')
     showTimes()
   }
-  const showSpeed = () => { speedBtn.textContent = audioSpeedLabel(audioSpeed) }
   const showPlaying = (playing) => {
     playBtn.innerHTML = playing ? AUDIO_PAUSE_ICON : AUDIO_PLAY_ICON
     playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Abspielen')
@@ -2414,7 +2412,8 @@ function buildAudioElement(msg) {
     audio.addEventListener('loadedmetadata', () => { audio.playbackRate = audioSpeed; showProgress() })
     audio.addEventListener('play', () => {
       started = true
-      speedBtn.hidden = false
+      wrap.classList.add('started')
+      audio.playbackRate = audioSpeed
       if (activeAudioPause && activeAudioPause.audio !== audio) activeAudioPause.pause()
       activeAudioPause = { audio, pause: () => audio.pause() }
       showPlaying(true)
@@ -2436,21 +2435,23 @@ function buildAudioElement(msg) {
     }
     loading = true
     playBtn.disabled = true
-    elapsedEl.textContent = 'Lädt …'
+    metaEl.textContent = 'Lädt …'
+    let gone = false
     try {
       attach(await fetchPhotoBlob(msg.audio_id))
       showProgress()
       audio.play().catch(() => { /* manche Handys verlangen noch einen Tipp auf Play */ })
     } catch (e) {
       if (e && e.status === 404) {
-        elapsedEl.textContent = 'Nicht mehr vorhanden'
-        return
+        gone = true
+        metaEl.textContent = 'Nicht mehr vorhanden'
+      } else {
+        console.error('Audio laden:', e)
+        metaEl.textContent = 'Laden fehlgeschlagen - nochmal tippen'
       }
-      console.error('Audio laden:', e)
-      elapsedEl.textContent = 'Laden fehlgeschlagen'
     } finally {
       loading = false
-      if (!(audio === null && elapsedEl.textContent === 'Nicht mehr vorhanden')) playBtn.disabled = false
+      playBtn.disabled = gone
     }
   })
 
@@ -2459,19 +2460,12 @@ function buildAudioElement(msg) {
   ;['pointerup', 'pointercancel', 'touchend', 'change'].forEach(name => seek.addEventListener(name, () => { seeking = false }))
   seek.addEventListener('input', () => {
     if (!audio) return
-    const duration = isFinite(audio.duration) && audio.duration > 0 ? audio.duration : knownDuration
+    const duration = durationNow()
     if (!duration) return
     audio.currentTime = (Number(seek.value) / 1000) * duration
     showProgress()
   })
 
-  speedBtn.addEventListener('click', () => {
-    audioSpeed = AUDIO_SPEEDS[(AUDIO_SPEEDS.indexOf(audioSpeed) + 1) % AUDIO_SPEEDS.length]
-    if (audio) audio.playbackRate = audioSpeed
-    showSpeed()
-  })
-
-  showSpeed()
   showProgress()
   return wrap
 }
@@ -3924,6 +3918,21 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
   menu.className = 'msg-menu'
   menu.addEventListener('click', (e) => e.stopPropagation())
 
+  // Untermenü: die vier Geschwindigkeiten, die aktive ist markiert
+  function showSpeedOptions() {
+    menu.innerHTML = ''
+    AUDIO_SPEEDS.forEach(speed => {
+      const item = document.createElement('button')
+      item.className = 'msg-menu-item'
+      item.textContent = (speed === audioSpeed ? '✓ ' : '') + audioSpeedLabel(speed)
+      item.addEventListener('click', () => {
+        setAudioSpeed(speed)
+        closeMessageMenu()
+      })
+      menu.appendChild(item)
+    })
+  }
+
   function showMainOptions() {
     menu.innerHTML = ''
 
@@ -3947,6 +3956,14 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
         downloadAudio(msg)
       })
       menu.appendChild(downloadItem)
+    }
+
+    if (options.canDownloadAudio) {
+      const speedItem = document.createElement('button')
+      speedItem.className = 'msg-menu-item'
+      speedItem.textContent = 'Geschwindigkeit (' + audioSpeedLabel(audioSpeed) + ')'
+      speedItem.addEventListener('click', showSpeedOptions)
+      menu.appendChild(speedItem)
     }
 
     if (options.canCopy) {
