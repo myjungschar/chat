@@ -2601,10 +2601,11 @@ html:has(body.light-theme) {
 }
 
 /* Chrome, Edge, Safari: schlanker, runder Balken ganz ohne Pfeile.
-   14 px Platz: der Balken ist 4 px breit und sitzt rechts (2 px vom Rand), links davon bleiben 8 px Abstand zum Inhalt. */
+   9 px Platz: der Balken ist 3 px breit und sitzt mittig, links und rechts bleiben je 3 px Luft.
+   Die Ränder links und rechts sind gleich groß, sonst werden die Enden des Balkens eckig angeschnitten. */
 *::-webkit-scrollbar {
-  width: 14px;
-  height: 14px;
+  width: 9px;
+  height: 9px;
 }
 
 *::-webkit-scrollbar-track,
@@ -2615,17 +2616,17 @@ html:has(body.light-theme) {
 
 /* Abstand oben und unten: der Balken endet mit weich abgerundeten Enden und wird auch von runden Kartenecken nicht angeschnitten */
 *::-webkit-scrollbar-track {
-  margin: 10px 0;
+  margin: 2px 0;
 }
 
 *::-webkit-scrollbar-thumb {
   background-color: rgba(var(--scrollbar-rgb), calc(var(--sb-alpha) * var(--scrollbar-max)));
   border-style: solid;
   border-color: transparent;
-  border-width: 2px 2px 2px 8px;
+  border-width: 3px;
   border-radius: 9999px;
   min-height: 36px;
-  background-clip: content-box;
+  background-clip: padding-box;
 }
 
 *::-webkit-scrollbar-button {
@@ -4148,7 +4149,7 @@ select:focus-visible {
 
 /* ===== Startseite und Einstellungen =====
    Startseite: Suchleiste und Reiter bleiben oben stehen, nur die Chatliste darunter scrollt - bis ganz an den unteren Rand.
-   Einstellungen: nur der Bereich unter der Kopfzeile scrollt. Die Scroll-Bereiche ragen 14 px in den Kartenrand, damit
+   Einstellungen: nur der Bereich unter der Kopfzeile scrollt. Die Scroll-Bereiche ragen 9 px (so breit wie der Balken) in den Kartenrand, damit
    die Einträge genauso breit sind wie die Linie oben (der Balken liegt im Rand). */
 .list-scroll {
   display: flex;
@@ -4162,7 +4163,7 @@ select:focus-visible {
   min-height: 0;
   max-height: none;
   overflow-y: auto;
-  margin-right: -14px;
+  margin-right: -9px;
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
@@ -4186,7 +4187,7 @@ select:focus-visible {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    margin-right: -14px;
+    margin-right: -9px;
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
@@ -4206,7 +4207,7 @@ body.split-view #settings-bereich .settings-groups {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  margin-right: -14px;
+  margin-right: -9px;
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 

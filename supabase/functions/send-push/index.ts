@@ -114,7 +114,7 @@ Deno.serve(async (req) => {
 
     const senderName = sender.display_name || "Neue Nachricht"
     // Fotos und Audios haben oft keinen Text: dann steht stattdessen ein kurzer Hinweis in der Meldung
-    const bodyText = (record.text || (record.photo_id ? "📷 Foto" : record.audio_id ? "🎤 Audio" : "")).slice(0, 120)
+    const bodyText = (record.text || (record.photo_id ? "📷 Foto" : record.audio_id ? "🎵 Audio" : "")).slice(0, 120)
     const notificationPayload = JSON.stringify({
       title: groupName ? senderName + " · " + groupName : senderName,
       body: bodyText,

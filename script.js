@@ -1807,7 +1807,7 @@ let photoInputEl = null
 let photoSending = false
 
 function messageSnippet(msg) {
-  return (msg && msg.text) || (msg && msg.photo_id ? '📷 Foto' : '') || (msg && msg.audio_id ? '🎤 Audio' : '')
+  return (msg && msg.text) || (msg && msg.photo_id ? '📷 Foto' : '') || (msg && msg.audio_id ? '🎵 Audio' : '')
 }
 
 function formatBytes(bytes) {
@@ -2540,7 +2540,15 @@ function buildAudioElement(msg) {
       frame = requestAnimationFrame(tick)
     })
     audio.addEventListener('pause', () => { showPlaying(false); showProgress() })
-    audio.addEventListener('ended', () => { showPlaying(false); audio.currentTime = 0; showProgress() })
+    // Am Ende ist alles wieder wie vor dem ersten Start: keine Leiste mehr, wieder "Länge, Größe" unter dem Titel
+    audio.addEventListener('ended', () => {
+      started = false
+      wrap.classList.remove('started')
+      showPlaying(false)
+      audio.currentTime = 0
+      seek.value = '0'
+      showProgress()
+    })
     seek.disabled = false
   }
 
