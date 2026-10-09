@@ -113,12 +113,33 @@ function confirmModalNo() {
   confirmModalCallback = null
 }
 
-// Dunkler/heller Modus, gespeichert im Browser (nur auf diesem Gerät)
-function applyStoredTheme() {
-  const stored = localStorage.getItem('theme')
-  const isLight = stored === 'light'
+// Dunkler/heller Modus. Ohne eigene Auswahl folgt die App dem Modus des Geräts/Browsers (und wechselt mit).
+// Wer in der App bewusst etwas anderes wählt als das Gerät, behält diese Wahl (gespeichert im Browser, nur auf diesem Gerät).
+const systemThemeQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null
+
+function systemPrefersLight() {
+  return !!(systemThemeQuery && systemThemeQuery.matches)
+}
+
+function applyThemeClass(isLight) {
   document.body.classList.toggle('light-theme', isLight)
   syncThemeSwitches(!isLight)
+  const themeMeta = document.querySelector('meta[name="theme-color"]')
+  if (themeMeta) themeMeta.setAttribute('content', isLight ? '#ffffff' : '#0e1621') // Farbe der Browser-Leiste
+}
+
+function applyStoredTheme() {
+  const stored = localStorage.getItem('theme')
+  const isLight = stored === 'light' || stored === 'dark' ? stored === 'light' : systemPrefersLight()
+  applyThemeClass(isLight)
+}
+
+// Stellt das Gerät um und es gibt keine eigene Auswahl, zieht die App sofort mit
+if (systemThemeQuery && systemThemeQuery.addEventListener) {
+  systemThemeQuery.addEventListener('change', () => {
+    const stored = localStorage.getItem('theme')
+    if (stored !== 'light' && stored !== 'dark') applyStoredTheme()
+  })
 }
 
 function toggleDarkMode() {
@@ -129,9 +150,10 @@ function toggleDarkMode() {
 // Der Schalter oben rechts auf dem Login-Bildschirm - derselbe wie in den Einstellungen, nur
 // ohne dass man sich dafür erst einloggen und dorthin navigieren muss
 function setTheme(wantsDark) {
-  document.body.classList.toggle('light-theme', !wantsDark)
-  localStorage.setItem('theme', wantsDark ? 'dark' : 'light')
-  syncThemeSwitches(wantsDark)
+  // Entspricht die Wahl dem Gerätemodus, wird nichts gespeichert: dann bleibt die App mit dem Gerät synchron
+  if (!wantsDark === systemPrefersLight()) localStorage.removeItem('theme')
+  else localStorage.setItem('theme', wantsDark ? 'dark' : 'light')
+  applyThemeClass(!wantsDark)
 }
 
 // Hält beide Schalter (Login-Bildschirm + Einstellungen) auf demselben Stand
@@ -501,6 +523,7 @@ async function enterApp(user) {
   ensureBirthdate() // noch kein Geburtsdatum gespeichert? Dann kommt das Pflicht-Fenster
   consumePendingPushOpen() // die App wurde über den Klick auf eine Benachrichtigung gestartet
   showBirthdayAnnouncement() // heute jemand Geburtstag? Einmal am Tag ein Pop-up
+  scheduleInstallPopup() // "Zur Startseite hinzufügen" erst, wenn man angemeldet ist
 }
 
 // Letzte Nachricht je Chat laden, für die Vorschau in der Liste
@@ -5272,10 +5295,10 @@ function renderUserDetail(u) {
     <div class="input-group">
       <div class="rights-row">
         <div class="rights-row-text">
-          <span class="rights-row-title">Darf Fotos senden</span>
-          <span class="rights-row-state">${photoBlockedIds.has(u.id) ? 'Nein (nur ansehen)' : 'Ja'}</span>
+          <span class="rights-row-title">Darf Fotos und Audio senden</span>
+          <span class="rights-row-state">${photoBlockedIds.has(u.id) ? 'Nein' : 'Ja'}</span>
         </div>
-        <button type="button" class="rights-switch${photoBlockedIds.has(u.id) ? '' : ' on'}" id="user-photo-switch" role="switch" aria-checked="${!photoBlockedIds.has(u.id)}" aria-label="Darf Fotos senden"></button>
+        <button type="button" class="rights-switch${photoBlockedIds.has(u.id) ? '' : ' on'}" id="user-photo-switch" role="switch" aria-checked="${!photoBlockedIds.has(u.id)}" aria-label="Darf Fotos und Audio senden"></button>
       </div>
     </div>
     <div class="input-group">
@@ -7960,14 +7983,14 @@ function fillProfileInfo(rows, userId, myRequest) {
   const ageEl = addProfileRow(rows, 'Alter')
   setBirthdateValue(birthEl, ageEl, info.birthdate)
 
-  // Die E-Mail-Adresse sieht nur der Admin - und selbst der bekommt sie nur über die Edge Function
-  if (isAdmin()) {
+  // E-Mail-Adresse: die eigene steht direkt da, die der anderen wird vom Server geholt
+  // (Admin über die Edge Function, alle anderen über die Datenbankfunktion get_member_email)
+  if (currentUser && userId === currentUser.id && currentUser.email) {
+    setProfileValue(addProfileRow(rows, 'E-Mail-Adresse'), currentUser.email, false)
+  } else if (currentUser) {
     const emailEl = addProfileRow(rows, 'E-Mail-Adresse')
     setProfileValue(emailEl, 'Lädt …', true)
     loadProfileEmail(userId, myRequest, emailEl)
-  } else if (currentUser && userId === currentUser.id && currentUser.email) {
-    // Die eigene E-Mail-Adresse darf jeder im eigenen Profil sehen (die von anderen nur der Admin)
-    setProfileValue(addProfileRow(rows, 'E-Mail-Adresse'), currentUser.email, false)
   }
 
   refreshProfileBirthdate(userId, myRequest, birthEl, ageEl)
@@ -8004,14 +8027,22 @@ function openProfile(userId) {
 async function loadProfileEmail(userId, myRequest, el) {
   let email = profileEmailCache[userId]
   if (!email) {
-    const { data, error } = await supabaseClient.functions.invoke('get-user-email', { body: { userId } })
-    if (myRequest !== profileRequestId) return
-    if (error || !data || !data.email) {
+    let found = null
+    if (isAdmin()) {
+      const { data, error } = await supabaseClient.functions.invoke('get-user-email', { body: { userId } })
       if (error) console.error('E-Mail konnte nicht geladen werden:', await readFunctionError(error))
-      setProfileValue(el, 'Konnte nicht geladen werden', true)
+      found = !error && data && data.email ? data.email : null
+    } else {
+      const { data, error } = await supabaseClient.rpc('get_member_email', { p_user_id: userId })
+      if (error) console.error('E-Mail konnte nicht geladen werden:', error.message)
+      found = !error && typeof data === 'string' && data ? data : null
+    }
+    if (myRequest !== profileRequestId) return
+    if (!found) {
+      setProfileValue(el, 'Nicht verfügbar', true)
       return
     }
-    email = data.email
+    email = found
     profileEmailCache[userId] = email
   }
   if (myRequest !== profileRequestId) return
@@ -8292,8 +8323,12 @@ function installPopupAllowed() {
 
 // Zeigt das Pop-up automatisch, kurz nachdem die Seite geladen ist - nur auf Geräten, auf denen
 // Installieren überhaupt geht (Chrome/Edge mit Installations-Fenster, iPhone/iPad, Android)
+let installPopupScheduled = false
 function scheduleInstallPopup() {
+  if (installPopupScheduled) return // nur einmal pro Seitenaufruf, nicht bei jedem Aufruf von enterApp
+  installPopupScheduled = true
   setTimeout(() => {
+    if (!currentUser) return // zwischenzeitlich abgemeldet
     const settingPassword = inviteMode || recoveryMode || /type=(invite|recovery)/.test(window.location.hash)
     if (settingPassword || !installPopupAllowed()) return
     if (deferredInstallPrompt || isIosDevice() || isAndroidDevice()) openInstallPopup()
@@ -8630,4 +8665,3 @@ registerServiceWorker()
 applyEmojiImages(document.body)
 startEmojiObserver()
 init()
-scheduleInstallPopup()

@@ -2582,6 +2582,14 @@ body.light-theme .online-list li::before {
   --scrollbar-max: 0.45;
 }
 
+:root {
+  color-scheme: dark; /* sagt dem Browser: die Seite macht ihr Dunkel/Hell selbst - kein automatisches Umfärben (Chrome-Dunkelmodus) */
+}
+
+html:has(body.light-theme) {
+  color-scheme: light;
+}
+
 body.light-theme,
 html:has(body.light-theme) {
   --scrollbar-rgb: 0, 136, 204;
