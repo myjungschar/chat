@@ -2187,12 +2187,115 @@ async function confirmAndSendAudio(file) {
   if (file.size === 0) { showToast('Die Datei ist leer.'); return }
   if (file.size > AUDIO_MAX_BYTES) { showToast('Die Datei ist zu groß (höchstens ' + formatBytes(AUDIO_MAX_BYTES) + ').'); return }
 
-  const ok = await askConfirm('"' + file.name + '" (' + formatBytes(file.size) + ') senden?', { okText: 'Senden' })
-  if (ok) await sendAudioMessage(file)
+  const name = await askAudioName(file)
+  if (name) await sendAudioMessage(file, name)
+}
+
+// Kleines Fenster vor dem Senden: den Dateinamen ändern. Die Endung (.mp3 ...) steht fest dahinter und bleibt.
+// Gibt den ganzen neuen Namen zurück, oder null bei "Abbrechen".
+function askAudioName(file) {
+  return new Promise(resolve => {
+    const dot = file.name.lastIndexOf('.')
+    const ext = dot > 0 ? file.name.slice(dot) : '.' + (file.name.split('.').pop() || 'mp3')
+    const base = dot > 0 ? file.name.slice(0, dot) : file.name
+
+    const overlay = document.createElement('div')
+    overlay.className = 'confirm-overlay'
+    const dialog = document.createElement('div')
+    dialog.className = 'confirm-dialog audio-name-dialog'
+    dialog.setAttribute('role', 'dialog')
+    dialog.setAttribute('aria-modal', 'true')
+
+    const heading = document.createElement('p')
+    heading.className = 'audio-name-heading'
+    heading.textContent = 'Audio senden (' + formatBytes(file.size) + ')'
+
+    const row = document.createElement('div')
+    row.className = 'audio-name-row'
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.value = base
+    input.maxLength = 100
+    input.autocomplete = 'off'
+    input.setAttribute('aria-label', 'Dateiname')
+    const suffix = document.createElement('span')
+    suffix.className = 'audio-name-ext'
+    suffix.textContent = ext
+    row.append(input, suffix)
+
+    const buttons = document.createElement('div')
+    buttons.className = 'confirm-buttons'
+    const cancelBtn = document.createElement('button')
+    cancelBtn.type = 'button'
+    cancelBtn.className = 'confirm-cancel'
+    cancelBtn.textContent = 'Abbrechen'
+    const okBtn = document.createElement('button')
+    okBtn.type = 'button'
+    okBtn.className = 'confirm-ok'
+    okBtn.textContent = 'Senden'
+    buttons.append(cancelBtn, okBtn)
+
+    dialog.append(heading, row, buttons)
+    overlay.appendChild(dialog)
+    document.body.appendChild(overlay)
+    input.focus()
+    input.select()
+
+    const finish = (send) => {
+      document.removeEventListener('keydown', onKey)
+      overlay.remove()
+      if (!send) return resolve(null)
+      const cleaned = input.value.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim()
+      resolve((cleaned || base) + ext)
+    }
+    const onKey = (e) => {
+      if (e.key === 'Escape') finish(false)
+      else if (e.key === 'Enter' && document.activeElement !== cancelBtn) { e.preventDefault(); finish(true) }
+    }
+    document.addEventListener('keydown', onKey)
+    cancelBtn.addEventListener('click', () => finish(false))
+    okBtn.addEventListener('click', () => finish(true))
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) finish(false) })
+  })
+}
+
+// Sofort nach dem Senden erscheint diese Blase im Chat: Dateiname, ein drehender Kreis statt Play und "wird hochgeladen".
+// Sobald die echte Nachricht da ist, wird sie ersetzt.
+function addPendingAudioBubble(name, size) {
+  const chatBox = document.getElementById('chat-box')
+  const emptyHint = chatBox.querySelector('.chat-empty')
+  if (emptyHint) emptyHint.remove()
+
+  const row = document.createElement('div')
+  row.className = 'msg-row own pending-audio'
+  const msgEl = document.createElement('div')
+  msgEl.className = 'msg own has-audio'
+
+  const wrap = document.createElement('div')
+  wrap.className = 'msg-audio'
+  const btn = document.createElement('div')
+  btn.className = 'msg-audio-play'
+  btn.innerHTML = AUDIO_SPINNER
+  const body = document.createElement('div')
+  body.className = 'msg-audio-body'
+  const title = document.createElement('div')
+  title.className = 'msg-audio-title'
+  title.textContent = name
+  const meta = document.createElement('div')
+  meta.className = 'msg-audio-meta'
+  meta.textContent = formatBytes(size) + ' · wird hochgeladen …'
+  body.append(title, meta)
+  wrap.append(btn, body)
+  msgEl.appendChild(wrap)
+  row.appendChild(msgEl)
+
+  chatBox.appendChild(row)
+  chatBox.scrollTop = chatBox.scrollHeight
+  return row
 }
 
 // Lädt die Audio-Datei hoch und legt danach die Nachricht an
-async function sendAudioMessage(file) {
+async function sendAudioMessage(file, displayName) {
   if (!currentUser || audioSending) return
   audioSending = true
 
@@ -2200,23 +2303,26 @@ async function sendAudioMessage(file) {
   const room = currentRoom
   const table = currentTable()
   const replyId = replyingToId
-  showToast('Audio wird hochgeladen …')
+  const title = displayName || file.name
+  const pending = addPendingAudioBubble(title, file.size)
 
   try {
-    const duration = await readAudioDuration(file) // Länge steht dann schon vor dem Abspielen in der Nachricht
+    const durationPromise = readAudioDuration(file) // läuft nebenher, damit das Hochladen sofort startet
     const form = new FormData()
     form.append('audio', file, file.name)
 
     const { data: up, error: upError } = await supabaseClient.functions.invoke('upload-photo', { body: form })
     if (upError || !up || !up.audio_id) {
       const detail = upError ? await readFunctionError(upError) : 'Unbekannter Fehler'
+      pending.remove()
       showToast('Audio konnte nicht hochgeladen werden: ' + detail)
       return
     }
+    const duration = await durationPromise
 
     const row = {
       sender_id: currentUser.id, text: '', audio_id: up.audio_id, audio_mime: up.audio_mime || null,
-      audio_name: audioTitleFromFile(file.name), audio_size: file.size
+      audio_name: audioTitleFromFile(title), audio_size: file.size
     }
     if (duration) row.audio_duration = duration
     if (room.type === 'dm') row.recipient_id = room.userId
@@ -2229,6 +2335,7 @@ async function sendAudioMessage(file) {
       .select('*, profiles!sender_id(display_name)')
       .single()
 
+    pending.remove()
     if (error) {
       await handleSendError(error)
       return
@@ -2236,6 +2343,10 @@ async function sendAudioMessage(file) {
 
     if (replyingToId === replyId) cancelReplyingTo()
     if (currentRoom === room && belongsToCurrentRoom(inserted)) renderMessage(inserted)
+  } catch (e) {
+    pending.remove()
+    console.error('Audio senden:', e)
+    showToast('Audio senden hat nicht geklappt.')
   } finally {
     audioSending = false
   }
@@ -2321,6 +2432,7 @@ let audioSpeed = 1          // die gewählte Geschwindigkeit gilt für alle Audi
 let activeAudioPause = null // es läuft immer nur ein Audio gleichzeitig
 
 const AUDIO_PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>'
+const AUDIO_SPINNER = '<span class="audio-spinner" aria-hidden="true"></span>'
 const AUDIO_PAUSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4.2" height="14" rx="1.2"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.2"/></svg>'
 
 function audioSpeedLabel(speed) {
@@ -2368,11 +2480,6 @@ function buildAudioElement(msg) {
 
   const times = document.createElement('div')
   times.className = 'msg-audio-times'
-  const elapsedEl = document.createElement('span')
-  elapsedEl.className = 'msg-audio-elapsed'
-  const totalEl = document.createElement('span')
-  totalEl.className = 'msg-audio-total'
-  times.append(elapsedEl, totalEl)
 
   body.append(title, metaEl, seek, times)
   wrap.append(playBtn, body)
@@ -2396,8 +2503,7 @@ function buildAudioElement(msg) {
       metaEl.textContent = parts.join(', ')
       return
     }
-    elapsedEl.textContent = formatAudioTime(audio ? audio.currentTime : 0)
-    totalEl.textContent = durationText
+    times.textContent = formatAudioTime(audio ? audio.currentTime : 0) + ' / ' + durationText
   }
   const showProgress = () => {
     const duration = durationNow()
@@ -2448,6 +2554,7 @@ function buildAudioElement(msg) {
     }
     loading = true
     playBtn.disabled = true
+    playBtn.innerHTML = AUDIO_SPINNER // dreht sich, solange die Datei geladen wird
     metaEl.textContent = 'Lädt …'
     let gone = false
     try {
@@ -2465,6 +2572,7 @@ function buildAudioElement(msg) {
     } finally {
       loading = false
       playBtn.disabled = gone
+      showPlaying(!!audio && !audio.paused)
     }
   })
 

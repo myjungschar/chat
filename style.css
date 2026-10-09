@@ -4036,9 +4036,7 @@ body.light-theme .msg.own.has-audio {
 }
 
 .msg-audio-times {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: block;
   padding-right: 66px;
   font-size: 11px;
   line-height: 1.25;
@@ -4226,4 +4224,57 @@ body.split-view #settings-bereich .settings-groups {
   margin: 8px 0 0;
   font-size: 13px;
   color: var(--danger);
+}
+
+/* Drehender Kreis im Audio-Knopf (beim Hochladen und beim ersten Laden) */
+.audio-spinner {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border: 2.5px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: audio-spin 0.8s linear infinite;
+}
+
+@keyframes audio-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.msg-audio-play:has(.audio-spinner):disabled {
+  opacity: 1;
+}
+
+.pending-audio .msg-audio-play {
+  cursor: default;
+}
+
+/* Fenster "Audio senden": Dateiname ändern, die Endung bleibt fest dahinter */
+.audio-name-dialog {
+  text-align: left;
+}
+
+.audio-name-heading {
+  margin: 0 0 10px;
+  font-weight: 600;
+}
+
+.audio-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.audio-name-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.audio-name-ext {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-weight: 600;
 }
