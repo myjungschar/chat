@@ -1184,6 +1184,7 @@ async function loadMessages() {
   messagesById = {}
   lastMessageDateKey = null
   reactionMap = messages.length ? await loadReactionsFor(messages.map(m => m.id)) : {}
+  const unreadFromId = firstUnreadMessageId(messages)
   messages.forEach(msg => renderMessage(msg))
   await loadPollsForRoom() // fügt sich zeitlich passend zwischen die Nachrichten ein
   await loadPinForRoom() // angepinnte Nachricht (Leiste oben + Hinweis im Verlauf)
@@ -1191,6 +1192,40 @@ async function loadMessages() {
   if (chatBox.children.length === 0) showEmptyHint()
   applyEmojiImages(chatBox)
   chatBox.scrollTop = chatBox.scrollHeight
+  showUnreadDivider(unreadFromId, messages)
+}
+
+// Ab welcher Nachricht ist im Chat noch nichts gelesen? (nur eigene Chats, nicht für den Admin; nur wenn der Chat
+// schon einmal geöffnet war - sonst wäre ja alles "neu" und die Linie ganz oben ohne Aussage)
+function firstUnreadMessageId(messages) {
+  if (!currentUser || isAdmin() || (currentRoom.type !== 'group' && currentRoom.type !== 'dm')) return null
+  const key = chatKeyForRoom(currentRoom)
+  const lastRead = key ? readMarks[key] : null
+  if (!lastRead) return null
+  const first = messages.find(m => m.sender_id !== currentUser.id && new Date(m.created_at) > lastRead)
+  return first ? first.id : null
+}
+
+// Setzt die Linie "N neue Nachrichten" direkt vor die erste ungelesene Nachricht. Sind es mehr, als auf den Bildschirm
+// passen, springt der Chat dorthin, statt ganz unten zu starten.
+function showUnreadDivider(messageId, messages) {
+  if (!messageId) return
+  const chatBox = document.getElementById('chat-box')
+  const row = chatBox.querySelector('[data-id="' + messageId + '"]')
+  if (!row) return
+
+  const first = messages.findIndex(m => m.id === messageId)
+  const count = messages.slice(first).filter(m => m.sender_id !== currentUser.id).length
+
+  const divider = document.createElement('div')
+  divider.className = 'unread-divider'
+  const label = document.createElement('span')
+  label.textContent = count === 1 ? '1 neue Nachricht' : count + ' neue Nachrichten'
+  divider.appendChild(label)
+  row.before(divider)
+
+  const dividerTop = divider.getBoundingClientRect().top - chatBox.getBoundingClientRect().top + chatBox.scrollTop
+  if (dividerTop < chatBox.scrollTop) chatBox.scrollTop = Math.max(0, dividerTop - 12)
 }
 
 // ===== Umfragen =====
@@ -4341,6 +4376,9 @@ async function handleSendError(error) {
   if (profile && profile.is_blocked) {
     showToast('Dein Zugang wurde gesperrt.')
     await logout()
+  } else if (/failed to fetch|networkerror|network request|load failed/i.test(String(error.message))) {
+    // Kein Netz: der Text bleibt im Eingabefeld, man kann einfach nochmal auf Senden tippen
+    showToast('Keine Verbindung. Deine Nachricht steht noch im Feld, tippe später nochmal auf Senden.')
   } else {
     showToast('Fehler beim Senden: ' + error.message)
   }

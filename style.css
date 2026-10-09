@@ -4287,3 +4287,23 @@ body.split-view #settings-bereich .settings-groups {
   color: var(--text-secondary);
   font-weight: 600;
 }
+
+/* Linie "N neue Nachrichten" vor der ersten ungelesenen Nachricht */
+.unread-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.unread-divider::before,
+.unread-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.45;
+}
