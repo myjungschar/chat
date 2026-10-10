@@ -3413,6 +3413,7 @@ function renderMessage(msg) {
   const canInfo = READ_RECEIPTS_ENABLED && isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
 
   attachMessageMenuTriggers(msgElement, msg, { canEdit, canDelete, canReact, canInfo, canReply, canCopy, canDownloadAudio, canReport })
+  if (canReply) attachReplyGesture(row, msg)
 
   const textEl = document.createElement('div')
   textEl.className = 'msg-text'
@@ -4057,6 +4058,41 @@ document.addEventListener('scroll', (e) => {
 // Öffnet das Nachrichtenmenü nicht mehr über einen eigenen Button, sondern per Rechtsklick
 // (PC) oder langem Tippen (Handy) direkt auf der Nachricht. Auf den Haken, dem Zitat und den
 // Reaktions-Chips wird das ignoriert, die haben ihre eigene Funktion bei einem normalen Klick.
+// Doppelklick (PC) oder Doppeltipp (Handy) auf die Höhe einer Nachricht startet die Antwort - auch daneben, nicht nur
+// genau auf der Sprechblase. Ausgenommen sind Knöpfe, Links, Fotos, der Audio-Player und die Reaktionen.
+function attachReplyGesture(row, msg) {
+  const IGNORED = 'a, button, input, textarea, .msg-photo, .msg-audio, .msg-reactions, .msg-ticks, .msg-reply-quote, .msg-avatar'
+  let lastTap = null
+  let lastReplyAt = 0
+
+  const reply = () => {
+    if (selectMode || openMenuEl) return
+    if (Date.now() - lastReplyAt < 600) return // dblclick und Doppeltipp nicht doppelt auslösen
+    lastReplyAt = Date.now()
+    startReplyingTo(msg.id)
+    const selection = window.getSelection && window.getSelection()
+    if (selection) selection.removeAllRanges() // der Doppelklick markiert sonst ein Wort
+  }
+
+  row.addEventListener('dblclick', (event) => {
+    if (event.target.closest && event.target.closest(IGNORED)) return
+    reply()
+  })
+
+  // Doppeltipp am Handy: zwei kurze Tipps kurz hintereinander an fast derselben Stelle
+  row.addEventListener('pointerup', (event) => {
+    if (event.pointerType === 'mouse') return
+    if (event.target.closest && event.target.closest(IGNORED)) return
+    const now = Date.now()
+    if (lastTap && now - lastTap.time < 320 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 30) {
+      lastTap = null
+      reply()
+    } else {
+      lastTap = { time: now, x: event.clientX, y: event.clientY }
+    }
+  })
+}
+
 function attachMessageMenuTriggers(msgElement, msg, options) {
   const hasMenu = options.canEdit || options.canDelete || options.canReact || options.canReply || options.canCopy
   if (!hasMenu) return

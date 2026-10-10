@@ -4486,3 +4486,8 @@ body.split-view #settings-bereich .settings-groups {
   line-height: 20px;
   text-align: center;
 }
+
+/* Doppeltipp zum Antworten: kein Zoomen durch Doppeltippen auf Nachrichten */
+.msg-row {
+  touch-action: manipulation;
+}
