@@ -811,12 +811,13 @@ async function renderChatList() {
   others.forEach(([id, info]) => {
     const name = info.name
     const item = document.createElement('li')
-    item.className = 'chat-list-item'
+    item.className = 'chat-list-item' + (isChatMuted('dm:' + id) ? ' muted' : '')
     item.innerHTML = chatListItemHTML(
       `<div class="chat-list-avatar${hasBirthdayToday(id) ? ' birthday' : ''}" style="background:${avatarColor(id)}">${initialsOf(name)}</div>`,
       (name || 'Ohne Namen') + birthdayMark(id),
       dmPreviews[id],
-      unreadFor('dm:' + id)
+      unreadFor('dm:' + id),
+      isChatMuted('dm:' + id)
     )
     item.dataset.chatKey = 'dm:' + id
     item.dataset.tabs = 'alle' + (info.gender ? ' ' + info.gender : '')
@@ -7788,8 +7789,10 @@ initScrollDownButton()
 let mutedChatKeys = new Set()
 let mutedChatsLoadedAt = 0
 
+const DM_KEY_PATTERN = /^dm:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 function isMutableChatKey(key) {
-  return key === 'main' || key === 'junge' || key === 'maedchen' || (typeof key === 'string' && key.startsWith('grp_'))
+  return key === 'main' || key === 'junge' || key === 'maedchen' || (typeof key === 'string' && (key.startsWith('grp_') || DM_KEY_PATTERN.test(key)))
 }
 
 function isChatMuted(key) {
@@ -7824,7 +7827,7 @@ async function toggleChatMute(key) {
   else mutedChatKeys.delete(key)
   mutedChatsLoadedAt = Date.now()
   renderChatList()
-  showToast(muteNow ? 'Gruppe stummgeschaltet.' : 'Stummschaltung aufgehoben.', 'success')
+  showToast(muteNow ? (key.startsWith('dm:') ? 'Chat stummgeschaltet.' : 'Gruppe stummgeschaltet.') : 'Stummschaltung aufgehoben.', 'success')
 }
 
 // Welche Einträge das Menü für diesen Chat hat (leer = gar kein Menü)
@@ -7833,7 +7836,7 @@ function chatMenuItemsFor(key) {
   if (!currentUser || !isMutableChatKey(key)) return items
   if (!isAdmin()) {
     items.push({
-      label: isChatMuted(key) ? 'Stummschaltung aufheben' : 'Gruppe stummschalten',
+      label: isChatMuted(key) ? 'Stummschaltung aufheben' : (key.startsWith('dm:') ? 'Chat stummschalten' : 'Gruppe stummschalten'),
       run: () => toggleChatMute(key)
     })
   }

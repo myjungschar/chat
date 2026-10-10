@@ -84,8 +84,9 @@ Deno.serve(async (req) => {
     // Chat-Schlüssel: "main", "junge", "maedchen", "grp_<id>" oder (Einzelchat) "dm:<Absender>"
     const chatKey = record.group_key || (record.recipient_id ? "dm:" + record.sender_id : "main")
 
-    // Stummgeschaltete Gruppen: wer den Chat in muted_chats hat, bekommt keine Push-Meldung (Einzelchats sind nicht betroffen)
-    if (!record.recipient_id && recipientIds.length > 0) {
+    // Stummgeschaltete Chats: wer den Chat in muted_chats hat, bekommt keine Push-Meldung.
+    // Bei Gruppen heißt der Schlüssel "main"/"junge"/"maedchen"/"grp_<id>", bei Einzelchats "dm:<Absender>".
+    if (recipientIds.length > 0) {
       const { data: muted, error: mutedError } = await supabaseAdmin
         .from("muted_chats")
         .select("user_id")
