@@ -733,8 +733,22 @@ let activeChatTab = 'alle'
 // Chatliste zusammenbauen: Gruppe angeheftet, danach alle anderen Nutzer
 let chatListRenderId = 0
 
+// Graue Platzhalter (Kreis fürs Bild, zwei Linien), solange die Chatliste zum ersten Mal lädt
+function showChatListSkeleton(list) {
+  list.innerHTML = ''
+  for (let i = 0; i < 7; i++) {
+    const li = document.createElement('li')
+    li.className = 'chat-list-skeleton'
+    li.setAttribute('aria-hidden', 'true')
+    li.innerHTML = '<div class="skeleton-circle"></div><div class="skeleton-lines"><div class="skeleton-line" style="width:' + (38 + (i * 13) % 30) + '%"></div><div class="skeleton-line short" style="width:' + (55 + (i * 17) % 35) + '%"></div></div>'
+    list.appendChild(li)
+  }
+}
+
 async function renderChatList() {
   const myRenderId = ++chatListRenderId
+  const listForSkeleton = document.getElementById('chat-list')
+  if (listForSkeleton && listForSkeleton.children.length === 0) showChatListSkeleton(listForSkeleton)
   await loadMutedChats()
   await loadChatPreviews()
   // Zwischenzeitlich ausgeloggt oder schon ein neuerer Ladevorgang gestartet? Dann nichts mehr zeichnen
@@ -839,6 +853,7 @@ async function renderChatList() {
   applyEmojiImages(list)
   renderChatTabs()
   applyChatTabFilter()
+  renderMessageResults() // Nachrichten-Treffer der Suche bleiben beim Neuzeichnen erhalten
 
   markActiveListItem()
 }
@@ -1147,7 +1162,27 @@ function perspectiveUserId() {
 }
 
 // 5. Nachrichten aus der Datenbank laden
+// Wird ein anderer Chat geöffnet, zeigt das Fenster sofort graue Platzhalter-Blasen statt des alten Chats
+let loadedRoomIdentity = null
+
+function roomIdentity(room) {
+  return [room.type, room.groupKey || '', room.userId || '', room.userA || '', room.userB || ''].join('|')
+}
+
+function showChatBoxSkeleton() {
+  const chatBox = document.getElementById('chat-box')
+  chatBox.innerHTML = ''
+  ;[['62%', false], ['45%', true], ['70%', false], ['38%', true], ['55%', false]].forEach(([width, own]) => {
+    const bubble = document.createElement('div')
+    bubble.className = 'skeleton-bubble' + (own ? ' own' : '')
+    bubble.style.width = width
+    bubble.setAttribute('aria-hidden', 'true')
+    chatBox.appendChild(bubble)
+  })
+}
+
 async function loadMessages() {
+  if (loadedRoomIdentity !== roomIdentity(currentRoom)) showChatBoxSkeleton()
   let query = supabaseClient
     .from(currentTable())
     .select('*, profiles!sender_id(display_name)')
@@ -1181,6 +1216,7 @@ async function loadMessages() {
   exitSelectMode()
   const chatBox = document.getElementById('chat-box')
   chatBox.innerHTML = ''
+  loadedRoomIdentity = roomIdentity(currentRoom)
 
   messagesById = {}
   lastMessageDateKey = null
@@ -3408,11 +3444,12 @@ function renderMessage(msg) {
   const canReply = !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   const canCopy = !!msg.text
   const canDownloadAudio = !!msg.audio_id
+  const canForward = !isAdmin() && !!msg.text && !msg.photo_id && !msg.audio_id && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   const canReport = !isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   // Info (wer hat die Nachricht gelesen/bekommen) und Häkchen gibt es für eigene Nachrichten in Einzelchat und Gruppe
   const canInfo = READ_RECEIPTS_ENABLED && isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
 
-  attachMessageMenuTriggers(msgElement, msg, { canEdit, canDelete, canReact, canInfo, canReply, canCopy, canDownloadAudio, canReport })
+  attachMessageMenuTriggers(msgElement, msg, { canEdit, canDelete, canReact, canInfo, canReply, canCopy, canDownloadAudio, canReport, canForward })
   if (canReply) attachReplyGesture(row, msg)
 
   const textEl = document.createElement('div')
@@ -3428,6 +3465,12 @@ function renderMessage(msg) {
   renderReactionChips(reactRow, msg.id)
 
   if (meta.children.length > 0) msgElement.appendChild(meta)
+  if (msg.forwarded) {
+    const forwardedTag = document.createElement('div')
+    forwardedTag.className = 'msg-forwarded'
+    forwardedTag.textContent = 'Weitergeleitet'
+    msgElement.appendChild(forwardedTag)
+  }
   if (msg.reply_to_id) msgElement.appendChild(buildReplyQuote(msg.reply_to_id))
   if (msg.photo_id) {
     msgElement.classList.add('has-photo')
@@ -4175,6 +4218,17 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
         startReplyingTo(msg.id)
       })
       menu.appendChild(replyItem)
+    }
+
+    if (options.canForward) {
+      const forwardItem = document.createElement('button')
+      forwardItem.className = 'msg-menu-item'
+      forwardItem.textContent = 'Weiterleiten'
+      forwardItem.addEventListener('click', () => {
+        closeMessageMenu()
+        openForwardModal(msg)
+      })
+      menu.appendChild(forwardItem)
     }
 
     if (options.canReport) {
@@ -7672,6 +7726,110 @@ function updateMembersModalButtons() {
   document.getElementById('members-leave-btn').style.display = group && !isAdmin() && !mine ? '' : 'none'
 }
 
+// ===== Weiterleiten =====
+// Nur Text-Nachrichten. Die Kopie bekommt den Vermerk "Weitergeleitet" (Spalte forwarded) und geht an einen Chat,
+// in dem man selbst schreiben darf: Hauptgruppe, die eigene Jungs- oder Mädels-Gruppe, eigene Gruppen oder eine Person.
+function forwardTargets() {
+  const targets = [{ label: 'JungscharChat (Hauptgruppe)', table: 'messages', fields: { group_key: null } }]
+  if (currentProfile && currentProfile.gender === 'junge') targets.push({ label: 'Jungs', table: 'messages', fields: { group_key: 'junge' } })
+  if (currentProfile && currentProfile.gender === 'maedchen') targets.push({ label: 'Mädels', table: 'messages', fields: { group_key: 'maedchen' } })
+  customGroupsForList().forEach(group => {
+    targets.push({ label: group.name, table: 'messages', fields: { group_key: customGroupKey(group.id) }, isGroup: true })
+  })
+  Object.entries(profileCache)
+    .filter(([id, info]) => id !== currentUser.id && info.role !== 'admin' && info.active !== false)
+    .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || ''))
+    .forEach(([id, info]) => targets.push({ label: info.name || 'Ohne Namen', table: 'direct_messages', fields: { recipient_id: id } }))
+  return targets
+}
+
+function openForwardModal(msg) {
+  if (!currentUser || isAdmin() || !msg.text) return
+  const overlay = document.createElement('div')
+  overlay.className = 'confirm-overlay'
+  const dialog = document.createElement('div')
+  dialog.className = 'confirm-dialog forward-dialog'
+  dialog.setAttribute('role', 'dialog')
+  dialog.setAttribute('aria-modal', 'true')
+
+  const heading = document.createElement('p')
+  heading.className = 'audio-name-heading'
+  heading.textContent = 'Weiterleiten an …'
+
+  const snippet = document.createElement('div')
+  snippet.className = 'forward-snippet'
+  snippet.textContent = msg.text.length > 140 ? msg.text.slice(0, 140) + ' …' : msg.text
+
+  const search = document.createElement('input')
+  search.type = 'search'
+  search.placeholder = 'Chat oder Person suchen'
+  search.autocomplete = 'off'
+  search.setAttribute('aria-label', 'Chat oder Person suchen')
+
+  const list = document.createElement('div')
+  list.className = 'forward-list'
+
+  const cancelBtn = document.createElement('button')
+  cancelBtn.type = 'button'
+  cancelBtn.className = 'confirm-cancel'
+  cancelBtn.textContent = 'Abbrechen'
+
+  dialog.append(heading, snippet, search, list, cancelBtn)
+  overlay.appendChild(dialog)
+  document.body.appendChild(overlay)
+
+  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove() }
+  const onKey = (e) => { if (e.key === 'Escape') close() }
+  document.addEventListener('keydown', onKey)
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  cancelBtn.addEventListener('click', close)
+
+  const targets = forwardTargets()
+  const render = () => {
+    const needle = normalizeSearchText(search.value).trim()
+    list.innerHTML = ''
+    targets.filter(t => !needle || normalizeSearchText(t.label).includes(needle)).forEach(target => {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'forward-target'
+      btn.textContent = target.label
+      btn.addEventListener('click', async () => {
+        close()
+        await forwardMessageTo(msg, target)
+      })
+      list.appendChild(btn)
+    })
+    if (!list.children.length) {
+      const empty = document.createElement('p')
+      empty.className = 'chat-empty'
+      empty.textContent = 'Nichts gefunden.'
+      list.appendChild(empty)
+    }
+  }
+  search.addEventListener('input', render)
+  render()
+  search.focus()
+}
+
+async function forwardMessageTo(msg, target) {
+  const row = Object.assign({ sender_id: currentUser.id, text: msg.text, forwarded: true }, target.fields)
+  const { data: inserted, error } = await supabaseClient
+    .from(target.table)
+    .insert([row])
+    .select('*, profiles!sender_id(display_name)')
+    .single()
+
+  if (error) {
+    const offline = /failed to fetch|networkerror|network request|load failed/i.test(String(error.message))
+    showToast(offline ? 'Keine Verbindung. Weiterleiten hat nicht geklappt.' : 'Weiterleiten hat nicht geklappt: ' + error.message)
+    return
+  }
+  showToast('Weitergeleitet an ' + target.label + '.', 'success')
+  // Ist das Ziel der Chat, der gerade offen ist, erscheint die Nachricht sofort
+  if (target.table === currentTable() && belongsToCurrentRoom(inserted)) renderMessage(inserted)
+  renderChatList()
+}
+
 // ===== Nachrichten melden =====
 // Mitglieder melden eine Nachricht über das Menü der Nachricht. Der Server speichert dabei einen Auszug
 // (Funktion report_message). Der Admin sieht die offenen Meldungen unter Einstellungen > Verwaltung > Meldungen.
@@ -7837,6 +7995,168 @@ async function openReportsModal() {
     return
   }
   render()
+}
+
+// ===== Nachrichten in der Chatliste suchen =====
+// Tippt man in die Suchleiste der Chatliste, werden nicht nur Chat-Namen gefiltert, sondern auch Nachrichten aller
+// Chats durchsucht, die man sehen darf (die Rechte prüft der Server). Ein Tipp auf ein Ergebnis öffnet den Chat und
+// springt zur Nachricht. So findet man etwas, auch wenn man nicht weiß, wo es stand.
+let messageSearchTimer = null
+let messageSearchSeq = 0
+let messageSearchResults = []
+let messageSearchQuery = ''
+
+function scheduleMessageSearch() {
+  clearTimeout(messageSearchTimer)
+  const input = document.getElementById('chat-search')
+  const query = input ? input.value.trim() : ''
+  if (query.length < 2) {
+    messageSearchSeq++
+    messageSearchResults = []
+    messageSearchQuery = ''
+    renderMessageResults()
+    return
+  }
+  messageSearchTimer = setTimeout(() => runMessageSearch(query), 300)
+}
+
+async function runMessageSearch(query) {
+  if (!currentUser) return
+  const seq = ++messageSearchSeq
+  const pattern = '%' + query.replace(/[\\%_]/g, ch => '\\' + ch) + '%'
+  const [groupRes, dmRes] = await Promise.all([
+    supabaseClient.from('messages').select('id, text, group_key, sender_id, created_at').ilike('text', pattern).order('created_at', { ascending: false }).limit(15),
+    supabaseClient.from('direct_messages').select('id, text, sender_id, recipient_id, created_at').ilike('text', pattern).order('created_at', { ascending: false }).limit(15)
+  ])
+  if (seq !== messageSearchSeq || !currentUser) return // inzwischen etwas anderes getippt
+
+  messageSearchResults = [
+    ...(groupRes.data || []).map(r => Object.assign({ table: 'messages' }, r)),
+    ...(dmRes.data || []).map(r => Object.assign({ table: 'direct_messages' }, r))
+  ]
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 20)
+  messageSearchQuery = query
+  renderMessageResults()
+}
+
+function nameOfUser(id) {
+  const info = profileCache[id]
+  return (info && info.name) || 'Unbekannt'
+}
+
+// In welchem Chat steht die Nachricht? (Name für die Anzeige)
+function messageResultChatLabel(result) {
+  if (result.table === 'direct_messages') {
+    if (isAdmin()) return nameOfUser(result.sender_id) + ' ↔ ' + nameOfUser(result.recipient_id)
+    return nameOfUser(result.sender_id === currentUser.id ? result.recipient_id : result.sender_id)
+  }
+  const key = result.group_key
+  if (!key) return 'JungscharChat'
+  if (key === 'junge') return 'Jungs'
+  if (key === 'maedchen') return 'Mädels'
+  const group = key.startsWith('grp_') ? chatGroups[key.slice(4)] : null
+  return group ? group.name : 'Gruppe'
+}
+
+// Ausschnitt rund um den Treffer, der Treffer selbst fett
+function buildMatchSnippet(text, query) {
+  const frag = document.createDocumentFragment()
+  const flat = String(text || '').replace(/\s+/g, ' ')
+  const index = flat.toLowerCase().indexOf(query.toLowerCase())
+  if (index < 0) {
+    frag.appendChild(document.createTextNode(flat.slice(0, 90)))
+    return frag
+  }
+  const start = Math.max(0, index - 28)
+  const end = Math.min(flat.length, index + query.length + 50)
+  if (start > 0) frag.appendChild(document.createTextNode('… '))
+  frag.appendChild(document.createTextNode(flat.slice(start, index)))
+  const mark = document.createElement('mark')
+  mark.textContent = flat.slice(index, index + query.length)
+  frag.appendChild(mark)
+  frag.appendChild(document.createTextNode(flat.slice(index + query.length, end)))
+  if (end < flat.length) frag.appendChild(document.createTextNode(' …'))
+  return frag
+}
+
+function renderMessageResults() {
+  const list = document.getElementById('chat-list')
+  if (!list) return
+  list.querySelectorAll('.message-results-heading, .message-result').forEach(el => el.remove())
+  if (messageSearchResults.length === 0) return
+
+  const emptyHint = document.getElementById('chat-tab-empty-hint')
+  if (emptyHint) emptyHint.remove() // "Nichts gefunden" passt nicht, wenn es Nachrichten-Treffer gibt
+
+  const heading = document.createElement('li')
+  heading.className = 'message-results-heading'
+  heading.textContent = 'Nachrichten'
+  list.appendChild(heading)
+
+  messageSearchResults.forEach(result => {
+    const item = document.createElement('li')
+    item.className = 'message-result'
+    const top = document.createElement('div')
+    top.className = 'message-result-top'
+    const chatName = document.createElement('span')
+    chatName.className = 'message-result-chat'
+    chatName.textContent = messageResultChatLabel(result)
+    const time = document.createElement('span')
+    time.className = 'message-result-time'
+    time.textContent = formatChatListTime(result.created_at)
+    top.append(chatName, time)
+
+    const text = document.createElement('div')
+    text.className = 'message-result-text'
+    const author = document.createElement('span')
+    author.className = 'message-result-author'
+    author.textContent = (result.sender_id === currentUser.id ? 'Du' : nameOfUser(result.sender_id)) + ': '
+    text.appendChild(author)
+    text.appendChild(buildMatchSnippet(result.text, messageSearchQuery))
+
+    item.append(top, text)
+    item.addEventListener('click', () => openMessageResult(result))
+    list.appendChild(item)
+  })
+}
+
+function openMessageResult(result) {
+  const query = messageSearchQuery
+  if (result.table === 'messages') {
+    const key = result.group_key
+    if (!key) openGroupChat()
+    else if (key === 'junge') openGenderGroup('junge', 'Jungs')
+    else if (key === 'maedchen') openGenderGroup('maedchen', 'Mädels')
+    else if (key.startsWith('grp_')) openCustomGroup(key.slice(4))
+  } else if (isAdmin()) {
+    openAdminDmView(result.sender_id, result.recipient_id, nameOfUser(result.sender_id), nameOfUser(result.recipient_id))
+  } else {
+    const partner = result.sender_id === currentUser.id ? result.recipient_id : result.sender_id
+    openDirectChat(partner, nameOfUser(partner))
+  }
+  jumpToMessageWhenLoaded(result.id, query)
+}
+
+// Wartet, bis der Chat geladen ist, öffnet dann die Chat-Suche mit demselben Begriff und springt zur Nachricht
+function jumpToMessageWhenLoaded(messageId, query) {
+  const startedAt = Date.now()
+  const timer = setInterval(() => {
+    const row = document.querySelector('#chat-box .msg-row[data-id="' + messageId + '"]')
+    if (!row) {
+      if (Date.now() - startedAt > 6000) clearInterval(timer) // Nachricht nicht mehr da (gelöscht oder aus den 300 gefallen)
+      return
+    }
+    clearInterval(timer)
+    const bar = document.getElementById('chat-search-bar')
+    bar.style.display = ''
+    document.getElementById('chat-search-input').value = query
+    chatSearchMatches = findChatSearchMatches(query)
+    const found = chatSearchMatches.indexOf(row)
+    chatSearchIndex = found >= 0 ? found : chatSearchMatches.length - 1
+    showChatSearchResult()
+    if (found < 0) row.scrollIntoView({ block: 'center' })
+  }, 150)
 }
 
 // ===== Suche im Chat =====
