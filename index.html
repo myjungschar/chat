@@ -499,7 +499,19 @@
           <span id="conversation-title" onclick="onConversationTitleClick()">JungscharChat</span>
           <span id="online-status" class="online-status" style="display: none;" onclick="openOnlineList()"></span>
         </div>
+        <button type="button" class="chat-search-toggle" id="chat-search-toggle" onclick="toggleChatSearch()" aria-label="Im Chat suchen" title="Im Chat suchen">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        </button>
       </header>
+
+      <!-- Suche im geöffneten Chat (nur sichtbar nach Tipp auf die Lupe) -->
+      <div id="chat-search-bar" class="chat-search-bar" style="display: none;">
+        <input type="search" id="chat-search-input" placeholder="Im Chat suchen" autocomplete="off" aria-label="Im Chat suchen" oninput="onChatSearchInput()" onkeydown="onChatSearchKey(event)">
+        <span id="chat-search-count" class="chat-search-count" aria-live="polite"></span>
+        <button type="button" class="chat-search-nav" onclick="stepChatSearch(-1)" aria-label="Älterer Treffer">▲</button>
+        <button type="button" class="chat-search-nav" onclick="stepChatSearch(1)" aria-label="Neuerer Treffer">▼</button>
+        <button type="button" class="chat-search-nav" onclick="toggleChatSearch()" aria-label="Suche schließen">✕</button>
+      </div>
 
       <!-- Angepinnte Nachricht (nur sichtbar, wenn in diesem Chat eine angepinnt ist) -->
       <div id="pin-bar" class="pin-bar" style="display: none;" onclick="onPinBarClick()" role="button" tabindex="0">

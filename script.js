@@ -1185,6 +1185,7 @@ async function loadMessages() {
   lastMessageDateKey = null
   reactionMap = messages.length ? await loadReactionsFor(messages.map(m => m.id)) : {}
   const unreadFromId = firstUnreadMessageId(messages)
+  closeChatSearch() // Suche gehört zum bisherigen Chat
   suppressMissedCount = true // beim Laden des Verlaufs zählt nichts als "verpasst"
   messages.forEach(msg => renderMessage(msg))
   suppressMissedCount = false
@@ -7619,6 +7620,109 @@ function updateMembersModalButtons() {
   const mine = !!group && !!currentUser && group.created_by === currentUser.id
   document.getElementById('members-edit-btn').style.display = group && (isAdmin() || mine) ? '' : 'none'
   document.getElementById('members-leave-btn').style.display = group && !isAdmin() && !mine ? '' : 'none'
+}
+
+// ===== Suche im Chat =====
+// Durchsucht die geladenen Nachrichten des geöffneten Chats (Text und Audio-Titel), ohne Groß-/Kleinschreibung und
+// Umlaut-Unterschiede. Treffer werden markiert, mit den Pfeilen springt man von Treffer zu Treffer (zuerst der neueste).
+let chatSearchMatches = []
+let chatSearchIndex = -1
+let chatSearchTimer = null
+
+function normalizeSearchText(text) {
+  return String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+// Text einer Nachricht ohne die Uhrzeit-Zeile
+function searchableTextOf(row) {
+  const parts = []
+  const textEl = row.querySelector('.msg-text')
+  if (textEl) {
+    textEl.childNodes.forEach(node => {
+      if (node.nodeType === 1 && node.classList.contains('msg-footer')) return
+      parts.push(node.nodeType === 1 && node.tagName === 'IMG' ? node.alt || '' : node.textContent)
+    })
+  }
+  const audioTitle = row.querySelector('.msg-audio-title')
+  if (audioTitle) parts.push(audioTitle.textContent)
+  return parts.join(' ')
+}
+
+function findChatSearchMatches(query) {
+  const needle = normalizeSearchText(query).trim()
+  if (!needle) return []
+  return Array.from(document.querySelectorAll('#chat-box .msg-row')).filter(row => normalizeSearchText(searchableTextOf(row)).includes(needle))
+}
+
+function clearChatSearchMarks() {
+  document.querySelectorAll('#chat-box .search-hit, #chat-box .search-current').forEach(el => el.classList.remove('search-hit', 'search-current'))
+}
+
+function showChatSearchResult() {
+  const countEl = document.getElementById('chat-search-count')
+  const query = document.getElementById('chat-search-input').value.trim()
+  clearChatSearchMarks()
+  chatSearchMatches.forEach(row => row.classList.add('search-hit'))
+
+  if (chatSearchMatches.length === 0) {
+    countEl.textContent = query ? 'Kein Treffer' : ''
+    return
+  }
+  const current = chatSearchMatches[chatSearchIndex]
+  current.classList.add('search-current')
+  current.scrollIntoView({ block: 'center' })
+  countEl.textContent = (chatSearchIndex + 1) + ' / ' + chatSearchMatches.length
+}
+
+function runChatSearch() {
+  const query = document.getElementById('chat-search-input').value
+  chatSearchMatches = findChatSearchMatches(query)
+  chatSearchIndex = chatSearchMatches.length - 1 // neuester Treffer zuerst
+  showChatSearchResult()
+}
+
+function onChatSearchInput() {
+  clearTimeout(chatSearchTimer)
+  chatSearchTimer = setTimeout(runChatSearch, 150)
+}
+
+// Richtung -1 = ältere Nachricht, +1 = neuere
+function stepChatSearch(direction) {
+  if (chatSearchMatches.length === 0) return
+  chatSearchIndex = (chatSearchIndex + direction + chatSearchMatches.length) % chatSearchMatches.length
+  showChatSearchResult()
+}
+
+function onChatSearchKey(event) {
+  if (event.key === 'Escape') {
+    toggleChatSearch()
+  } else if (event.key === 'Enter') {
+    event.preventDefault()
+    if (document.getElementById('chat-search-input').value.trim() && chatSearchMatches.length === 0) runChatSearch()
+    stepChatSearch(event.shiftKey ? 1 : -1)
+  }
+}
+
+function closeChatSearch() {
+  clearTimeout(chatSearchTimer)
+  const bar = document.getElementById('chat-search-bar')
+  if (!bar) return
+  bar.style.display = 'none'
+  document.getElementById('chat-search-input').value = ''
+  document.getElementById('chat-search-count').textContent = ''
+  chatSearchMatches = []
+  chatSearchIndex = -1
+  clearChatSearchMarks()
+}
+
+function toggleChatSearch() {
+  const bar = document.getElementById('chat-search-bar')
+  if (bar.style.display === 'none') {
+    bar.style.display = ''
+    document.getElementById('chat-search-input').focus()
+  } else {
+    closeChatSearch()
+  }
 }
 
 // ===== Knopf "nach unten" =====
