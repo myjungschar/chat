@@ -14,6 +14,9 @@ Ein privater, webbasierter Gruppen-Chat für unsere Jungschar mit Login-System u
 * 👥 **Eigene Gruppen:** Jedes Mitglied kann Gruppen erstellen (Einstellungen → "Neue Gruppe erstellen"). Der Admin kann das pro Person abschalten.
 * 🔕 **Stummschalten:** Rechtsklick oder langes Drücken auf eine Gruppe in der Chatliste. Stummgeschaltete Gruppen machen keinen Ton und schicken keine Push-Meldung. Eigene Gruppen können dort auch gelöscht werden (Ersteller und Admin).
 * 😀 **Nachrichten:** Reaktionen, Antworten, Umfragen, Anpinnen, Fotos und Audio, "tippt …"-Anzeige, Lesehäkchen.
+* 🎵 **Audio:** MP3, M4A und WAV bis 50 MB mit eigenem Player (Spulen, Geschwindigkeit, Herunterladen per Rechtsklick oder langem Drücken). Der Dateiname lässt sich vor dem Senden ändern.
+* 🌗 **Dunkel/Hell:** Die App folgt dem Modus des Geräts, man kann ihn in den Einstellungen aber auch selbst wählen.
+* 🧭 **Orientierung im Chat:** Linie „neue Nachrichten“ beim Öffnen und ein Knopf „nach unten“ mit Zähler.
 * 🔔 **Benachrichtigungen:** Web-Push (auch bei geschlossener App) und ein Ton mit einstellbarer Lautstärke.
 * 🎂 **Profile und Geburtstage:** Geburtsdatum, Profil-Pop-up und Geburtstags-Pop-up mit Konfetti. Die Profilfarbe kann der Admin ändern.
 * 🛡️ **Sicherheit & Datenbank:** XSS-Schutz für Nachrichten, Rechte über Row Level Security und Datenbankfunktionen, automatischer Ringpuffer in PostgreSQL (max. 300 Nachrichten pro Chat).

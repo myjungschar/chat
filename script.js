@@ -1185,7 +1185,10 @@ async function loadMessages() {
   lastMessageDateKey = null
   reactionMap = messages.length ? await loadReactionsFor(messages.map(m => m.id)) : {}
   const unreadFromId = firstUnreadMessageId(messages)
+  suppressMissedCount = true // beim Laden des Verlaufs zählt nichts als "verpasst"
   messages.forEach(msg => renderMessage(msg))
+  suppressMissedCount = false
+  resetMissedCount()
   await loadPollsForRoom() // fügt sich zeitlich passend zwischen die Nachrichten ein
   await loadPinForRoom() // angepinnte Nachricht (Leiste oben + Hinweis im Verlauf)
 
@@ -3469,6 +3472,7 @@ function renderMessage(msg) {
   chatBox.appendChild(row)
   applyEmojiImages(row)
   if (nearBottom || isOwn) chatBox.scrollTop = chatBox.scrollHeight
+  else if (!suppressMissedCount) noteMissedMessage() // man liest weiter oben: der Knopf "nach unten" zeigt, wie viele neu sind
 }
 
 // ===== Häkchen und Nachrichten-Info =====
@@ -7616,6 +7620,62 @@ function updateMembersModalButtons() {
   document.getElementById('members-edit-btn').style.display = group && (isAdmin() || mine) ? '' : 'none'
   document.getElementById('members-leave-btn').style.display = group && !isAdmin() && !mine ? '' : 'none'
 }
+
+// ===== Knopf "nach unten" =====
+// Erscheint, sobald man im Chat ein Stück nach oben gescrollt hat. Kommen währenddessen neue Nachrichten, steht deren
+// Anzahl am Knopf. Er hängt per "fixed" über dem Chatfenster und wird bei jedem Scrollen oder Drehen neu platziert.
+let suppressMissedCount = false
+let missedWhileScrolledUp = 0
+let scrollDownBtn = null
+let scrollDownBadge = null
+
+function noteMissedMessage() {
+  missedWhileScrolledUp++
+  updateScrollDownButton()
+}
+
+function resetMissedCount() {
+  missedWhileScrolledUp = 0
+  updateScrollDownButton()
+}
+
+function updateScrollDownButton() {
+  if (!scrollDownBtn) return
+  const chatBox = document.getElementById('chat-box')
+  const rect = chatBox.getBoundingClientRect()
+  const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight
+  const visible = rect.height > 0 && distance > 240
+
+  if (distance < 80) missedWhileScrolledUp = 0 // wieder unten angekommen
+  scrollDownBtn.classList.toggle('visible', visible)
+  if (!visible) return
+
+  scrollDownBtn.style.right = Math.max(8, window.innerWidth - rect.right + 12) + 'px'
+  scrollDownBtn.style.bottom = Math.max(8, window.innerHeight - rect.bottom + 12) + 'px'
+  scrollDownBadge.textContent = missedWhileScrolledUp > 99 ? '99+' : String(missedWhileScrolledUp)
+  scrollDownBadge.style.display = missedWhileScrolledUp > 0 ? '' : 'none'
+}
+
+function initScrollDownButton() {
+  const chatBox = document.getElementById('chat-box')
+  scrollDownBtn = document.createElement('button')
+  scrollDownBtn.type = 'button'
+  scrollDownBtn.className = 'scroll-down-btn'
+  scrollDownBtn.setAttribute('aria-label', 'Nach unten zu den neuesten Nachrichten')
+  scrollDownBtn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg><span class="scroll-down-badge" style="display: none;"></span>'
+  scrollDownBadge = scrollDownBtn.querySelector('.scroll-down-badge')
+  document.body.appendChild(scrollDownBtn)
+
+  scrollDownBtn.addEventListener('click', () => {
+    chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: 'smooth' })
+  })
+  chatBox.addEventListener('scroll', updateScrollDownButton, { passive: true })
+  window.addEventListener('resize', updateScrollDownButton)
+  // Wird das Chatfenster ausgeblendet (zurück zur Liste), verschwindet auch der Knopf
+  if (window.IntersectionObserver) new IntersectionObserver(updateScrollDownButton).observe(chatBox)
+}
+
+initScrollDownButton()
 
 // ===== Stummschalten und Kontextmenü der Chatliste =====
 // Stummgeschaltet werden können die Hauptgruppe, Jungs, Mädels und eigene Gruppen (Tabelle muted_chats, jede Person sieht
