@@ -3408,10 +3408,11 @@ function renderMessage(msg) {
   const canReply = !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   const canCopy = !!msg.text
   const canDownloadAudio = !!msg.audio_id
+  const canReport = !isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   // Info (wer hat die Nachricht gelesen/bekommen) und Häkchen gibt es für eigene Nachrichten in Einzelchat und Gruppe
   const canInfo = READ_RECEIPTS_ENABLED && isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
 
-  attachMessageMenuTriggers(msgElement, msg, { canEdit, canDelete, canReact, canInfo, canReply, canCopy, canDownloadAudio })
+  attachMessageMenuTriggers(msgElement, msg, { canEdit, canDelete, canReact, canInfo, canReply, canCopy, canDownloadAudio, canReport })
 
   const textEl = document.createElement('div')
   textEl.className = 'msg-text'
@@ -4138,6 +4139,17 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
         startReplyingTo(msg.id)
       })
       menu.appendChild(replyItem)
+    }
+
+    if (options.canReport) {
+      const reportItem = document.createElement('button')
+      reportItem.className = 'msg-menu-item danger'
+      reportItem.textContent = 'Melden'
+      reportItem.addEventListener('click', () => {
+        closeMessageMenu()
+        reportMessage(msg)
+      })
+      menu.appendChild(reportItem)
     }
 
     if (options.canDownloadAudio) {
@@ -4966,6 +4978,7 @@ function openSettings() {
   document.getElementById('admin-group').style.display = isAdmin() ? '' : 'none'
   document.getElementById('push-group').style.display = isAdmin() ? 'none' : ''
   updateNewGroupButton()
+  if (isAdmin()) updateReportsBadge()
   refreshPushToggleUI()
   updateInstallMenu()
 }
@@ -7621,6 +7634,173 @@ function updateMembersModalButtons() {
   const mine = !!group && !!currentUser && group.created_by === currentUser.id
   document.getElementById('members-edit-btn').style.display = group && (isAdmin() || mine) ? '' : 'none'
   document.getElementById('members-leave-btn').style.display = group && !isAdmin() && !mine ? '' : 'none'
+}
+
+// ===== Nachrichten melden =====
+// Mitglieder melden eine Nachricht über das Menü der Nachricht. Der Server speichert dabei einen Auszug
+// (Funktion report_message). Der Admin sieht die offenen Meldungen unter Einstellungen > Verwaltung > Meldungen.
+async function reportMessage(msg) {
+  if (!currentUser || isAdmin()) return
+  const ok = await askConfirm('Diese Nachricht dem Admin melden?', { okText: 'Melden', danger: true })
+  if (!ok) return
+  const { error } = await supabaseClient.rpc('report_message', { p_table: currentTable(), p_message_id: String(msg.id) })
+  if (error) {
+    showToast('Melden hat nicht geklappt: ' + error.message)
+    return
+  }
+  showToast('Danke, die Nachricht wurde dem Admin gemeldet.', 'success')
+}
+
+let openReports = []
+
+async function loadOpenReports() {
+  const { data, error } = await supabaseClient
+    .from('message_reports')
+    .select('*')
+    .eq('resolved', false)
+    .order('created_at', { ascending: false })
+    .limit(100)
+  if (error) {
+    openReports = []
+    return false
+  }
+  openReports = data || []
+  return true
+}
+
+async function updateReportsBadge() {
+  const badge = document.getElementById('reports-badge')
+  if (!badge || !isAdmin()) return
+  await loadOpenReports()
+  badge.textContent = String(openReports.length)
+  badge.style.display = openReports.length > 0 ? '' : 'none'
+}
+
+function reportChatLabel(report) {
+  const key = report.chat_key
+  if (report.message_table === 'direct_messages') {
+    const other = profileCache[report.recipient_id]
+    return 'Einzelchat' + (other && other.name ? ' mit ' + other.name : '')
+  }
+  if (!key) return 'Hauptgruppe'
+  if (key === 'junge') return 'Jungs'
+  if (key === 'maedchen') return 'Mädels'
+  if (key.startsWith('grp_')) {
+    const group = chatGroups[key.slice(4)]
+    return group ? group.name : 'Eigene Gruppe'
+  }
+  return key
+}
+
+function reportContentText(report) {
+  const parts = []
+  if (report.message_text) parts.push(report.message_text)
+  if (report.has_photo) parts.push('[Foto]')
+  if (report.has_audio) parts.push('[Audio]')
+  return parts.join(' ') || '(ohne Text)'
+}
+
+async function openReportsModal() {
+  if (!isAdmin()) return
+  const overlay = document.createElement('div')
+  overlay.className = 'confirm-overlay'
+  const dialog = document.createElement('div')
+  dialog.className = 'confirm-dialog reports-dialog'
+  dialog.setAttribute('role', 'dialog')
+  dialog.setAttribute('aria-modal', 'true')
+  overlay.appendChild(dialog)
+  document.body.appendChild(overlay)
+
+  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); updateReportsBadge() }
+  const onKey = (e) => { if (e.key === 'Escape') close() }
+  document.addEventListener('keydown', onKey)
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+
+  const render = () => {
+    dialog.innerHTML = ''
+    const heading = document.createElement('p')
+    heading.className = 'audio-name-heading'
+    heading.textContent = openReports.length === 0 ? 'Keine offenen Meldungen' : 'Meldungen (' + openReports.length + ')'
+    dialog.appendChild(heading)
+
+    const list = document.createElement('div')
+    list.className = 'reports-list'
+    openReports.forEach(report => {
+      const item = document.createElement('div')
+      item.className = 'report-item'
+
+      const sender = profileCache[report.sender_id]
+      const reporter = profileCache[report.reporter_id]
+      const head = document.createElement('div')
+      head.className = 'report-head'
+      head.textContent = (sender && sender.name ? sender.name : 'Unbekannt') + ' · ' + reportChatLabel(report)
+      const text = document.createElement('div')
+      text.className = 'report-text'
+      text.textContent = reportContentText(report)
+      const meta = document.createElement('div')
+      meta.className = 'report-meta'
+      meta.textContent = 'Gemeldet von ' + (reporter && reporter.name ? reporter.name : 'Unbekannt') + ', ' + formatTime(report.created_at)
+
+      const actions = document.createElement('div')
+      actions.className = 'report-actions'
+      const doneBtn = document.createElement('button')
+      doneBtn.type = 'button'
+      doneBtn.className = 'confirm-cancel'
+      doneBtn.textContent = 'Erledigt'
+      doneBtn.addEventListener('click', () => resolveReport(report, false))
+      const deleteBtn = document.createElement('button')
+      deleteBtn.type = 'button'
+      deleteBtn.className = 'confirm-ok danger'
+      deleteBtn.textContent = 'Nachricht löschen'
+      deleteBtn.addEventListener('click', () => resolveReport(report, true))
+      actions.append(doneBtn, deleteBtn)
+
+      item.append(head, text, meta, actions)
+      list.appendChild(item)
+    })
+    dialog.appendChild(list)
+
+    const closeBtn = document.createElement('button')
+    closeBtn.type = 'button'
+    closeBtn.className = 'confirm-cancel'
+    closeBtn.textContent = 'Schließen'
+    closeBtn.addEventListener('click', close)
+    dialog.appendChild(closeBtn)
+  }
+
+  const resolveReport = async (report, deleteMessage) => {
+    if (deleteMessage) {
+      const sure = await askConfirm('Die gemeldete Nachricht für alle löschen?', { okText: 'Löschen', danger: true })
+      if (!sure) return
+      const { error } = await supabaseClient.from(report.message_table).delete().eq('id', report.message_id)
+      if (error) { showToast('Löschen hat nicht geklappt: ' + error.message); return }
+    }
+    // Alle Meldungen zu derselben Nachricht gleich mit erledigen
+    const { error } = await supabaseClient
+      .from('message_reports')
+      .update({ resolved: true })
+      .eq('message_table', report.message_table)
+      .eq('message_id', report.message_id)
+    if (error) { showToast('Speichern hat nicht geklappt: ' + error.message); return }
+    openReports = openReports.filter(r => !(r.message_table === report.message_table && r.message_id === report.message_id))
+    render()
+    renderChatList()
+  }
+
+  const loaded = await loadOpenReports()
+  if (!loaded) {
+    dialog.innerHTML = ''
+    const info = document.createElement('p')
+    info.textContent = 'Die Meldungen konnten nicht geladen werden (ist das SQL schon ausgeführt?).'
+    const closeBtn = document.createElement('button')
+    closeBtn.type = 'button'
+    closeBtn.className = 'confirm-cancel'
+    closeBtn.textContent = 'Schließen'
+    closeBtn.addEventListener('click', close)
+    dialog.append(info, closeBtn)
+    return
+  }
+  render()
 }
 
 // ===== Suche im Chat =====
