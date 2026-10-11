@@ -176,11 +176,15 @@ let pendingEmailLink = null
 
 function showLinkConfirm() {
   const isInvite = pendingEmailLink.type === 'invite' || pendingEmailLink.type === 'invite-token'
-  document.getElementById('link-confirm-title').textContent = isInvite ? 'Willkommen!' : 'Neues Passwort'
-  document.getElementById('link-confirm-text').textContent = isInvite
-    ? 'Schön, dass du dabei bist! Tippe auf den Knopf und lege dein Passwort fest.'
-    : 'Tippe auf den Knopf und lege dein neues Passwort fest.'
+  const text = document.getElementById('link-confirm-text')
+  const btn = document.getElementById('link-confirm-btn')
+  // Einladung: kein Zwischen-Schild, nur kurz "Einen Moment …" - danach geht es direkt zum Passwort-Bildschirm
+  document.getElementById('link-confirm-title').textContent = isInvite ? 'Einen Moment …' : 'Neues Passwort'
+  text.textContent = 'Tippe auf den Knopf und lege dein neues Passwort fest.'
+  text.style.display = isInvite ? 'none' : ''
+  btn.style.display = isInvite ? 'none' : ''
   showScreen('link-confirm-bereich')
+  if (isInvite) confirmEmailLink()
 }
 
 async function confirmEmailLink() {
@@ -440,7 +444,10 @@ async function fillResetUsername(userId) {
 
 function showPasswordReset() {
   document.getElementById('reset-heading').textContent = 'Neues Passwort setzen'
-  document.getElementById('reset-subtext').textContent = 'Bitte vergib ein neues Passwort, bevor es weitergeht.'
+  const subtext = document.getElementById('reset-subtext')
+  subtext.textContent = 'Bitte vergib ein neues Passwort, bevor es weitergeht.'
+  subtext.style.display = ''
+  document.getElementById('reset-username-hint').style.display = 'none'
   showScreen('reset-bereich')
 }
 
@@ -454,10 +461,13 @@ async function showInviteSetup(userId) {
     .single()
 
   const name = profile?.display_name
+  // Benutzername = alles vor dem @ der E-Mail (so steht er im Profil); begrüßt wird mit dem Vornamen
+  const firstName = name ? name.split(/[.\s]+/)[0] : ''
+  const greeting = firstName ? firstName.charAt(0).toUpperCase() + firstName.slice(1) : ''
   document.getElementById('reset-username').value = name || ''
-  document.getElementById('reset-heading').textContent = name ? `Willkommen, ${name}!` : 'Willkommen!'
-  document.getElementById('reset-subtext').textContent =
-    'Du wurdest eingeladen. Vergib zuerst ein eigenes Passwort, bevor es weitergeht.'
+  document.getElementById('reset-heading').textContent = greeting ? `Willkommen, ${greeting}!` : 'Willkommen!'
+  document.getElementById('reset-subtext').style.display = 'none'
+  document.getElementById('reset-username-hint').style.display = ''
   showScreen('reset-bereich')
 }
 

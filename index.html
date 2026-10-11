@@ -86,17 +86,17 @@
 
       <button id="login-btn" onclick="login()">Einloggen</button>
       <button type="button" id="forgot-password-btn" class="link-btn" onclick="showForgotScreen()">Passwort vergessen?</button>
-      <!-- Eigener Bereich, damit er nicht wie "Passwort vergessen?" aussieht -->
-      <div class="invite-help">
-        <p>Zum ersten Mal hier?</p>
-        <button type="button" id="invite-help-btn" class="invite-help-btn" onclick="showInviteRequestScreen()">Einladung hat nicht geklappt?</button>
-      </div>
 
       <!-- Erscheint nur, wenn auf diesem Gerät eine Einladung begonnen und abgebrochen wurde -->
       <div id="pending-invite" class="pending-invite" style="display: none;">
         <p>Du hast eine Einladung begonnen, aber noch kein Passwort gesetzt.</p>
         <button type="button" onclick="resumePendingInvite()">Einladung fortsetzen</button>
       </div>
+      <!-- Kleine Pille unten links, auf einer Höhe mit dem "i" - sieht bewusst anders aus als "Passwort vergessen?" -->
+      <button type="button" id="invite-help-btn" class="invite-help-chip" onclick="showInviteRequestScreen()">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+        <span>Einladung hat nicht geklappt?</span>
+      </button>
       <button type="button" id="about-toggle-btn" class="info-corner-btn" onclick="toggleAboutInline()" aria-label="Wer wir sind">
         <span class="info-text-i">i</span>
       </button>
@@ -162,6 +162,7 @@
       <div class="input-group">
         <label for="reset-username">Benutzername</label>
         <input type="text" id="reset-username" autocomplete="username" readonly>
+        <p id="reset-username-hint" class="reset-username-hint" style="display: none;">Damit meldest du dich später an.</p>
       </div>
 
       <div class="input-group">

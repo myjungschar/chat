@@ -4612,32 +4612,39 @@ body.split-view #settings-bereich .settings-groups {
   font-weight: 700;
 }
 
-/* ===== "Einladung hat nicht geklappt?" im Login-Fenster: eigener Bereich, anders als "Passwort vergessen?" ===== */
-.invite-help {
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border-subtle);
-  text-align: center;
-}
-
-.invite-help p {
-  margin: 0 0 8px;
-  font-size: 13px;
+/* ===== "Einladung hat nicht geklappt?" im Login-Fenster: kleine Pille unten links, auf einer Höhe mit dem "i" ===== */
+.invite-help-chip {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  width: auto;
+  height: 24px;
+  padding: 0 10px 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
   color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
-.invite-help-btn {
-  width: 100%;
-  padding: 10px 14px;
-  background: transparent;
-  border: 1px solid var(--accent);
-  border-radius: 10px;
+.invite-help-chip:hover {
+  background: var(--bg-input);
+  border-color: var(--accent);
   color: var(--accent);
-  font-size: 14px;
-  font-weight: 600;
 }
 
-.invite-help-btn:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
+.invite-help-chip svg {
+  flex-shrink: 0;
+}
+
+/* Hinweis unter dem Benutzernamen auf dem Passwort-setzen-Bildschirm (Einladung) */
+.reset-username-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
