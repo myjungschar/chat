@@ -4541,68 +4541,13 @@ body.split-view #settings-bereich .settings-groups {
   background: var(--bg-input);
 }
 
-/* ===== Graue Platzhalter beim Laden ===== */
-@keyframes skeleton-shimmer {
-  0% { background-position: 100% 0; }
-  100% { background-position: -100% 0; }
+/* ===== Platzhalter beim Laden: leere Einträge in der Form der echten (kein Text, nichts klickbar) ===== */
+.chat-list-placeholder {
+  pointer-events: none;
 }
 
-.skeleton-circle,
-.skeleton-line,
-.skeleton-bubble {
-  background: linear-gradient(90deg, var(--bg-input) 25%, rgba(127, 127, 127, 0.22) 50%, var(--bg-input) 75%);
-  background-size: 200% 100%;
-  animation: skeleton-shimmer 1.4s ease-in-out infinite;
-}
-
-.chat-list-skeleton {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 6px;
-  list-style: none;
-}
-
-.skeleton-circle {
-  flex-shrink: 0;
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
-}
-
-.skeleton-lines {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-}
-
-.skeleton-line {
-  height: 12px;
-  border-radius: 6px;
-}
-
-.skeleton-line.short {
-  height: 10px;
-}
-
-.skeleton-bubble {
-  height: 40px;
-  max-width: 80%;
-  border-radius: 14px;
-  align-self: flex-start;
-}
-
-.skeleton-bubble.own {
-  align-self: flex-end;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .skeleton-circle,
-  .skeleton-line,
-  .skeleton-bubble {
-    animation: none;
-  }
+.chat-list-placeholder .chat-list-avatar {
+  background: var(--bg-input);
 }
 
 /* ===== Nachrichten-Treffer in der Chatliste ===== */
@@ -4665,4 +4610,4 @@ body.split-view #settings-bereich .settings-groups {
   background: transparent;
   color: var(--accent);
   font-weight: 700;
-}
+} 

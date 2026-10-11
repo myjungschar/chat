@@ -86,6 +86,7 @@
 
       <button id="login-btn" onclick="login()">Einloggen</button>
       <button type="button" id="forgot-password-btn" class="link-btn" onclick="showForgotScreen()">Passwort vergessen?</button>
+      <button type="button" id="invite-help-btn" class="link-btn" onclick="showInviteRequestScreen()">Einladung hat nicht geklappt?</button>
 
       <!-- Erscheint nur, wenn auf diesem Gerät eine Einladung begonnen und abgebrochen wurde -->
       <div id="pending-invite" class="pending-invite" style="display: none;">
@@ -120,6 +121,20 @@
       </div>
 
       <button id="forgot-send-btn" onclick="sendPasswordReset()">Link senden</button>
+      <button type="button" class="link-btn" onclick="showLogin()">Zurück zum Login</button>
+    </div>
+
+    <!-- BEREICH 1c: EINLADUNG HAT NICHT GEKLAPPT (E-Mail-Adresse hinterlassen, der Admin schickt eine neue Einladung) -->
+    <div id="invite-request-bereich" class="card" style="display: none;">
+      <h2>Einladung hat nicht geklappt?</h2>
+      <p>Gib die E-Mail-Adresse ein, an die die Einladung ging. Der Admin sieht deine Anfrage und schickt dir eine neue Einladung.</p>
+
+      <div class="input-group">
+        <label for="invite-request-email">E-Mail-Adresse</label>
+        <input type="email" id="invite-request-email" placeholder="name@adresse.de" autocomplete="email">
+      </div>
+
+      <button id="invite-request-btn" onclick="sendInviteRequest()">Anfrage senden</button>
       <button type="button" class="link-btn" onclick="showLogin()">Zurück zum Login</button>
     </div>
 
@@ -304,6 +319,10 @@
               <li id="menu-users" onclick="openUserManagement()">
                 <span>Nutzer verwalten</span>
                 <span class="settings-arrow">›</span>
+              </li>
+              <li id="menu-invite-requests" onclick="openInviteRequestsModal()">
+                <span>Einladungs-Anfragen</span>
+                <span class="settings-arrow"><span class="reports-badge" id="invite-requests-badge" style="display: none;"></span>›</span>
               </li>
               <li id="menu-reports" onclick="openReportsModal()">
                 <span>Meldungen</span>

@@ -219,7 +219,7 @@ async function init() {
 // Am PC (ab 900px Breite) bleibt links immer die Chatliste bzw. Einstellungen sichtbar
 // und rechts steht der geöffnete Chat. Login-Bildschirme bleiben immer einspaltig.
 const desktopQuery = window.matchMedia('(min-width: 900px)')
-const AUTH_SCREENS = ['login-bereich', 'forgot-bereich', 'reset-bereich']
+const AUTH_SCREENS = ['login-bereich', 'forgot-bereich', 'invite-request-bereich', 'reset-bereich']
 const LEFT_SCREENS = ['list-bereich', 'settings-bereich', 'users-bereich', 'admin-contacts-bereich']
 // Rechts: Chat oder die Unterseiten der Einstellungen (am Handy sind das eigene volle Seiten)
 const RIGHT_SCREENS = ['conversation-bereich', 'email-change-bereich', 'password-change-bereich', 'devices-bereich', 'user-detail-bereich', 'new-user-bereich']
@@ -293,6 +293,7 @@ else if (desktopQuery.addListener) desktopQuery.addListener(onLayoutChange)
 function hideAllScreens() {
   document.getElementById('login-bereich').style.display = 'none'
   document.getElementById('forgot-bereich').style.display = 'none'
+  document.getElementById('invite-request-bereich').style.display = 'none'
   document.getElementById('reset-bereich').style.display = 'none'
   document.getElementById('list-bereich').style.display = 'none'
   document.getElementById('settings-bereich').style.display = 'none'
@@ -733,14 +734,17 @@ let activeChatTab = 'alle'
 // Chatliste zusammenbauen: Gruppe angeheftet, danach alle anderen Nutzer
 let chatListRenderId = 0
 
-// Graue Platzhalter (Kreis fürs Bild, zwei Linien), solange die Chatliste zum ersten Mal lädt
+// Solange die Chatliste zum ersten Mal lädt, stehen schon drei leere Einträge in der echten Form da
+// (Rahmen, runder Kreis fürs Bild, gleiche Höhe) - nur ohne Namen und Daten. Keine Balken, kein Blinken.
 function showChatListSkeleton(list) {
   list.innerHTML = ''
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 3; i++) {
     const li = document.createElement('li')
-    li.className = 'chat-list-skeleton'
+    li.className = 'chat-list-item pinned chat-list-placeholder'
     li.setAttribute('aria-hidden', 'true')
-    li.innerHTML = '<div class="skeleton-circle"></div><div class="skeleton-lines"><div class="skeleton-line" style="width:' + (38 + (i * 13) % 30) + '%"></div><div class="skeleton-line short" style="width:' + (55 + (i * 17) % 35) + '%"></div></div>'
+    li.innerHTML = '<div class="chat-list-avatar"></div>' +
+      '<div class="chat-list-text"><div class="chat-list-name">&nbsp;</div><div class="chat-list-preview">&nbsp;</div></div>' +
+      '<div class="chat-list-time-badge"><div class="chat-list-time">&nbsp;</div></div>'
     list.appendChild(li)
   }
 }
@@ -1169,16 +1173,9 @@ function roomIdentity(room) {
   return [room.type, room.groupKey || '', room.userId || '', room.userA || '', room.userB || ''].join('|')
 }
 
+// Beim Wechsel in einen anderen Chat wird das Fenster sofort geleert, damit nicht der alte Chat stehen bleibt
 function showChatBoxSkeleton() {
-  const chatBox = document.getElementById('chat-box')
-  chatBox.innerHTML = ''
-  ;[['62%', false], ['45%', true], ['70%', false], ['38%', true], ['55%', false]].forEach(([width, own]) => {
-    const bubble = document.createElement('div')
-    bubble.className = 'skeleton-bubble' + (own ? ' own' : '')
-    bubble.style.width = width
-    bubble.setAttribute('aria-hidden', 'true')
-    chatBox.appendChild(bubble)
-  })
+  document.getElementById('chat-box').innerHTML = ''
 }
 
 async function loadMessages() {
@@ -5068,7 +5065,7 @@ function openSettings() {
   document.getElementById('admin-group').style.display = isAdmin() ? '' : 'none'
   document.getElementById('push-group').style.display = isAdmin() ? 'none' : ''
   updateNewGroupButton()
-  if (isAdmin()) updateReportsBadge()
+  if (isAdmin()) { updateReportsBadge(); updateInviteRequestsBadge() }
   refreshPushToggleUI()
   updateInstallMenu()
 }
@@ -6882,6 +6879,7 @@ updateOfflineBanner()
 onEnter('username', login)
 onEnter('password', login)
 onEnter('forgot-username', sendPasswordReset)
+onEnter('invite-request-email', sendInviteRequest)
 onEnter('new-user-email', inviteUser)
 
 // ===== Push-Benachrichtigungen (kommen auch an, wenn die Seite gar nicht offen ist) =====
@@ -7828,6 +7826,151 @@ async function forwardMessageTo(msg, target) {
   // Ist das Ziel der Chat, der gerade offen ist, erscheint die Nachricht sofort
   if (target.table === currentTable() && belongsToCurrentRoom(inserted)) renderMessage(inserted)
   renderChatList()
+}
+
+// ===== Einladung hat nicht geklappt: Anfrage aus dem Login-Fenster =====
+// Wer die Einladungs-Mail nicht benutzen konnte, hinterlässt seine E-Mail-Adresse (ohne angemeldet zu sein).
+// Der Server nimmt sie über die Funktion request_invite an (begrenzt pro Stunde), der Admin sieht sie in den Einstellungen.
+function showInviteRequestScreen() {
+  document.getElementById('invite-request-email').value = ''
+  showScreen('invite-request-bereich')
+  document.getElementById('invite-request-email').focus()
+}
+
+async function sendInviteRequest() {
+  const input = document.getElementById('invite-request-email')
+  const btn = document.getElementById('invite-request-btn')
+  const email = input.value.trim()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    showToast('Bitte eine gültige E-Mail-Adresse eingeben.')
+    return
+  }
+  btn.disabled = true
+  const { error } = await supabaseClient.rpc('request_invite', { p_email: email })
+  btn.disabled = false
+  if (error) {
+    const tooMany = /zu viele/i.test(error.message)
+    showToast(tooMany ? 'Gerade sind zu viele Anfragen eingegangen. Bitte versuche es später nochmal.' : 'Das hat nicht geklappt. Bitte versuche es später nochmal.')
+    return
+  }
+  showLogin()
+  showToast('Danke! Der Admin sieht deine Anfrage und schickt dir eine neue Einladung.', 'success')
+}
+
+let inviteRequests = []
+
+async function loadInviteRequests() {
+  const { data, error } = await supabaseClient
+    .from('invite_requests')
+    .select('*')
+    .eq('handled', false)
+    .order('created_at', { ascending: false })
+    .limit(100)
+  if (error) {
+    inviteRequests = []
+    return false
+  }
+  inviteRequests = data || []
+  return true
+}
+
+async function updateInviteRequestsBadge() {
+  const badge = document.getElementById('invite-requests-badge')
+  if (!badge || !isAdmin()) return
+  await loadInviteRequests()
+  badge.textContent = String(inviteRequests.length)
+  badge.style.display = inviteRequests.length > 0 ? '' : 'none'
+}
+
+async function openInviteRequestsModal() {
+  if (!isAdmin()) return
+  const overlay = document.createElement('div')
+  overlay.className = 'confirm-overlay'
+  const dialog = document.createElement('div')
+  dialog.className = 'confirm-dialog reports-dialog'
+  dialog.setAttribute('role', 'dialog')
+  dialog.setAttribute('aria-modal', 'true')
+  overlay.appendChild(dialog)
+  document.body.appendChild(overlay)
+
+  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); updateInviteRequestsBadge() }
+  const onKey = (e) => { if (e.key === 'Escape') close() }
+  document.addEventListener('keydown', onKey)
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+
+  const markHandled = async (request) => {
+    const { error } = await supabaseClient.from('invite_requests').update({ handled: true }).eq('id', request.id)
+    if (error) { showToast('Speichern hat nicht geklappt: ' + error.message); return false }
+    inviteRequests = inviteRequests.filter(r => r.id !== request.id)
+    return true
+  }
+
+  const render = () => {
+    dialog.innerHTML = ''
+    const heading = document.createElement('p')
+    heading.className = 'audio-name-heading'
+    heading.textContent = inviteRequests.length === 0 ? 'Keine offenen Anfragen' : 'Einladungs-Anfragen (' + inviteRequests.length + ')'
+    dialog.appendChild(heading)
+
+    const list = document.createElement('div')
+    list.className = 'reports-list'
+    inviteRequests.forEach(request => {
+      const item = document.createElement('div')
+      item.className = 'report-item'
+      const head = document.createElement('div')
+      head.className = 'report-head'
+      head.textContent = request.email
+      const meta = document.createElement('div')
+      meta.className = 'report-meta'
+      meta.textContent = 'Angefragt ' + formatTime(request.created_at)
+
+      const actions = document.createElement('div')
+      actions.className = 'report-actions'
+      const doneBtn = document.createElement('button')
+      doneBtn.type = 'button'
+      doneBtn.className = 'confirm-cancel'
+      doneBtn.textContent = 'Erledigt'
+      doneBtn.addEventListener('click', async () => { if (await markHandled(request)) render() })
+      const inviteBtn = document.createElement('button')
+      inviteBtn.type = 'button'
+      inviteBtn.className = 'confirm-ok'
+      inviteBtn.textContent = 'Einladen'
+      inviteBtn.addEventListener('click', async () => {
+        // Die Einladungsseite öffnet sich mit der E-Mail-Adresse schon eingetragen; es fehlen nur Junge/Mädchen
+        close()
+        openNewUser()
+        document.getElementById('new-user-email').value = request.email
+        updateInviteButton()
+        await markHandled(request)
+        updateInviteRequestsBadge()
+      })
+      actions.append(doneBtn, inviteBtn)
+
+      item.append(head, meta, actions)
+      list.appendChild(item)
+    })
+    dialog.appendChild(list)
+
+    const closeBtn = document.createElement('button')
+    closeBtn.type = 'button'
+    closeBtn.className = 'confirm-cancel'
+    closeBtn.textContent = 'Schließen'
+    closeBtn.addEventListener('click', close)
+    dialog.appendChild(closeBtn)
+  }
+
+  if (!(await loadInviteRequests())) {
+    const info = document.createElement('p')
+    info.textContent = 'Die Anfragen konnten nicht geladen werden (ist das SQL schon ausgeführt?).'
+    const closeBtn = document.createElement('button')
+    closeBtn.type = 'button'
+    closeBtn.className = 'confirm-cancel'
+    closeBtn.textContent = 'Schließen'
+    closeBtn.addEventListener('click', close)
+    dialog.append(info, closeBtn)
+    return
+  }
+  render()
 }
 
 // ===== Nachrichten melden =====
