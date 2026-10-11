@@ -86,7 +86,11 @@
 
       <button id="login-btn" onclick="login()">Einloggen</button>
       <button type="button" id="forgot-password-btn" class="link-btn" onclick="showForgotScreen()">Passwort vergessen?</button>
-      <button type="button" id="invite-help-btn" class="link-btn" onclick="showInviteRequestScreen()">Einladung hat nicht geklappt?</button>
+      <!-- Eigener Bereich, damit er nicht wie "Passwort vergessen?" aussieht -->
+      <div class="invite-help">
+        <p>Zum ersten Mal hier?</p>
+        <button type="button" id="invite-help-btn" class="invite-help-btn" onclick="showInviteRequestScreen()">Einladung hat nicht geklappt?</button>
+      </div>
 
       <!-- Erscheint nur, wenn auf diesem Gerät eine Einladung begonnen und abgebrochen wurde -->
       <div id="pending-invite" class="pending-invite" style="display: none;">
@@ -127,7 +131,7 @@
     <!-- BEREICH 1c: EINLADUNG HAT NICHT GEKLAPPT (E-Mail-Adresse hinterlassen, der Admin schickt eine neue Einladung) -->
     <div id="invite-request-bereich" class="card" style="display: none;">
       <h2>Einladung hat nicht geklappt?</h2>
-      <p>Gib die E-Mail-Adresse ein, an die die Einladung ging. Der Admin sieht deine Anfrage und schickt dir eine neue Einladung.</p>
+      <p id="invite-request-note">Gib die E-Mail-Adresse ein, an die die Einladung ging. Der Admin sieht deine Anfrage und schickt dir eine neue Einladung.</p>
 
       <div class="input-group">
         <label for="invite-request-email">E-Mail-Adresse</label>
@@ -136,6 +140,13 @@
 
       <button id="invite-request-btn" onclick="sendInviteRequest()">Anfrage senden</button>
       <button type="button" class="link-btn" onclick="showLogin()">Zurück zum Login</button>
+    </div>
+
+    <!-- BEREICH 1d: LINK AUS DER E-MAIL BESTÄTIGEN (erst der Tipp auf den Knopf verbraucht den Link; Mail-Scanner klicken keine Knöpfe) -->
+    <div id="link-confirm-bereich" class="card" style="display: none;">
+      <h2 id="link-confirm-title">Willkommen!</h2>
+      <p id="link-confirm-text">Tippe auf den Knopf und lege dein Passwort fest.</p>
+      <button id="link-confirm-btn" onclick="confirmEmailLink()">Passwort festlegen</button>
     </div>
 
     <!-- BEREICH 2: NEUES PASSWORT SETZEN (nach Klick auf den Link aus der E-Mail) -->

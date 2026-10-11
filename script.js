@@ -172,6 +172,68 @@ function toggleAboutInline() {
 
 applyStoredTheme()
 
+let pendingEmailLink = null
+
+function showLinkConfirm() {
+  const isInvite = pendingEmailLink.type === 'invite' || pendingEmailLink.type === 'invite-token'
+  document.getElementById('link-confirm-title').textContent = isInvite ? 'Willkommen!' : 'Neues Passwort'
+  document.getElementById('link-confirm-text').textContent = isInvite
+    ? 'Schön, dass du dabei bist! Tippe auf den Knopf und lege dein Passwort fest.'
+    : 'Tippe auf den Knopf und lege dein neues Passwort fest.'
+  showScreen('link-confirm-bereich')
+}
+
+async function confirmEmailLink() {
+  if (!pendingEmailLink) { showLogin(); return }
+  const btn = document.getElementById('link-confirm-btn')
+  btn.disabled = true
+  let { tokenHash, type } = pendingEmailLink
+  const isInviteLink = type === 'invite' || type === 'invite-token'
+  // Muss VOR dem Bestätigen gesetzt sein: die Weiche in init() reagiert auf das Anmelde-Ereignis
+  if (isInviteLink) inviteMode = true
+  else recoveryMode = true
+
+  // Einladungs-Link ohne Ablaufzeit: der Code wird auf dem Server eingelöst und gibt einen frischen Anmelde-Code zurück
+  if (type === 'invite-token') {
+    const { data: redeemed, error: redeemError } = await supabaseClient.functions.invoke('redeem-invite', { body: { token: pendingEmailLink.token } })
+    if (redeemError || !redeemed || !redeemed.token_hash) {
+      const detail = redeemError ? await readFunctionError(redeemError) : ''
+      inviteMode = false
+      btn.disabled = false
+      pendingEmailLink = null
+      if (/schon benutzt/i.test(detail)) {
+        showLogin()
+        showToast('Diese Einladung wurde schon benutzt. Melde dich einfach mit deinem Namen und Passwort an.')
+      } else {
+        showInviteRequestScreen(true)
+      }
+      return
+    }
+    tokenHash = redeemed.token_hash
+    type = 'magiclink'
+  }
+
+  const { data, error } = await supabaseClient.auth.verifyOtp({ token_hash: tokenHash, type })
+  btn.disabled = false
+  if (error) {
+    inviteMode = false
+    recoveryMode = false
+    pendingEmailLink = null
+    showInviteRequestScreen(true)
+    return
+  }
+  pendingEmailLink = null
+
+  // Normalerweise zeigt die Weiche in init() (Anmelde-Ereignis) jetzt "Passwort setzen". Falls das Ereignis ausbleibt,
+  // wird die Seite nach kurzer Zeit selbst gezeigt.
+  const verifiedUserId = data && data.user ? data.user.id : null
+  setTimeout(() => {
+    if (document.getElementById('reset-bereich').style.display !== 'none') return
+    if (isInviteLink && verifiedUserId) showInviteSetup(verifiedUserId)
+    else if (type === 'recovery') { showPasswordReset(); setTimeout(fillResetUsername, 0) }
+  }, 700)
+}
+
 // 2. Start: gespeicherte Session prüfen (Auto-Login nach Neuladen),
 //    oder erkennen, dass gerade ein "Passwort vergessen"-Link geöffnet wurde
 async function init() {
@@ -188,6 +250,25 @@ async function init() {
       setTimeout(showLogin, 0)
     }
   })
+
+  // Neuer Link-Aufbau aus der E-Mail: ...?token_hash=...&type=invite (oder recovery). Der Link wird erst verbraucht,
+  // wenn man auf den Knopf tippt - ein Mail-Scanner, der die Adresse nur abruft, kann ihn dadurch nicht mehr aufbrauchen.
+  const linkParams = new URLSearchParams(window.location.search)
+  const linkTokenHash = linkParams.get('token_hash')
+  const linkType = linkParams.get('type')
+  const inviteCode = linkParams.get('invite') // Einladungs-Link ohne Ablaufzeit: ...?invite=<Code>
+  if (inviteCode && inviteCode.length < 400) {
+    pendingEmailLink = { token: inviteCode, type: 'invite-token' }
+    history.replaceState(null, '', window.location.pathname)
+    showLinkConfirm()
+    return
+  }
+  if (linkTokenHash && (linkType === 'invite' || linkType === 'recovery')) {
+    pendingEmailLink = { tokenHash: linkTokenHash, type: linkType }
+    history.replaceState(null, '', window.location.pathname) // Adresse bereinigen: beim Neuladen nicht nochmal verwenden
+    showLinkConfirm()
+    return
+  }
 
   // Abgelaufener oder schon benutzter Link: Supabase hängt den Fehler an die Adresse (#error=...&error_code=otp_expired)
   const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
@@ -206,6 +287,8 @@ async function init() {
 
   if (session) {
     await enterApp(session.user)
+  } else if (linkError) {
+    showInviteRequestScreen(true) // statt des normalen Logins: gleich anbieten, eine neue Einladung anzufordern
   } else {
     showLogin()
   }
@@ -219,7 +302,7 @@ async function init() {
 // Am PC (ab 900px Breite) bleibt links immer die Chatliste bzw. Einstellungen sichtbar
 // und rechts steht der geöffnete Chat. Login-Bildschirme bleiben immer einspaltig.
 const desktopQuery = window.matchMedia('(min-width: 900px)')
-const AUTH_SCREENS = ['login-bereich', 'forgot-bereich', 'invite-request-bereich', 'reset-bereich']
+const AUTH_SCREENS = ['login-bereich', 'forgot-bereich', 'invite-request-bereich', 'link-confirm-bereich', 'reset-bereich']
 const LEFT_SCREENS = ['list-bereich', 'settings-bereich', 'users-bereich', 'admin-contacts-bereich']
 // Rechts: Chat oder die Unterseiten der Einstellungen (am Handy sind das eigene volle Seiten)
 const RIGHT_SCREENS = ['conversation-bereich', 'email-change-bereich', 'password-change-bereich', 'devices-bereich', 'user-detail-bereich', 'new-user-bereich']
@@ -294,6 +377,7 @@ function hideAllScreens() {
   document.getElementById('login-bereich').style.display = 'none'
   document.getElementById('forgot-bereich').style.display = 'none'
   document.getElementById('invite-request-bereich').style.display = 'none'
+  document.getElementById('link-confirm-bereich').style.display = 'none'
   document.getElementById('reset-bereich').style.display = 'none'
   document.getElementById('list-bereich').style.display = 'none'
   document.getElementById('settings-bereich').style.display = 'none'
@@ -7831,7 +7915,11 @@ async function forwardMessageTo(msg, target) {
 // ===== Einladung hat nicht geklappt: Anfrage aus dem Login-Fenster =====
 // Wer die Einladungs-Mail nicht benutzen konnte, hinterlässt seine E-Mail-Adresse (ohne angemeldet zu sein).
 // Der Server nimmt sie über die Funktion request_invite an (begrenzt pro Stunde), der Admin sieht sie in den Einstellungen.
-function showInviteRequestScreen() {
+const INVITE_REQUEST_NOTE = 'Gib die E-Mail-Adresse ein, an die die Einladung ging. Der Admin sieht deine Anfrage und schickt dir eine neue Einladung.'
+const INVITE_EXPIRED_NOTE = 'Dein Link ist abgelaufen oder wurde schon benutzt. Gib hier deine E-Mail-Adresse ein, dann schickt dir der Admin eine neue Einladung.'
+
+function showInviteRequestScreen(linkExpired) {
+  document.getElementById('invite-request-note').textContent = linkExpired === true ? INVITE_EXPIRED_NOTE : INVITE_REQUEST_NOTE
   document.getElementById('invite-request-email').value = ''
   showScreen('invite-request-bereich')
   document.getElementById('invite-request-email').focus()

@@ -4610,4 +4610,34 @@ body.split-view #settings-bereich .settings-groups {
   background: transparent;
   color: var(--accent);
   font-weight: 700;
-} 
+}
+
+/* ===== "Einladung hat nicht geklappt?" im Login-Fenster: eigener Bereich, anders als "Passwort vergessen?" ===== */
+.invite-help {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+  text-align: center;
+}
+
+.invite-help p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.invite-help-btn {
+  width: 100%;
+  padding: 10px 14px;
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.invite-help-btn:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}

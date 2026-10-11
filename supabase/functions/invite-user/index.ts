@@ -8,6 +8,11 @@
 //  4. Speichert das Geschlecht im Profil (mehrere Versuche, weil das Profil gerade erst entsteht)
 //     und prüft es durch Nachlesen. Klappt das nicht: Konto wieder löschen, KEINE E-Mail.
 //  5. Erst jetzt wird die Einladungs-E-Mail gesendet. Scheitert das, wird das Konto wieder gelöscht.
+//
+// Einladungs-Link ohne Ablaufzeit: Ist das Secret INVITE_SECRET gesetzt, bekommt jede Einladung einen Code
+// (E-Mail-Adresse + Signatur) als "invite_token" in die Nutzerdaten. Die E-Mail-Vorlage baut daraus den Link
+// ...chat/?invite=<Code>, den die Funktion "redeem-invite" einlöst, solange noch kein Passwort gesetzt wurde.
+// Ohne das Secret läuft alles wie bisher mit dem normalen Link (der nach der eingestellten Zeit abläuft).
 
 import { createClient } from '@supabase/supabase-js'
 
@@ -18,6 +23,19 @@ const corsHeaders = {
 
 // Wohin der Link in der E-Mail führt (muss in Supabase unter Authentication -> URL Configuration erlaubt sein)
 const REDIRECT_URL = 'https://myjungschar.github.io/chat/'
+
+const toB64Url = (bytes: Uint8Array) =>
+  btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+
+// Einladungs-Code: <E-Mail-Adresse, base64url>.<HMAC-Signatur>. Muss genau so gebaut werden wie in "redeem-invite".
+async function makeInviteToken(email: string): Promise<string> {
+  const secret = Deno.env.get('INVITE_SECRET')
+  if (!secret) return ''
+  const normalized = email.trim().toLowerCase()
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode('invite:' + normalized))
+  return toB64Url(new TextEncoder().encode(normalized)) + '.' + toB64Url(new Uint8Array(mac))
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -53,10 +71,15 @@ Deno.serve(async (req) => {
     }
 
     // 3. Konto anlegen, noch ohne E-Mail
+    //    needs_password: bis zum ersten eigenen Passwort bleibt die Person im Passwort-Fenster.
+    //    invite_token: steht später in der E-Mail-Vorlage (".Data.invite_token") und läuft nicht ab.
+    const inviteToken = await makeInviteToken(email)
+    const userData: Record<string, unknown> = { gender, needs_password: true }
+    if (inviteToken) userData.invite_token = inviteToken
     const { data: created, error: createError } = await admin.auth.admin.createUser({
       email: email.trim(),
       email_confirm: false,
-      user_metadata: { gender },
+      user_metadata: userData,
     })
     if (createError || !created?.user) {
       return json({ error: createError?.message ?? 'Konto konnte nicht angelegt werden.' }, 400)
@@ -100,7 +123,7 @@ Deno.serve(async (req) => {
 
     // 5. Jetzt erst die Einladungs-E-Mail senden
     const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(email.trim(), {
-      data: { gender },
+      data: userData,
       redirectTo: REDIRECT_URL,
     })
     if (inviteError) {
