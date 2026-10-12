@@ -46,7 +46,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261008">
+  <link rel="stylesheet" href="style.css?v=20261012">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -62,41 +62,77 @@
 
     <!-- BEREICH 1: LOGIN -->
     <div id="login-bereich" class="card" style="display: none;">
+      <!-- Zwei Karten liegen hintereinander und sind gespiegelt ausgeschnitten (Form zeichnet script.js, drawLoginShape):
+           vorne ist eine obere Ecke frei, dort schaut die "Zunge" der hinteren Karte heraus. Tipp auf die Zunge holt sie nach vorne. -->
+      <svg id="shape-login" class="login-shape" aria-hidden="true"><path d=""/></svg>
+      <svg id="shape-invite" class="login-shape" aria-hidden="true"><path d=""/></svg>
+
+      <!-- Zunge der Einladungs-Karte (rechts, sichtbar solange der Login vorne ist) -->
+      <button type="button" id="tongue-invite" class="card-tongue tongue-right" onclick="toggleInvitePane()" aria-controls="invite-pane">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+        <span>Neu hier?</span>
+      </button>
+      <!-- Zunge der Login-Karte (links, sichtbar solange die Einladungs-Karte vorne ist) -->
+      <button type="button" id="tongue-login" class="card-tongue tongue-left" onclick="toggleInvitePane()" aria-controls="login-pane">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+        <span>Login</span>
+      </button>
+
       <div class="login-heading-row">
-        <h2>JungscharChat Login</h2>
-        <label class="switch theme-switch" aria-label="Hellen/dunklen Modus umschalten">
-          <input type="checkbox" id="theme-switch-input" onchange="setTheme(this.checked)">
-          <span class="switch-slider"></span>
-        </label>
+        <h2 id="login-title" class="card-title">JungscharChat Login</h2>
+        <h2 id="invite-title" class="card-title">Einladung anfragen</h2>
       </div>
-      <p>Melde dich an, um mitzuschreiben.</p>
+      <label class="switch theme-switch" aria-label="Hellen/dunklen Modus umschalten">
+        <input type="checkbox" id="theme-switch-input" onchange="setTheme(this.checked)">
+        <span class="switch-slider"></span>
+      </label>
 
-      <div class="input-group">
-        <label for="username">Benutzername</label>
-        <input type="text" id="username" placeholder="vorname.nachname" autocomplete="username">
-      </div>
+      <div class="login-panes">
+        <!-- Fläche 1: normaler Login -->
+        <div id="login-pane" class="login-pane">
+          <p>Melde dich an, um mitzuschreiben.</p>
 
-      <div class="input-group">
-        <label for="password">Passwort</label>
-        <div class="password-field">
-          <input type="password" id="password" placeholder="••••••••" autocomplete="current-password">
-          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('password', this)" aria-label="Passwort anzeigen"></button>
+          <div class="input-group">
+            <label for="username">Benutzername</label>
+            <input type="text" id="username" placeholder="vorname.nachname" autocomplete="username">
+          </div>
+
+          <div class="input-group">
+            <label for="password">Passwort</label>
+            <div class="password-field">
+              <input type="password" id="password" placeholder="••••••••" autocomplete="current-password">
+              <button type="button" class="toggle-password" onclick="toggleFieldVisibility('password', this)" aria-label="Passwort anzeigen"></button>
+            </div>
+          </div>
+
+          <button id="login-btn" onclick="login()">Einloggen</button>
+          <button type="button" id="forgot-password-btn" class="link-btn" onclick="showForgotScreen()">Passwort vergessen?</button>
+
+          <!-- Erscheint nur, wenn auf diesem Gerät eine Einladung begonnen und abgebrochen wurde -->
+          <div id="pending-invite" class="pending-invite" style="display: none;">
+            <p>Du hast eine Einladung begonnen, aber noch kein Passwort gesetzt.</p>
+            <button type="button" onclick="resumePendingInvite()">Einladung fortsetzen</button>
+          </div>
+        </div>
+
+        <!-- Fläche 2: Einladung hat nicht geklappt (E-Mail und optional eine Nachricht an den Admin) -->
+        <div id="invite-pane" class="login-pane" aria-hidden="true">
+          <p id="invite-request-note">An welche E-Mail-Adresse soll die Einladung gehen?</p>
+
+          <div class="input-group">
+            <label for="invite-request-email">E-Mail-Adresse</label>
+            <input type="email" id="invite-request-email" placeholder="name@adresse.de" autocomplete="email">
+          </div>
+
+          <div class="input-group">
+            <label for="invite-request-message">Nachricht (optional)</label>
+            <textarea id="invite-request-message" class="invite-message" maxlength="500" rows="3" placeholder="z. B. dein Name oder was nicht klappt"></textarea>
+          </div>
+
+          <button id="invite-request-btn" onclick="sendInviteRequest()">Anfrage senden</button>
         </div>
       </div>
 
-      <button id="login-btn" onclick="login()">Einloggen</button>
-      <button type="button" id="forgot-password-btn" class="link-btn" onclick="showForgotScreen()">Passwort vergessen?</button>
-
-      <!-- Erscheint nur, wenn auf diesem Gerät eine Einladung begonnen und abgebrochen wurde -->
-      <div id="pending-invite" class="pending-invite" style="display: none;">
-        <p>Du hast eine Einladung begonnen, aber noch kein Passwort gesetzt.</p>
-        <button type="button" onclick="resumePendingInvite()">Einladung fortsetzen</button>
-      </div>
-      <!-- Kleine Pille unten links, auf einer Höhe mit dem "i" - sieht bewusst anders aus als "Passwort vergessen?" -->
-      <button type="button" id="invite-help-btn" class="invite-help-chip" onclick="showInviteRequestScreen()">
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
-        <span>Einladung hat nicht geklappt?</span>
-      </button>
       <button type="button" id="about-toggle-btn" class="info-corner-btn" onclick="toggleAboutInline()" aria-label="Wer wir sind">
         <span class="info-text-i">i</span>
       </button>
@@ -125,20 +161,6 @@
       </div>
 
       <button id="forgot-send-btn" onclick="sendPasswordReset()">Link senden</button>
-      <button type="button" class="link-btn" onclick="showLogin()">Zurück zum Login</button>
-    </div>
-
-    <!-- BEREICH 1c: EINLADUNG HAT NICHT GEKLAPPT (E-Mail-Adresse hinterlassen, der Admin schickt eine neue Einladung) -->
-    <div id="invite-request-bereich" class="card" style="display: none;">
-      <h2>Einladung hat nicht geklappt?</h2>
-      <p id="invite-request-note">Gib die E-Mail-Adresse ein, an die die Einladung ging. Der Admin sieht deine Anfrage und schickt dir eine neue Einladung.</p>
-
-      <div class="input-group">
-        <label for="invite-request-email">E-Mail-Adresse</label>
-        <input type="email" id="invite-request-email" placeholder="name@adresse.de" autocomplete="email">
-      </div>
-
-      <button id="invite-request-btn" onclick="sendInviteRequest()">Anfrage senden</button>
       <button type="button" class="link-btn" onclick="showLogin()">Zurück zum Login</button>
     </div>
 
@@ -789,6 +811,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261008"></script>
+  <script src="script.js?v=20261012"></script>
 </body>
 </html>

@@ -306,7 +306,7 @@ async function init() {
 // Am PC (ab 900px Breite) bleibt links immer die Chatliste bzw. Einstellungen sichtbar
 // und rechts steht der geöffnete Chat. Login-Bildschirme bleiben immer einspaltig.
 const desktopQuery = window.matchMedia('(min-width: 900px)')
-const AUTH_SCREENS = ['login-bereich', 'forgot-bereich', 'invite-request-bereich', 'link-confirm-bereich', 'reset-bereich']
+const AUTH_SCREENS = ['login-bereich', 'forgot-bereich', 'link-confirm-bereich', 'reset-bereich']
 const LEFT_SCREENS = ['list-bereich', 'settings-bereich', 'users-bereich', 'admin-contacts-bereich']
 // Rechts: Chat oder die Unterseiten der Einstellungen (am Handy sind das eigene volle Seiten)
 const RIGHT_SCREENS = ['conversation-bereich', 'email-change-bereich', 'password-change-bereich', 'devices-bereich', 'user-detail-bereich', 'new-user-bereich']
@@ -380,7 +380,6 @@ else if (desktopQuery.addListener) desktopQuery.addListener(onLayoutChange)
 function hideAllScreens() {
   document.getElementById('login-bereich').style.display = 'none'
   document.getElementById('forgot-bereich').style.display = 'none'
-  document.getElementById('invite-request-bereich').style.display = 'none'
   document.getElementById('link-confirm-bereich').style.display = 'none'
   document.getElementById('reset-bereich').style.display = 'none'
   document.getElementById('list-bereich').style.display = 'none'
@@ -422,6 +421,9 @@ function showLogin() {
   if (aboutCard) aboutCard.classList.remove('open')
   document.getElementById('username').value = ''
   document.getElementById('password').value = ''
+  document.getElementById('invite-request-email').value = ''
+  document.getElementById('invite-request-message').value = ''
+  setInvitePane(false)
   refreshPasswordToggles()
   updatePendingInviteNotice()
   showScreen('login-bereich')
@@ -7925,26 +7927,125 @@ async function forwardMessageTo(msg, target) {
 // ===== Einladung hat nicht geklappt: Anfrage aus dem Login-Fenster =====
 // Wer die Einladungs-Mail nicht benutzen konnte, hinterlässt seine E-Mail-Adresse (ohne angemeldet zu sein).
 // Der Server nimmt sie über die Funktion request_invite an (begrenzt pro Stunde), der Admin sieht sie in den Einstellungen.
-const INVITE_REQUEST_NOTE = 'Gib die E-Mail-Adresse ein, an die die Einladung ging. Der Admin sieht deine Anfrage und schickt dir eine neue Einladung.'
-const INVITE_EXPIRED_NOTE = 'Dein Link ist abgelaufen oder wurde schon benutzt. Gib hier deine E-Mail-Adresse ein, dann schickt dir der Admin eine neue Einladung.'
+const INVITE_REQUEST_NOTE = 'An welche E-Mail-Adresse soll die Einladung gehen?'
+const INVITE_EXPIRED_NOTE = 'Dein Link ist abgelaufen oder schon benutzt. An welche E-Mail-Adresse soll die neue Einladung gehen?'
 
+// ===== Form der Login-Karte: zwei gespiegelt ausgeschnittene Karten hintereinander =====
+// Jede Karte zeichnet ihren Hintergrund und Rand als SVG-Pfad, der bei jeder Größenänderung neu berechnet wird.
+// Login: Ausschnitt oben rechts (dort sieht man die Zunge der Einladungs-Karte). Einladung: gespiegelt, Ausschnitt oben links.
+const NOTCH_DEPTH = 38 // so tief ist der Ausschnitt (passt zur Höhe von .card-tongue im CSS)
+const NOTCH_SLANT = 26 // so breit ist die schräge Kante
+const TONGUE_W = 100 // so breit ist die sichtbare Zunge (passt zur Breite von .card-tongue im CSS)
+const SHAPE_RADIUS = 16
+
+function drawLoginShape() {
+  const card = document.getElementById('login-bereich')
+  const loginPath = document.querySelector('#shape-login path')
+  const invitePath = document.querySelector('#shape-invite path')
+  const loginTitle = document.getElementById('login-title')
+  const inviteTitle = document.getElementById('invite-title')
+  if (!card || !loginPath || !invitePath || !loginTitle || !inviteTitle) return
+  const w = card.offsetWidth
+  const h = card.offsetHeight
+  if (!w || !h) return // Karte gerade nicht sichtbar
+  const o = 0.5 // halbe Strichbreite, damit der Rand nicht abgeschnitten wird
+  const r = SHAPE_RADIUS
+  const d = NOTCH_DEPTH
+  const sl = NOTCH_SLANT
+  const n = TONGUE_W + sl // Breite des Ausschnitts samt schräger Kante
+
+  // Auf schmalen Handys würde eine Überschrift an die schräge Kante stoßen: dann rutschen beide unter den Ausschnitt
+  const cardLeft = card.getBoundingClientRect().left
+  const loginRight = loginTitle.getBoundingClientRect().right - cardLeft
+  const inviteWidth = inviteTitle.getBoundingClientRect().width
+  const low = loginRight > w - n - 4 || n + 8 + inviteWidth > w - 18
+  if (card.classList.contains('title-low') !== low) {
+    card.classList.toggle('title-low', low)
+    return // die Höhe ändert sich, der ResizeObserver zeichnet danach neu
+  }
+  card.style.setProperty('--invite-title-left', low ? '0px' : (n - 14) + 'px')
+
+  const svgs = [document.getElementById('shape-login'), document.getElementById('shape-invite')]
+  svgs.forEach(svg => svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h))
+
+  // Login: oben rechts ausgeschnitten
+  loginPath.setAttribute('d', [
+    'M ' + (o + r) + ' ' + o,
+    'H ' + (w - n),
+    'C ' + (w - n + sl / 2) + ' ' + o + ' ' + (w - n + sl / 2) + ' ' + d + ' ' + (w - n + sl) + ' ' + d,
+    'H ' + (w - o - r),
+    'A ' + r + ' ' + r + ' 0 0 1 ' + (w - o) + ' ' + (d + r),
+    'V ' + (h - o - r),
+    'A ' + r + ' ' + r + ' 0 0 1 ' + (w - o - r) + ' ' + (h - o),
+    'H ' + (o + r),
+    'A ' + r + ' ' + r + ' 0 0 1 ' + o + ' ' + (h - o - r),
+    'V ' + (o + r),
+    'A ' + r + ' ' + r + ' 0 0 1 ' + (o + r) + ' ' + o,
+    'Z'
+  ].join(' '))
+
+  // Einladung: gespiegelt, oben links ausgeschnitten
+  invitePath.setAttribute('d', [
+    'M ' + n + ' ' + o,
+    'H ' + (w - o - r),
+    'A ' + r + ' ' + r + ' 0 0 1 ' + (w - o) + ' ' + (o + r),
+    'V ' + (h - o - r),
+    'A ' + r + ' ' + r + ' 0 0 1 ' + (w - o - r) + ' ' + (h - o),
+    'H ' + (o + r),
+    'A ' + r + ' ' + r + ' 0 0 1 ' + o + ' ' + (h - o - r),
+    'V ' + (d + r),
+    'A ' + r + ' ' + r + ' 0 0 1 ' + (o + r) + ' ' + d,
+    'H ' + (n - sl),
+    'C ' + (n - sl / 2) + ' ' + d + ' ' + (n - sl / 2) + ' ' + o + ' ' + n + ' ' + o,
+    'Z'
+  ].join(' '))
+}
+
+if (typeof ResizeObserver !== 'undefined') {
+  const loginCardEl = document.getElementById('login-bereich')
+  if (loginCardEl) new ResizeObserver(drawLoginShape).observe(loginCardEl)
+}
+window.addEventListener('resize', drawLoginShape)
+
+// Holt die Login-Karte oder die Einladungs-Karte nach vorne (gleiche Größe, nur Form und Inhalt tauschen)
+function setInvitePane(open, note) {
+  const card = document.getElementById('login-bereich')
+  card.classList.toggle('invite-open', open)
+  document.getElementById('invite-pane').setAttribute('aria-hidden', String(!open))
+  document.getElementById('login-pane').setAttribute('aria-hidden', String(open))
+  if (open) {
+    document.getElementById('invite-request-note').textContent = note || INVITE_REQUEST_NOTE
+    const aboutCard = document.getElementById('about-card')
+    if (aboutCard) aboutCard.classList.remove('open')
+  }
+  drawLoginShape()
+}
+
+function toggleInvitePane() {
+  const open = !document.getElementById('login-bereich').classList.contains('invite-open')
+  setInvitePane(open)
+  document.getElementById(open ? 'invite-request-email' : 'username').focus()
+}
+
+// Wird auch nach einem abgelaufenen/benutzten Link aufgerufen: dann gleich die Fläche "Einladung anfragen" zeigen
 function showInviteRequestScreen(linkExpired) {
-  document.getElementById('invite-request-note').textContent = linkExpired === true ? INVITE_EXPIRED_NOTE : INVITE_REQUEST_NOTE
-  document.getElementById('invite-request-email').value = ''
-  showScreen('invite-request-bereich')
+  showLogin()
+  setInvitePane(true, linkExpired === true ? INVITE_EXPIRED_NOTE : INVITE_REQUEST_NOTE)
   document.getElementById('invite-request-email').focus()
 }
 
 async function sendInviteRequest() {
   const input = document.getElementById('invite-request-email')
+  const messageInput = document.getElementById('invite-request-message')
   const btn = document.getElementById('invite-request-btn')
   const email = input.value.trim()
+  const message = messageInput.value.trim()
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     showToast('Bitte eine gültige E-Mail-Adresse eingeben.')
     return
   }
   btn.disabled = true
-  const { error } = await supabaseClient.rpc('request_invite', { p_email: email })
+  const { error } = await supabaseClient.rpc('request_invite', { p_email: email, p_message: message || null })
   btn.disabled = false
   if (error) {
     const tooMany = /zu viele/i.test(error.message)
@@ -7952,7 +8053,7 @@ async function sendInviteRequest() {
     return
   }
   showLogin()
-  showToast('Danke! Der Admin sieht deine Anfrage und schickt dir eine neue Einladung.', 'success')
+  showToast('Danke! Der Admin sieht deine Anfrage und schickt dir eine Einladung.', 'success')
 }
 
 let inviteRequests = []
@@ -8021,6 +8122,12 @@ async function openInviteRequestsModal() {
       const meta = document.createElement('div')
       meta.className = 'report-meta'
       meta.textContent = 'Angefragt ' + formatTime(request.created_at)
+      let note = null
+      if (request.message) {
+        note = document.createElement('div')
+        note.className = 'invite-request-message'
+        note.textContent = request.message
+      }
 
       const actions = document.createElement('div')
       actions.className = 'report-actions'
@@ -8044,7 +8151,9 @@ async function openInviteRequestsModal() {
       })
       actions.append(doneBtn, inviteBtn)
 
-      item.append(head, meta, actions)
+      item.append(head, meta)
+      if (note) item.appendChild(note)
+      item.appendChild(actions)
       list.appendChild(item)
     })
     dialog.appendChild(list)

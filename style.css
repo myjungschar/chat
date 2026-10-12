@@ -108,6 +108,7 @@ body.light-theme {
 /* ===== "Wer wir sind": kleiner Info-Button unten rechts in der Login-Karte ===== */
 #login-bereich {
   position: relative;
+  margin-top: 30px; /* Platz für den Reiter "Einladungsprobleme?" über der Karte */
   padding-bottom: 44px; /* Platz für den Info-Button unten rechts, damit er nichts überlappt */
 }
 
@@ -4612,34 +4613,175 @@ body.split-view #settings-bereich .settings-groups {
   font-weight: 700;
 }
 
-/* ===== "Einladung hat nicht geklappt?" im Login-Fenster: kleine Pille unten links, auf einer Höhe mit dem "i" ===== */
-.invite-help-chip {
+/* ===== Login-Karte: zwei gespiegelt ausgeschnittene Karten hintereinander =====
+   Hintergrund, Rand und Schatten kommen von den SVG-Formen (script.js, drawLoginShape), die Karte selbst
+   hat keinen eigenen Hintergrund. Die vordere Karte hat eine freie obere Ecke, dort schaut die "Zunge"
+   der hinteren Karte heraus. Login = Ausschnitt oben rechts, Einladung = Ausschnitt oben links. */
+#login-bereich {
+  background: none;
+  border: none;
+  box-shadow: none;
+  isolation: isolate;
+}
+
+.login-shape {
   position: absolute;
-  bottom: 20px;
-  left: 20px;
-  width: auto;
-  height: 24px;
-  padding: 0 10px 0 8px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.login-shape path {
+  stroke: var(--border-subtle);
+  stroke-width: 1;
+}
+
+/* vorne: normale Kartenfarbe mit Schatten; hinten: etwas anders getönt, damit man die Zunge erkennt */
+#login-bereich:not(.invite-open) #shape-login,
+#login-bereich.invite-open #shape-invite {
+  z-index: -1;
+  filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.35));
+}
+
+#login-bereich:not(.invite-open) #shape-login path,
+#login-bereich.invite-open #shape-invite path {
+  fill: var(--bg-panel);
+}
+
+#login-bereich:not(.invite-open) #shape-invite,
+#login-bereich.invite-open #shape-login {
+  z-index: -2;
+}
+
+#login-bereich:not(.invite-open) #shape-invite path,
+#login-bereich.invite-open #shape-login path {
+  fill: var(--bg-panel-raised);
+}
+
+body.light-theme #login-bereich:not(.invite-open) #shape-login,
+body.light-theme #login-bereich.invite-open #shape-invite {
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.08));
+}
+
+/* Die Zunge der hinteren Karte: Tippfläche genau im Ausschnitt (Breite = TONGUE_W in script.js) */
+.card-tongue {
+  position: absolute;
+  top: 0;
+  width: 100px;
+  height: 38px; /* so tief wie der Ausschnitt (NOTCH_DEPTH in script.js) */
+  padding: 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  background: var(--bg-input);
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  color: var(--text-secondary);
-  font-size: 12px;
+  justify-content: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--accent);
+  font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
 }
 
-.invite-help-chip:hover {
-  background: var(--bg-input);
-  border-color: var(--accent);
-  color: var(--accent);
+.card-tongue:hover {
+  background: transparent;
+  color: var(--accent-hover);
 }
 
-.invite-help-chip svg {
+.card-tongue svg {
   flex-shrink: 0;
+}
+
+.tongue-right {
+  right: 0;
+}
+
+.tongue-left {
+  left: 0;
+}
+
+#login-bereich.invite-open .tongue-right,
+#login-bereich:not(.invite-open) .tongue-left {
+  display: none;
+}
+
+/* Beide Überschriften liegen übereinander, nur die der vorderen Karte ist sichtbar.
+   Login: links oben. Einladung: rechts oben (neben dem Ausschnitt), Abstand setzt script.js. */
+.login-heading-row {
+  display: grid;
+}
+
+.card-title {
+  grid-area: 1 / 1;
+  width: fit-content;
+}
+
+#invite-title {
+  margin-left: var(--invite-title-left, 0px);
+}
+
+#login-bereich:not(.invite-open) #invite-title,
+#login-bereich.invite-open #login-title {
+  visibility: hidden;
+}
+
+/* Die Hell/Dunkel-Pille sitzt unter dem Ausschnitt, auf Höhe von "Melde dich an …" */
+#login-bereich .theme-switch {
+  position: absolute;
+  top: 46px;
+  right: 22px;
+}
+
+/* Sehr schmale Handys: Überschrift und Pille rutschen unter den Ausschnitt (siehe drawLoginShape) */
+#login-bereich.title-low .login-heading-row {
+  padding-top: 22px;
+}
+
+#login-bereich.title-low .theme-switch {
+  top: 68px;
+}
+
+/* Text neben der Pille darf nicht darunterlaufen */
+.login-pane > p:first-child {
+  padding-right: 56px;
+}
+
+/* In "Einladung anfragen" braucht man das "i" nicht */
+#login-bereich.invite-open .info-corner-btn {
+  display: none;
+}
+
+@media (max-width: 360px) {
+  #login-bereich h2 {
+    font-size: 17px;
+  }
+}
+
+/* Beide Flächen liegen übereinander: die Karte ist immer so hoch wie die höhere, also springt nichts beim Wechseln */
+.login-panes {
+  display: grid;
+}
+
+.login-pane {
+  grid-area: 1 / 1;
+  min-width: 0;
+  transition: opacity 0.2s ease;
+}
+
+#login-bereich:not(.invite-open) #invite-pane,
+#login-bereich.invite-open #login-pane {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.invite-message {
+  height: 72px;
+  resize: none;
+  font-family: inherit;
+  line-height: 1.4;
 }
 
 /* Hinweis unter dem Benutzernamen auf dem Passwort-setzen-Bildschirm (Einladung) */
@@ -4647,4 +4789,14 @@ body.split-view #settings-bereich .settings-groups {
   margin: 6px 0 0;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+/* Nachricht einer Einladungs-Anfrage in der Admin-Liste */
+.invite-request-message {
+  margin: 4px 0 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
