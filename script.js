@@ -833,9 +833,11 @@ let activeChatTab = 'alle'
 // Chatliste zusammenbauen: Gruppe angeheftet, danach alle anderen Nutzer
 let chatListRenderId = 0
 
-// Solange die Chatliste lädt, stehen schon acht graue Platzhalter-Einträge da: Rahmen, grauer Kreis fürs Profilbild,
+// Solange die Chatliste lädt, stehen schon sechs graue Platzhalter-Einträge da: Rahmen, grauer Kreis fürs Profilbild,
 // graue Balken für Namen, Datum und Vorschau - in der Form und Höhe der echten Einträge, nichts klickbar.
 // Ein sanfter Lichtstreifen läuft darüber (siehe .chat-list-placeholder in style.css), damit man sieht, dass es lädt.
+// Die unteren Einträge werden weich ausgeblendet: die ersten fünf sind voll da, der sechste ist nur noch halb zu sehen
+// und läuft ohne klare Kante aus.
 function showChatListSkeleton(list) {
   list.innerHTML = ''
   const widths = [
@@ -844,14 +846,17 @@ function showChatListSkeleton(list) {
     { name: '56%', preview: '68%' },
     { name: '42%', preview: '78%' },
     { name: '52%', preview: '58%' },
-    { name: '34%', preview: '70%' },
-    { name: '46%', preview: '64%' },
-    { name: '58%', preview: '72%' }
+    { name: '34%', preview: '70%' }
   ]
+  // Deckkraft an den Kanten zwischen den Einträgen (7 Werte für 6 Einträge): jeder Eintrag blendet von seinem oberen
+  // zum unteren Wert aus, der nächste fängt dort an, wo der vorige aufhört - so entsteht ein durchgehender Verlauf
+  const fades = [1, 1, 1, 1, 1, 0.7, 0.05]
   widths.forEach((w, i) => {
     const li = document.createElement('li')
     li.className = 'chat-list-item pinned chat-list-placeholder'
     li.style.setProperty('--skel-delay', (i * 0.12) + 's') // jede Zeile ein Stück später: der Streifen wandert nach unten
+    li.style.setProperty('--fade-top', fades[i])
+    li.style.setProperty('--fade-bottom', fades[i + 1])
     li.setAttribute('aria-hidden', 'true')
     li.innerHTML = '<div class="chat-list-avatar"></div>' +
       '<div class="chat-list-text">' +

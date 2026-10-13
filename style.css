@@ -4658,6 +4658,9 @@ body.split-view #settings-bereich .settings-groups {
   --skel: #2d3b4a;
   --skel-hi: #3b4c5f;
   pointer-events: none;
+  /* Weiches Ausblenden nach unten (Werte setzt script.js je Eintrag): unten keine klare Kante */
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, var(--fade-top, 1)), rgba(0, 0, 0, var(--fade-bottom, 1)));
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, var(--fade-top, 1)), rgba(0, 0, 0, var(--fade-bottom, 1)));
   border: 1px solid var(--border-subtle);
   padding: 9px 7px; /* 1px weniger, damit der Rahmen die Höhe nicht verändert */
 }
