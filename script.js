@@ -833,18 +833,25 @@ let activeChatTab = 'alle'
 // Chatliste zusammenbauen: Gruppe angeheftet, danach alle anderen Nutzer
 let chatListRenderId = 0
 
-// Solange die Chatliste lädt, stehen schon drei graue Platzhalter-Einträge da: Rahmen, grauer Kreis fürs Profilbild,
+// Solange die Chatliste lädt, stehen schon acht graue Platzhalter-Einträge da: Rahmen, grauer Kreis fürs Profilbild,
 // graue Balken für Namen, Datum und Vorschau - in der Form und Höhe der echten Einträge, nichts klickbar.
+// Ein sanfter Lichtstreifen läuft darüber (siehe .chat-list-placeholder in style.css), damit man sieht, dass es lädt.
 function showChatListSkeleton(list) {
   list.innerHTML = ''
   const widths = [
     { name: '48%', preview: '74%' },
     { name: '36%', preview: '62%' },
-    { name: '56%', preview: '68%' }
+    { name: '56%', preview: '68%' },
+    { name: '42%', preview: '78%' },
+    { name: '52%', preview: '58%' },
+    { name: '34%', preview: '70%' },
+    { name: '46%', preview: '64%' },
+    { name: '58%', preview: '72%' }
   ]
-  widths.forEach((w) => {
+  widths.forEach((w, i) => {
     const li = document.createElement('li')
     li.className = 'chat-list-item pinned chat-list-placeholder'
+    li.style.setProperty('--skel-delay', (i * 0.12) + 's') // jede Zeile ein Stück später: der Streifen wandert nach unten
     li.setAttribute('aria-hidden', 'true')
     li.innerHTML = '<div class="chat-list-avatar"></div>' +
       '<div class="chat-list-text">' +
@@ -3483,6 +3490,29 @@ function startEmojiObserver() {
 
 // Eine Nachricht als Element in den Chat einfügen
 // (textContent statt innerHTML: Namen und Text können kein HTML einschleusen)
+// Schreibt dieselbe Person mehrere Nachrichten hintereinander, steht das Profilbild nur bei der untersten. Bei den
+// anderen bleibt der Platz frei (unsichtbar), damit alle Sprechblasen genau untereinander stehen. Datums-Trenner,
+// die Linie "neue Nachrichten", Umfragen usw. unterbrechen so eine Reihe. Das passiert zentral über einen Beobachter auf
+// dem Chatfenster, damit es auch bei neuen, gelöschten oder nachgeladenen Nachrichten stimmt.
+function refreshAvatarRuns() {
+  const chatBox = document.getElementById('chat-box')
+  if (!chatBox) return
+  const rows = chatBox.children
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    if (!row.classList.contains('msg-row') || !row.querySelector(':scope > .msg-avatar')) continue
+    const next = row.nextElementSibling
+    const sameRun = !!next && next.classList.contains('msg-row') && next.dataset.senderId === row.dataset.senderId &&
+      !!next.querySelector(':scope > .msg-avatar')
+    row.classList.toggle('avatar-hidden', sameRun)
+  }
+}
+
+if (typeof MutationObserver !== 'undefined') {
+  const chatBoxForRuns = document.getElementById('chat-box')
+  if (chatBoxForRuns) new MutationObserver(refreshAvatarRuns).observe(chatBoxForRuns, { childList: true })
+}
+
 function renderMessage(msg) {
   const chatBox = document.getElementById('chat-box')
 

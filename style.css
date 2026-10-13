@@ -544,6 +544,11 @@ input:focus-visible {
   color: var(--text-on-accent);
 }
 
+/* Mehrere Nachrichten derselben Person hintereinander: Profilbild nur bei der untersten, oben bleibt der Platz frei */
+.msg-row.avatar-hidden > .msg-avatar {
+  visibility: hidden;
+}
+
 .msg {
   position: relative;
   max-width: 78%;
@@ -4651,6 +4656,7 @@ body.split-view #settings-bereich .settings-groups {
 /* ===== Platzhalter beim Laden: graue Einträge in der Form der echten (grauer Rahmen, Kreis, Balken; nichts klickbar) ===== */
 .chat-list-placeholder {
   --skel: #2d3b4a;
+  --skel-hi: #3b4c5f;
   pointer-events: none;
   border: 1px solid var(--border-subtle);
   padding: 9px 7px; /* 1px weniger, damit der Rahmen die Höhe nicht verändert */
@@ -4658,10 +4664,30 @@ body.split-view #settings-bereich .settings-groups {
 
 body.light-theme .chat-list-placeholder {
   --skel: #d3dae1;
+  --skel-hi: #e7ecf1;
 }
 
-.chat-list-placeholder .chat-list-avatar {
-  background: var(--skel);
+/* Kreis und Balken: grau mit einem weichen helleren Streifen, der von links nach rechts darüber läuft */
+.chat-list-placeholder .chat-list-avatar,
+.skel-bar {
+  background: linear-gradient(90deg, var(--skel) 0%, var(--skel) 35%, var(--skel-hi) 50%, var(--skel) 65%, var(--skel) 100%);
+  background-size: 250% 100%;
+  animation: skel-shimmer 1.6s ease-in-out infinite;
+  animation-delay: var(--skel-delay, 0s);
+}
+
+@keyframes skel-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+/* Wer Bewegung am Gerät reduziert hat: ruhig grau, ohne Streifen */
+@media (prefers-reduced-motion: reduce) {
+  .chat-list-placeholder .chat-list-avatar,
+  .skel-bar {
+    animation: none;
+    background: var(--skel);
+  }
 }
 
 .chat-list-placeholder .chat-list-name,
@@ -4688,7 +4714,6 @@ body.light-theme .chat-list-placeholder {
   display: block;
   height: 10px;
   border-radius: 6px;
-  background: var(--skel);
 }
 
 .chat-list-placeholder .chat-list-name .skel-bar {
