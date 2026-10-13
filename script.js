@@ -5551,6 +5551,39 @@ function renderUserList() {
   }
 }
 
+// <details> klappt von Haus aus ruckartig auf und zu. Hier gleitet der Inhalt stattdessen auf bzw. zu
+// (Höhe und Durchsichtigkeit). Wer am Gerät "Bewegung reduzieren" eingestellt hat, bekommt wie bisher kein Gleiten.
+function makeDetailsSmooth(details) {
+  const summary = details.querySelector(':scope > summary')
+  const body = details.querySelector(':scope > .admin-section-body')
+  if (!summary || !body) return
+  let anim = null
+
+  summary.addEventListener('click', (e) => {
+    e.preventDefault()
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (anim) { anim.cancel(); anim = null } // erneut getippt, mitten in der Bewegung: neu ansetzen
+
+    const opening = !details.open
+    if (reduce || !body.animate) { details.open = opening; return }
+
+    if (opening) details.open = true
+    const cs = getComputedStyle(body)
+    const full = {
+      height: body.offsetHeight + 'px',
+      paddingTop: cs.paddingTop,
+      paddingBottom: cs.paddingBottom,
+      opacity: 1
+    }
+    const none = { height: '0px', paddingTop: '0px', paddingBottom: '0px', opacity: 0 }
+    anim = body.animate(opening ? [none, full] : [full, none], { duration: opening ? 240 : 190, easing: 'ease' })
+    anim.onfinish = () => {
+      anim = null
+      if (!opening) details.open = false
+    }
+  })
+}
+
 // Welche Bereiche auf der Seite einer Person gerade aufgeklappt sind. Die Seite wird nach jeder Änderung neu gezeichnet
 // (z. B. beim Umschalten eines Rechts) - so bleibt, was offen war, offen. Bei einer anderen Person ist erst alles zu.
 let userDetailOpenSections = new Set()
@@ -5572,7 +5605,12 @@ function renderUserDetail(u) {
   const isVipUser = vipIds.has(u.id)
   const canPhoto = !photoBlockedIds.has(u.id)
   const canGroup = !groupCreateBlockedIds.has(u.id)
-  const rightsOn = (isVipUser ? 1 : 0) + (canPhoto ? 1 : 0) + (canGroup ? 1 : 0)
+  // Kurzfassung für die zugeklappte Zeile "Rechte": welche Rechte die Person gerade hat
+  const rightsList = []
+  if (isVipUser) rightsList.push('Besondere Rechte')
+  if (canPhoto) rightsList.push('Fotos')
+  if (canGroup) rightsList.push('Gruppen')
+  const rightsText = rightsList.length ? rightsList.join(', ') : 'keine'
   const genderText = u.gender === 'junge' ? 'Junge' : u.gender === 'maedchen' ? 'Mädchen' : 'fehlt'
 
   // Jeder Bereich ist ein Ausklapp-Feld: zu sieht man nur die Überschrift (und rechts eine kurze Zusammenfassung)
@@ -5649,7 +5687,7 @@ function renderUserDetail(u) {
   box.innerHTML =
     section('identity', 'Name und E-Mail', '', identityBody) +
     section('gender', 'Geschlecht', genderText, genderBody) +
-    section('rights', 'Rechte', rightsOn + ' von 3 an', rightsBody) +
+    section('rights', 'Rechte', rightsText, rightsBody) +
     section('color', 'Profilfarbe', `<span class="admin-section-dot" style="background:${avatarColor(u.id)}"></span>`, colorBody) +
     section('birth', 'Geburtsdatum', '', birthBody) +
     `<div class="user-actions">
@@ -5663,6 +5701,7 @@ function renderUserDetail(u) {
       if (d.open) userDetailOpenSections.add(d.dataset.section)
       else userDetailOpenSections.delete(d.dataset.section)
     })
+    makeDetailsSmooth(d)
   })
   box.querySelectorAll('.gender-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -6330,10 +6369,11 @@ async function inviteUser() {
     return
   }
 
-  // Frage 1: besondere Rechte? (Esc oder daneben tippen zählt als "Nein")
-  const makeVip = await askConfirm('Soll die Person besondere Rechte bekommen?', { okText: 'Ja', cancelText: 'Nein' })
+  // Besondere Rechte werden beim Einladen nicht mehr gefragt: Neue starten ohne, der Admin kann sie jederzeit unter
+  // Einstellungen > Nutzer verwalten > (Person) > Rechte geben.
+  const makeVip = false
 
-  // Frage 2: wirklich senden?
+  // Frage: wirklich senden?
   if (!(await askConfirm('Möchtest du die E-Mail wirklich an ' + email + ' senden?', { okText: 'Senden', cancelText: 'Abbrechen' }))) return
 
   inviteSending = true

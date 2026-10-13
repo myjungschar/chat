@@ -2131,6 +2131,49 @@ body.split-view.chat-open #chat-placeholder {
   border-radius: 50%;
 }
 
+/* ===== Weichere Übergänge: Einstellungs-Seiten und Pop-ups blenden sanft ein statt "zack" aufzugehen ===== */
+@keyframes screen-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-pop {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Die Animation startet jedes Mal, wenn die Seite von "versteckt" auf "sichtbar" wechselt */
+#settings-bereich,
+#users-bereich,
+#admin-contacts-bereich,
+.card.subpage {
+  animation: screen-in 0.22s ease-out backwards;
+}
+
+.modal-overlay {
+  animation: overlay-in 0.18s ease-out backwards;
+}
+
+.modal-overlay > .modal-box {
+  animation: modal-pop 0.22s ease-out backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #settings-bereich,
+  #users-bereich,
+  #admin-contacts-bereich,
+  .card.subpage,
+  .modal-overlay,
+  .modal-overlay > .modal-box {
+    animation: none;
+  }
+}
+
 /* ===== Seite einer Person im Admin-Menü: Ausklapp-Bereiche ===== */
 .admin-section {
   border: 1px solid var(--border-subtle);
@@ -2161,6 +2204,11 @@ body.split-view.chat-open #chat-placeholder {
 }
 
 .admin-section-meta {
+  min-width: 0;
+  max-width: 62%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 13px;
   color: var(--text-secondary);
 }
@@ -2179,6 +2227,7 @@ body.split-view.chat-open #chat-placeholder {
 
 .admin-section-body {
   padding: 2px 14px 14px;
+  overflow: hidden; /* beim Auf-/Zuklappen wird die Höhe animiert */
 }
 
 .admin-section-body > :last-child {
