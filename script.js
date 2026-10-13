@@ -1297,7 +1297,14 @@ function showChatBoxSkeleton() {
   document.getElementById('chat-box').innerHTML = ''
 }
 
+// Läuft loadMessages zweimal gleichzeitig (z. B. Chat doppelt geöffnet, Rückkehr in die App), mischten sich die beiden Läufe:
+// Linie "neue Nachricht" doppelt, Nachrichten fehlten oder der Chat scrollte an die falsche Stelle. Jetzt zählt jeder Lauf
+// mit; ein veralteter Lauf hört nach jedem Warten auf und fasst das Fenster nicht mehr an.
+let loadMessagesSeq = 0
+
 async function loadMessages() {
+  const mySeq = ++loadMessagesSeq
+  const isStale = () => mySeq !== loadMessagesSeq
   if (loadedRoomIdentity !== roomIdentity(currentRoom)) showChatBoxSkeleton()
   let query = supabaseClient
     .from(currentTable())
@@ -1323,6 +1330,7 @@ async function loadMessages() {
   }
 
   const { data: messages, error } = await query
+  if (isStale()) return // inzwischen läuft ein neueres Laden
 
   if (error) {
     console.error('Fehler beim Laden:', error)
@@ -1337,6 +1345,7 @@ async function loadMessages() {
   messagesById = {}
   lastMessageDateKey = null
   reactionMap = messages.length ? await loadReactionsFor(messages.map(m => m.id)) : {}
+  if (isStale()) return
   const unreadFromId = firstUnreadMessageId(messages)
   closeChatSearch() // Suche gehört zum bisherigen Chat
   suppressMissedCount = true // beim Laden des Verlaufs zählt nichts als "verpasst"
@@ -1344,7 +1353,9 @@ async function loadMessages() {
   suppressMissedCount = false
   resetMissedCount()
   await loadPollsForRoom() // fügt sich zeitlich passend zwischen die Nachrichten ein
+  if (isStale()) return
   await loadPinForRoom() // angepinnte Nachricht (Leiste oben + Hinweis im Verlauf)
+  if (isStale()) return
 
   if (chatBox.children.length === 0) showEmptyHint()
   applyEmojiImages(chatBox)
@@ -1374,6 +1385,8 @@ function showUnreadDivider(messageId, messages) {
 
   const first = messages.findIndex(m => m.id === messageId)
   const count = messages.slice(first).filter(m => m.sender_id !== currentUser.id).length
+
+  chatBox.querySelectorAll('.unread-divider').forEach(d => d.remove()) // nie zwei Linien im Chat
 
   const divider = document.createElement('div')
   divider.className = 'unread-divider'
@@ -4670,7 +4683,11 @@ function listenForNewMessages() {
       scheduleReactionRefresh()
     })
 
-  chatChannel = channel.subscribe()
+  // Sobald der Kanal steht (und nach jedem erneuten Verbinden), fehlende Nachrichten nachholen: Was zwischen dem Laden
+  // des Verlaufs und dem Start des Live-Kanals ankam, wäre sonst nie im Chat aufgetaucht.
+  chatChannel = channel.subscribe((status) => {
+    if (status === 'SUBSCRIBED' && chatChannel === channel) fetchMissedMessages()
+  })
   startPeerListening()
   startTypingChannel()
 }

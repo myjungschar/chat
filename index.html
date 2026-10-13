@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>JungscharChat – Jungschar Gifhorn</title>
+  <title>JungscharChat</title>
   <meta name="theme-color" content="#0e1621">
   <meta name="color-scheme" content="dark light">
   
@@ -23,22 +23,9 @@
   <meta property="og:description" content="Der offizielle JungscharChat für Gifhorn.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://myjungschar.github.io/chat/">
-  <link rel="canonical" href="https://myjungschar.github.io/chat/">
-
-  <!-- Name der Seite für Suchmaschinen (Google zeigt ihn über dem Ergebnis) -->
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "WebSite",
-    "name": "JungscharChat",
-    "alternateName": ["Jungschar Chat", "JungscharChat Gifhorn"],
-    "url": "https://myjungschar.github.io/chat/"
-  }
-  </script>
 
   <!-- Icons & Web App Manifest -->
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="icon" type="image/png" sizes="180x180" href="apple-touch-icon.png">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="manifest" href="manifest.json">
 
@@ -59,7 +46,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261013-10">
+  <link rel="stylesheet" href="style.css?v=20261013-11">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -139,7 +126,7 @@
 
           <div class="input-group">
             <label for="invite-request-message">Nachricht (optional)</label>
-            <textarea id="invite-request-message" class="invite-message" maxlength="500" rows="3" placeholder="Hallo, ich bin … und würde gern in den Chat."></textarea>
+            <textarea id="invite-request-message" class="invite-message" maxlength="500" rows="3" placeholder="Schreib eine Nachricht…"></textarea>
           </div>
 
           <button id="invite-request-btn" onclick="sendInviteRequest()">Anfrage senden</button>
@@ -823,6 +810,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261013-10"></script>
+  <script src="script.js?v=20261013-11"></script>
 </body>
 </html>
