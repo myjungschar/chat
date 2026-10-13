@@ -426,13 +426,25 @@ input:focus-visible {
 
 .back-btn {
   width: auto;
+  min-width: 40px;
+  height: 40px;
   flex-shrink: 0;
-  padding: 6px 10px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   background: transparent;
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
-  font-size: 16px;
-  border-radius: 10px;
+  font-size: 15px;
+  border-radius: 12px;
+}
+
+.back-btn svg {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
 }
 
 .back-btn:hover {
@@ -1891,15 +1903,16 @@ body.split-view.chat-open #chat-placeholder {
   margin-bottom: 14px;
 }
 
+/* Das Icon gibt es nur noch im Geburtstags-Pop-up (die Umfrage hat keins mehr) */
+.poll-modal-icon {
+  font-size: 20px;
+}
+
 .poll-modal-head {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 4px;
-}
-
-.poll-modal-icon {
-  font-size: 20px;
 }
 
 .poll-option-number {

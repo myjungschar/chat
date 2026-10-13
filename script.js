@@ -8646,6 +8646,11 @@ function clearChatSearchMarks() {
   document.querySelectorAll('#chat-box .search-hit, #chat-box .search-current').forEach(el => el.classList.remove('search-hit', 'search-current'))
 }
 
+// Beim Wechsel von Treffer zu Treffer gleitet der Chat dorthin, statt zu springen (außer das Gerät hat Bewegung reduziert)
+function glideBehavior() {
+  return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+}
+
 function showChatSearchResult() {
   const countEl = document.getElementById('chat-search-count')
   const query = document.getElementById('chat-search-input').value.trim()
@@ -8658,7 +8663,7 @@ function showChatSearchResult() {
   }
   const current = chatSearchMatches[chatSearchIndex]
   current.classList.add('search-current')
-  current.scrollIntoView({ block: 'center' })
+  current.scrollIntoView({ behavior: glideBehavior(), block: 'center' })
   countEl.textContent = (chatSearchIndex + 1) + ' / ' + chatSearchMatches.length
 }
 
