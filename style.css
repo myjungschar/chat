@@ -2070,6 +2070,103 @@ body.split-view.chat-open #chat-placeholder {
   color: #fff;
 }
 
+/* ===== Profilfarbe wählen: ein Kreis je Farbe, der aktive hat einen Ring ===== */
+.color-picker {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.color-swatch {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.color-swatch:hover:not(:disabled) {
+  transform: scale(1.1);
+}
+
+.color-swatch.active {
+  box-shadow: 0 0 0 2px var(--bg-panel), 0 0 0 4px var(--text-primary);
+}
+
+.color-swatch:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.admin-section-dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+
+/* ===== Seite einer Person im Admin-Menü: Ausklapp-Bereiche ===== */
+.admin-section {
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+
+.admin-section > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 14px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.admin-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-section-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.admin-section-meta {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.admin-section-chevron {
+  flex-shrink: 0;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-secondary);
+  transition: transform 0.15s ease;
+}
+
+.admin-section[open] > summary .admin-section-chevron {
+  transform: rotate(90deg);
+}
+
+.admin-section-body {
+  padding: 2px 14px 14px;
+}
+
+.admin-section-body > :last-child {
+  margin-bottom: 0;
+}
+
 
 /* ===== Eigene Pop-ups (Meldungen und Bestätigungsfenster) ===== */
 #toast-container {
@@ -2589,6 +2686,15 @@ body.light-theme .online-list li::before {
 
 html:has(body.light-theme) {
   color-scheme: light;
+}
+
+/* Gerät steht auf Dunkel: die Seite zeigt ihr eigenes Dunkel (dieselben Farben wie der Schalter in der App) und sagt das
+   dem Browser auch über die Abfrage. Damit schaltet ein Browser-Dunkelmodus (z. B. Samsung Internet) nicht noch einmal
+   eigenmächtig darüber. Die Hell-Wahl in der App gewinnt weiterhin (html:has(body.light-theme)). */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+  }
 }
 
 body.light-theme,
@@ -4542,13 +4648,51 @@ body.split-view #settings-bereich .settings-groups {
   background: var(--bg-input);
 }
 
-/* ===== Platzhalter beim Laden: leere Einträge in der Form der echten (kein Text, nichts klickbar) ===== */
+/* ===== Platzhalter beim Laden: graue Einträge in der Form der echten (grauer Rahmen, Kreis, Balken; nichts klickbar) ===== */
 .chat-list-placeholder {
+  --skel: #2d3b4a;
   pointer-events: none;
+  border: 1px solid var(--border-subtle);
+  padding: 9px 7px; /* 1px weniger, damit der Rahmen die Höhe nicht verändert */
+}
+
+body.light-theme .chat-list-placeholder {
+  --skel: #d3dae1;
 }
 
 .chat-list-placeholder .chat-list-avatar {
-  background: var(--bg-input);
+  background: var(--skel);
+}
+
+.chat-list-placeholder .chat-list-name,
+.chat-list-placeholder .chat-list-preview,
+.chat-list-placeholder .chat-list-time {
+  display: flex;
+  align-items: center;
+}
+
+.chat-list-placeholder .chat-list-name {
+  height: 20px;
+}
+
+.chat-list-placeholder .chat-list-preview {
+  height: 17px;
+}
+
+.chat-list-placeholder .chat-list-time {
+  height: 15px;
+  justify-content: flex-end;
+}
+
+.skel-bar {
+  display: block;
+  height: 10px;
+  border-radius: 6px;
+  background: var(--skel);
+}
+
+.chat-list-placeholder .chat-list-name .skel-bar {
+  height: 12px;
 }
 
 /* ===== Nachrichten-Treffer in der Chatliste ===== */
@@ -4616,7 +4760,7 @@ body.split-view #settings-bereich .settings-groups {
 /* ===== Login-Karte: zwei gespiegelt ausgeschnittene Karten hintereinander =====
    Hintergrund, Rand und Schatten kommen von den SVG-Formen (script.js, drawLoginShape), die Karte selbst
    hat keinen eigenen Hintergrund. Die vordere Karte hat eine freie obere Ecke, dort schaut die "Zunge"
-   der hinteren Karte heraus. Login = Ausschnitt oben rechts, Einladung = Ausschnitt oben links. */
+   der hinteren Karte heraus. Die Zunge sitzt immer oben rechts: "Neu hier?" beim Login, "Login" bei der Einladung. */
 #login-bereich {
   background: none;
   border: none;
@@ -4699,7 +4843,7 @@ body.light-theme #login-bereich.invite-open #shape-invite {
 }
 
 .tongue-left {
-  left: 0;
+  right: 0; /* auch die Zurück-Zunge sitzt rechts, genau dort, wo vorher "Neu hier?" war */
 }
 
 #login-bereich.invite-open .tongue-right,
@@ -4708,7 +4852,7 @@ body.light-theme #login-bereich.invite-open #shape-invite {
 }
 
 /* Beide Überschriften liegen übereinander, nur die der vorderen Karte ist sichtbar.
-   Login: links oben. Einladung: rechts oben (neben dem Ausschnitt), Abstand setzt script.js. */
+   Beide stehen links oben, die Zunge sitzt rechts im Ausschnitt. */
 .login-heading-row {
   display: grid;
 }
@@ -4716,10 +4860,6 @@ body.light-theme #login-bereich.invite-open #shape-invite {
 .card-title {
   grid-area: 1 / 1;
   width: fit-content;
-}
-
-#invite-title {
-  margin-left: var(--invite-title-left, 0px);
 }
 
 #login-bereich:not(.invite-open) #invite-title,
@@ -4732,6 +4872,14 @@ body.light-theme #login-bereich.invite-open #shape-invite {
   position: absolute;
   top: 46px;
   right: 22px;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+/* Bei "Einladung anfragen" gibt es die Pille nicht: sie blendet aus und lässt sich nicht antippen */
+#login-bereich.invite-open .theme-switch {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 /* Sehr schmale Handys: Überschrift und Pille rutschen unter den Ausschnitt (siehe drawLoginShape) */
@@ -4746,6 +4894,10 @@ body.light-theme #login-bereich.invite-open #shape-invite {
 /* Text neben der Pille darf nicht darunterlaufen */
 .login-pane > p:first-child {
   padding-right: 56px;
+}
+
+#invite-pane > p:first-child {
+  padding-right: 0;
 }
 
 /* In "Einladung anfragen" braucht man das "i" nicht */

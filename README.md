@@ -18,7 +18,7 @@ Ein privater, webbasierter Gruppen-Chat für unsere Jungschar mit Login-System u
 * 🌗 **Dunkel/Hell:** Die App folgt dem Modus des Geräts, man kann ihn in den Einstellungen aber auch selbst wählen.
 * 🧭 **Orientierung im Chat:** Linie „neue Nachrichten“ beim Öffnen und ein Knopf „nach unten“ mit Zähler.
 * ↪️ **Weiterleiten:** Text-Nachrichten lassen sich an die Hauptgruppe, die eigene Jungs-/Mädels-Gruppe, eigene Gruppen oder einzelne Personen weiterleiten (mit Vermerk „Weitergeleitet“).
-* 📩 **Einladungsprobleme:** Über den Reiter oben rechts am Login-Fenster können Eingeladene ihre E-Mail-Adresse und, wenn sie wollen, eine Nachricht hinterlassen. Der Admin sieht die Anfrage unter Einstellungen → Verwaltung → Einladungs-Anfragen und lädt direkt von dort neu ein.
+* 📩 **Einladung anfragen:** Über den Reiter „Neu hier?“ oben rechts am Login-Fenster können Neue und Eingeladene, bei denen die Einladung nicht geklappt hat, ihre E-Mail-Adresse und, wenn sie wollen, eine Nachricht hinterlassen. Der Admin sieht die Anfrage unter Einstellungen → Verwaltung → Einladungs-Anfragen und lädt direkt von dort neu ein.
 * 🚩 **Melden:** Mitglieder können Nachrichten anderer über das Menü melden. Der Admin sieht die Meldungen unter Einstellungen → Verwaltung → Meldungen und kann sie erledigen oder die Nachricht löschen.
 * ↩️ **Schnell antworten:** Doppelklick oder Doppeltipp auf die Höhe einer Nachricht startet die Antwort.
 * 🔍 **Suche im Chat:** Über die Lupe oben rechts nach Wörtern suchen und von Treffer zu Treffer springen.

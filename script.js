@@ -555,6 +555,12 @@ async function enterApp(user) {
     return
   }
 
+  // Beim Neuladen sofort die Chatliste mit grauen Platzhaltern zeigen, statt erst eine leere Seite, bis Profil und Chats da sind.
+  // Schlägt etwas fehl, zeigt showLogin() wieder den Login.
+  hideAllScreens()
+  showScreen('list-bereich')
+  showChatListSkeleton(document.getElementById('chat-list'))
+
   // Das Profil laden - bei schlechtem Netz bis zu 3 Versuche. Ein Netzwerkfehler darf NIEMALS zum Abmelden
   // führen (früher wurde dabei die Sitzung auf allen Geräten beendet).
   let profile = null
@@ -598,9 +604,6 @@ async function enterApp(user) {
     profile.display_name || (user.email ? user.email.split('@')[0] : 'Nutzer')
 
   stopListening()
-  hideAllScreens()
-  showScreen('list-bereich')
-  document.getElementById('chat-list').innerHTML = '<p class="chat-empty">Lädt …</p>'
 
   await loadProfileCache()
   await loadVipIds()
@@ -830,19 +833,27 @@ let activeChatTab = 'alle'
 // Chatliste zusammenbauen: Gruppe angeheftet, danach alle anderen Nutzer
 let chatListRenderId = 0
 
-// Solange die Chatliste zum ersten Mal lädt, stehen schon drei leere Einträge in der echten Form da
-// (Rahmen, runder Kreis fürs Bild, gleiche Höhe) - nur ohne Namen und Daten. Keine Balken, kein Blinken.
+// Solange die Chatliste lädt, stehen schon drei graue Platzhalter-Einträge da: Rahmen, grauer Kreis fürs Profilbild,
+// graue Balken für Namen, Datum und Vorschau - in der Form und Höhe der echten Einträge, nichts klickbar.
 function showChatListSkeleton(list) {
   list.innerHTML = ''
-  for (let i = 0; i < 3; i++) {
+  const widths = [
+    { name: '48%', preview: '74%' },
+    { name: '36%', preview: '62%' },
+    { name: '56%', preview: '68%' }
+  ]
+  widths.forEach((w) => {
     const li = document.createElement('li')
     li.className = 'chat-list-item pinned chat-list-placeholder'
     li.setAttribute('aria-hidden', 'true')
     li.innerHTML = '<div class="chat-list-avatar"></div>' +
-      '<div class="chat-list-text"><div class="chat-list-name">&nbsp;</div><div class="chat-list-preview">&nbsp;</div></div>' +
-      '<div class="chat-list-time-badge"><div class="chat-list-time">&nbsp;</div></div>'
+      '<div class="chat-list-text">' +
+        '<div class="chat-list-name"><span class="skel-bar" style="width:' + w.name + '"></span></div>' +
+        '<div class="chat-list-preview"><span class="skel-bar" style="width:' + w.preview + '"></span></div>' +
+      '</div>' +
+      '<div class="chat-list-time-badge"><div class="chat-list-time"><span class="skel-bar" style="width:34px"></span></div></div>'
     list.appendChild(li)
-  }
+  })
 }
 
 async function renderChatList() {
@@ -1340,8 +1351,9 @@ function firstUnreadMessageId(messages) {
   return first ? first.id : null
 }
 
-// Setzt die Linie "N neue Nachrichten" direkt vor die erste ungelesene Nachricht. Sind es mehr, als auf den Bildschirm
-// passen, springt der Chat dorthin, statt ganz unten zu starten.
+// Setzt die Linie "N neue Nachrichten" direkt vor die erste ungelesene Nachricht. Der Chat scrollt dann so weit nach unten
+// wie möglich, ohne dass die Linie oben aus dem Fenster rutscht: sind die neuen Nachrichten mehr, als hineinpassen, steht die
+// Linie ganz oben und man liest von dort nach unten; sind es wenige (z. B. nur eine), geht es ganz nach unten.
 function showUnreadDivider(messageId, messages) {
   if (!messageId) return
   const chatBox = document.getElementById('chat-box')
@@ -1358,8 +1370,14 @@ function showUnreadDivider(messageId, messages) {
   divider.appendChild(label)
   row.before(divider)
 
-  const dividerTop = divider.getBoundingClientRect().top - chatBox.getBoundingClientRect().top + chatBox.scrollTop
-  if (dividerTop < chatBox.scrollTop) chatBox.scrollTop = Math.max(0, dividerTop - 12)
+  // Die Linie nach oben ins Fenster holen. Reicht der Inhalt darunter dafür nicht aus, begrenzt der Browser das
+  // automatisch auf "ganz unten". (Früher kam die Linie nach dem Scrollen dazu und schob die letzte Nachricht aus dem Bild.)
+  const placeDivider = () => {
+    const dividerTop = divider.getBoundingClientRect().top - chatBox.getBoundingClientRect().top + chatBox.scrollTop
+    chatBox.scrollTop = Math.max(0, dividerTop - 12)
+  }
+  placeDivider()
+  requestAnimationFrame(() => { if (divider.isConnected) placeDivider() }) // nochmal, wenn sich das Layout gesetzt hat
 }
 
 // ===== Umfragen =====
@@ -5498,8 +5516,17 @@ function renderUserList() {
   }
 }
 
-// Einstellungen einer einzelnen Person (Geschlecht, Sperren)
+// Welche Bereiche auf der Seite einer Person gerade aufgeklappt sind. Die Seite wird nach jeder Änderung neu gezeichnet
+// (z. B. beim Umschalten eines Rechts) - so bleibt, was offen war, offen. Bei einer anderen Person ist erst alles zu.
+let userDetailOpenSections = new Set()
+let userDetailShownId = null
+
+// Einstellungen einer einzelnen Person (Name, Geschlecht, Rechte, Sperren)
 function openUserDetail(u) {
+  if (userDetailShownId !== u.id) {
+    userDetailOpenSections = new Set()
+    userDetailShownId = u.id
+  }
   showScreen('user-detail-bereich')
   renderUserDetail(u)
 }
@@ -5507,7 +5534,36 @@ function openUserDetail(u) {
 function renderUserDetail(u) {
   document.getElementById('user-detail-title').textContent = u.display_name || 'Ohne Namen'
   const box = document.getElementById('user-detail-content')
-  box.innerHTML = `
+  const isVipUser = vipIds.has(u.id)
+  const canPhoto = !photoBlockedIds.has(u.id)
+  const canGroup = !groupCreateBlockedIds.has(u.id)
+  const rightsOn = (isVipUser ? 1 : 0) + (canPhoto ? 1 : 0) + (canGroup ? 1 : 0)
+  const genderText = u.gender === 'junge' ? 'Junge' : u.gender === 'maedchen' ? 'Mädchen' : 'fehlt'
+
+  // Jeder Bereich ist ein Ausklapp-Feld: zu sieht man nur die Überschrift (und rechts eine kurze Zusammenfassung)
+  const section = (key, title, meta, body) => `
+    <details class="admin-section" data-section="${key}"${userDetailOpenSections.has(key) ? ' open' : ''}>
+      <summary>
+        <span class="admin-section-title">${title}</span>
+        <span class="admin-section-meta">${meta}</span>
+        <span class="admin-section-chevron" aria-hidden="true">›</span>
+      </summary>
+      <div class="admin-section-body">${body}</div>
+    </details>`
+
+  // Ein einzelnes Recht mit eigenem Schalter
+  const rightsRow = (title, on, id) => `
+    <div class="input-group">
+      <div class="rights-row">
+        <div class="rights-row-text">
+          <span class="rights-row-title">${title}</span>
+          <span class="rights-row-state">${on ? 'Ja' : 'Nein'}</span>
+        </div>
+        <button type="button" class="rights-switch${on ? ' on' : ''}" id="${id}" role="switch" aria-checked="${on}" aria-label="${title}"></button>
+      </div>
+    </div>`
+
+  const identityBody = `
     <div class="input-group">
       <label for="user-name-input">Name (zugleich der Benutzername zum Anmelden)</label>
       <input type="text" id="user-name-input" maxlength="40" autocomplete="off" value="${escapeHTML(u.display_name || '')}">
@@ -5515,50 +5571,37 @@ function renderUserDetail(u) {
       <input type="email" id="user-email-input" autocomplete="off" placeholder="Wird geladen …" disabled>
       <p class="field-error" id="user-identity-error" style="display: none;"></p>
       <button type="button" class="user-color-btn" id="user-identity-save-btn" disabled>Speichern</button>
-    </div>
+    </div>`
+
+  const genderBody = `
     <div class="input-group">
-      <label>Geschlecht</label>
       <div class="gender-choice">
         <button type="button" class="gender-btn junge${u.gender === 'junge' ? ' active' : ''}" data-value="junge">Junge</button>
         <button type="button" class="gender-btn maedchen${u.gender === 'maedchen' ? ' active' : ''}" data-value="maedchen">Mädchen</button>
       </div>
-    </div>
+    </div>`
+
+  const rightsBody =
+    rightsRow('Besondere Rechte', isVipUser, 'user-rights-switch') +
+    rightsRow('Darf Fotos und Audio senden', canPhoto, 'user-photo-switch') +
+    rightsRow('Darf Gruppen erstellen', canGroup, 'user-group-switch')
+
+  // Profilfarbe: links die Vorschau mit den Initialen, daneben ein Kreis je Farbe - Antippen wählt die Farbe
+  const currentColor = avatarColor(u.id).toLowerCase()
+  const swatches = AVATAR_COLORS.map(col => {
+    const on = col.toLowerCase() === currentColor
+    return `<button type="button" class="color-swatch${on ? ' active' : ''}" data-color="${col}" style="background:${col}" role="radio" aria-checked="${on}" aria-label="Farbe ${col}"></button>`
+  }).join('')
+  const colorBody = `
     <div class="input-group">
-      <div class="rights-row">
-        <div class="rights-row-text">
-          <span class="rights-row-title">Besondere Rechte</span>
-          <span class="rights-row-state">${vipIds.has(u.id) ? 'Ja' : 'Nein'}</span>
-        </div>
-        <button type="button" class="rights-switch${vipIds.has(u.id) ? ' on' : ''}" id="user-rights-switch" role="switch" aria-checked="${vipIds.has(u.id)}" aria-label="Besondere Rechte"></button>
-      </div>
-    </div>
-    <div class="input-group">
-      <div class="rights-row">
-        <div class="rights-row-text">
-          <span class="rights-row-title">Darf Fotos und Audio senden</span>
-          <span class="rights-row-state">${photoBlockedIds.has(u.id) ? 'Nein' : 'Ja'}</span>
-        </div>
-        <button type="button" class="rights-switch${photoBlockedIds.has(u.id) ? '' : ' on'}" id="user-photo-switch" role="switch" aria-checked="${!photoBlockedIds.has(u.id)}" aria-label="Darf Fotos und Audio senden"></button>
-      </div>
-    </div>
-    <div class="input-group">
-      <div class="rights-row">
-        <div class="rights-row-text">
-          <span class="rights-row-title">Darf Gruppen erstellen</span>
-          <span class="rights-row-state">${groupCreateBlockedIds.has(u.id) ? 'Nein' : 'Ja'}</span>
-        </div>
-        <button type="button" class="rights-switch${groupCreateBlockedIds.has(u.id) ? '' : ' on'}" id="user-group-switch" role="switch" aria-checked="${!groupCreateBlockedIds.has(u.id)}" aria-label="Darf Gruppen erstellen"></button>
-      </div>
-    </div>
-    <div class="input-group">
-      <label>Profilfarbe</label>
-      <div class="user-color-row">
+      <div class="color-picker">
         <div class="reaction-avatar" id="user-color-preview" style="background:${avatarColor(u.id)}">${escapeHTML(initialsOf(u.display_name || ''))}</div>
-        <button type="button" class="user-color-btn" id="user-color-btn">Farbe neu würfeln</button>
+        <div class="color-swatches" role="radiogroup" aria-label="Profilfarbe">${swatches}</div>
       </div>
-    </div>
+    </div>`
+
+  const birthBody = `
     <div class="input-group">
-      <label>Geburtsdatum</label>
       <div class="birth-select-row">
         <select id="user-birth-day" aria-label="Tag"></select>
         <select id="user-birth-month" aria-label="Monat"></select>
@@ -5566,12 +5609,26 @@ function renderUserDetail(u) {
       </div>
       <p class="field-error" id="user-birth-error" style="display: none;"></p>
       <button type="button" class="user-color-btn" id="user-birth-save-btn" disabled>Geburtsdatum speichern</button>
-    </div>
-    <div class="user-actions">
+    </div>`
+
+  box.innerHTML =
+    section('identity', 'Name und E-Mail', '', identityBody) +
+    section('gender', 'Geschlecht', genderText, genderBody) +
+    section('rights', 'Rechte', rightsOn + ' von 3 an', rightsBody) +
+    section('color', 'Profilfarbe', `<span class="admin-section-dot" style="background:${avatarColor(u.id)}"></span>`, colorBody) +
+    section('birth', 'Geburtsdatum', '', birthBody) +
+    `<div class="user-actions">
       <button type="button" class="${u.is_blocked ? 'unblock-btn' : 'block-btn'}" id="user-block-btn">${u.is_blocked ? 'Entsperren' : 'Sperren'}</button>
       <button type="button" class="delete-btn" id="user-delete-btn">Nutzer löschen</button>
-    </div>
-  `
+    </div>`
+
+  // Auf-/Zuklappen merken, damit es nach dem Neuzeichnen so bleibt
+  box.querySelectorAll('details.admin-section').forEach(d => {
+    d.addEventListener('toggle', () => {
+      if (d.open) userDetailOpenSections.add(d.dataset.section)
+      else userDetailOpenSections.delete(d.dataset.section)
+    })
+  })
   box.querySelectorAll('.gender-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       // Das Geschlecht muss immer eingestellt sein: die gewählte Option nochmal drücken ändert nichts
@@ -5583,7 +5640,9 @@ function renderUserDetail(u) {
   document.getElementById('user-photo-switch').addEventListener('click', () => setPhotoAllowed(u, photoBlockedIds.has(u.id)))
   document.getElementById('user-group-switch').addEventListener('click', () => setGroupCreateAllowed(u, groupCreateBlockedIds.has(u.id)))
   setupAdminIdentity(u)
-  document.getElementById('user-color-btn').addEventListener('click', () => rerollUserColor(u))
+  box.querySelectorAll('.color-swatch').forEach(btn => {
+    btn.addEventListener('click', () => setUserColor(u, btn.dataset.color))
+  })
   setupAdminBirthdate(u)
   document.getElementById('user-block-btn').addEventListener('click', () => setBlocked(u, !u.is_blocked))
   document.getElementById('user-delete-btn').addEventListener('click', () => deleteUser(u))
@@ -5697,17 +5756,15 @@ function setupAdminIdentity(user) {
   })
 }
 
-// Admin: der Person zufällig eine neue Farbe aus der Palette geben (gespeichert in profiles.color)
-async function rerollUserColor(user) {
-  if (!isAdmin()) return
-  const current = avatarColor(user.id).toLowerCase()
-  const options = AVATAR_COLORS.filter(c => c.toLowerCase() !== current)
-  const color = options[Math.floor(Math.random() * options.length)]
+// Admin: der Person die angetippte Farbe aus der Palette geben (gespeichert in profiles.color)
+async function setUserColor(user, color) {
+  if (!isAdmin() || !AVATAR_COLORS.includes(color)) return
+  if (avatarColor(user.id).toLowerCase() === color.toLowerCase()) return // schon die aktuelle Farbe
 
-  const btn = document.getElementById('user-color-btn')
-  if (btn) btn.disabled = true
+  const swatches = document.querySelectorAll('#user-detail-content .color-swatch')
+  swatches.forEach(b => { b.disabled = true })
   const { data, error } = await supabaseClient.from('profiles').update({ color }).eq('id', user.id).select('id')
-  if (btn) btn.disabled = false
+  swatches.forEach(b => { b.disabled = false })
 
   if (error) {
     showToast('Fehler: ' + error.message)
@@ -5721,6 +5778,13 @@ async function rerollUserColor(user) {
   if (profileCache[user.id]) profileCache[user.id].color = color
   const preview = document.getElementById('user-color-preview')
   if (preview) preview.style.background = color
+  swatches.forEach(b => {
+    const on = b.dataset.color === color
+    b.classList.toggle('active', on)
+    b.setAttribute('aria-checked', String(on))
+  })
+  const dot = document.querySelector('#user-detail-content .admin-section-dot')
+  if (dot) dot.style.background = color
   renderChatList()
 }
 
@@ -7932,7 +7996,8 @@ const INVITE_EXPIRED_NOTE = 'Dein Link ist abgelaufen oder schon benutzt. An wel
 
 // ===== Form der Login-Karte: zwei gespiegelt ausgeschnittene Karten hintereinander =====
 // Jede Karte zeichnet ihren Hintergrund und Rand als SVG-Pfad, der bei jeder Größenänderung neu berechnet wird.
-// Login: Ausschnitt oben rechts (dort sieht man die Zunge der Einladungs-Karte). Einladung: gespiegelt, Ausschnitt oben links.
+// Die vordere Karte hat immer den Ausschnitt oben rechts, die hintere ist ein ganzes Rechteck: durch den Ausschnitt
+// schaut dann ihre Ecke als Zunge heraus. Die Zunge sitzt dadurch bei Login UND Einladung rechts oben.
 const NOTCH_DEPTH = 38 // so tief ist der Ausschnitt (passt zur Höhe von .card-tongue im CSS)
 const NOTCH_SLANT = 26 // so breit ist die schräge Kante
 const TONGUE_W = 100 // so breit ist die sichtbare Zunge (passt zur Breite von .card-tongue im CSS)
@@ -7957,19 +8022,18 @@ function drawLoginShape() {
   // Auf schmalen Handys würde eine Überschrift an die schräge Kante stoßen: dann rutschen beide unter den Ausschnitt
   const cardLeft = card.getBoundingClientRect().left
   const loginRight = loginTitle.getBoundingClientRect().right - cardLeft
-  const inviteWidth = inviteTitle.getBoundingClientRect().width
-  const low = loginRight > w - n - 4 || n + 8 + inviteWidth > w - 18
+  const inviteRight = inviteTitle.getBoundingClientRect().right - cardLeft
+  const low = Math.max(loginRight, inviteRight) > w - n - 4
   if (card.classList.contains('title-low') !== low) {
     card.classList.toggle('title-low', low)
     return // die Höhe ändert sich, der ResizeObserver zeichnet danach neu
   }
-  card.style.setProperty('--invite-title-left', low ? '0px' : (n - 14) + 'px')
 
   const svgs = [document.getElementById('shape-login'), document.getElementById('shape-invite')]
   svgs.forEach(svg => svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h))
 
-  // Login: oben rechts ausgeschnitten
-  loginPath.setAttribute('d', [
+  // Vordere Karte: oben rechts ausgeschnitten
+  const notched = [
     'M ' + (o + r) + ' ' + o,
     'H ' + (w - n),
     'C ' + (w - n + sl / 2) + ' ' + o + ' ' + (w - n + sl / 2) + ' ' + d + ' ' + (w - n + sl) + ' ' + d,
@@ -7982,23 +8046,25 @@ function drawLoginShape() {
     'V ' + (o + r),
     'A ' + r + ' ' + r + ' 0 0 1 ' + (o + r) + ' ' + o,
     'Z'
-  ].join(' '))
+  ].join(' ')
 
-  // Einladung: gespiegelt, oben links ausgeschnitten
-  invitePath.setAttribute('d', [
-    'M ' + n + ' ' + o,
+  // Hintere Karte: ganzes Rechteck, ihre rechte obere Ecke ist die Zunge im Ausschnitt der vorderen
+  const full = [
+    'M ' + (o + r) + ' ' + o,
     'H ' + (w - o - r),
     'A ' + r + ' ' + r + ' 0 0 1 ' + (w - o) + ' ' + (o + r),
     'V ' + (h - o - r),
     'A ' + r + ' ' + r + ' 0 0 1 ' + (w - o - r) + ' ' + (h - o),
     'H ' + (o + r),
     'A ' + r + ' ' + r + ' 0 0 1 ' + o + ' ' + (h - o - r),
-    'V ' + (d + r),
-    'A ' + r + ' ' + r + ' 0 0 1 ' + (o + r) + ' ' + d,
-    'H ' + (n - sl),
-    'C ' + (n - sl / 2) + ' ' + d + ' ' + (n - sl / 2) + ' ' + o + ' ' + n + ' ' + o,
+    'V ' + (o + r),
+    'A ' + r + ' ' + r + ' 0 0 1 ' + (o + r) + ' ' + o,
     'Z'
-  ].join(' '))
+  ].join(' ')
+
+  const inviteFront = card.classList.contains('invite-open')
+  loginPath.setAttribute('d', inviteFront ? full : notched)
+  invitePath.setAttribute('d', inviteFront ? notched : full)
 }
 
 if (typeof ResizeObserver !== 'undefined') {
