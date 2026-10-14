@@ -3840,7 +3840,7 @@ function renderMessage(msg) {
 
   // Als letztes Kind IN den Text eingehängt (nicht danach als eigener Block) - das "float" in der
   // CSS lässt den Text drum herum laufen, wie bei WhatsApp
-  textEl.appendChild(footer)
+  placeMessageFooter(textEl, footer)
   msgElement.appendChild(reactRow)
   msgElement.classList.toggle('has-reactions', reactRow.childElementCount > 0)
 
@@ -5569,16 +5569,28 @@ function markBigEmoji(textEl, text) {
   if (count > 0) textEl.classList.add('emoji-big', 'emoji-big-' + count)
 }
 
+// Endet der Text mit einer Liste oder einem Zitat, kommt die Uhrzeit in die letzte Zeile davon (wie bei normalem Text, rechts
+// unten) statt in eine eigene Zeile darunter.
+function placeMessageFooter(textEl, footer) {
+  let host = textEl
+  const last = textEl.lastChild
+  if (last && last.nodeType === 1) {
+    if (last.tagName === 'UL' || last.tagName === 'OL') host = last.lastElementChild || textEl
+    else if (last.tagName === 'BLOCKQUOTE') host = last
+  }
+  host.appendChild(footer)
+}
+
 function updateMessageElement(msg) {
   const row = document.querySelector(`#chat-box [data-id="${msg.id}"]`)
   if (!row) return
 
   const textEl = row.querySelector('.msg-text')
   if (textEl && !msg.photo_id && !msg.audio_id && !parseInvitation(msg.text)) {
-    const footer = textEl.querySelector(':scope > .msg-footer')
+    const footer = textEl.querySelector('.msg-footer')
     textEl.textContent = ''
     appendFormattedText(textEl, msg.text || '')
-    if (footer) textEl.appendChild(footer)
+    if (footer) placeMessageFooter(textEl, footer)
     applyEmojiImages(textEl)
     markBigEmoji(textEl, msg.text)
   }
@@ -7193,7 +7205,15 @@ function onEnter(id, fn) {
   })
 }
 
-onEnter('message-input', sendMessage)
+// Nachrichtenfeld: Am PC sendet Enter (Umschalt+Enter = neue Zeile). Am Handy (Touch) macht Enter eine neue Zeile,
+// gesendet wird mit dem Pfeil-Knopf - dort gibt es ja keine Umschalt-Taste.
+document.getElementById('message-input').addEventListener('keydown', (e) => {
+  if (e.isComposing || e.keyCode === 229) return // Bestätigen eines Vorschlags der Tastatur ist kein Senden
+  if (e.key !== 'Enter' || e.shiftKey) return
+  e.preventDefault()
+  if (window.matchMedia('(pointer: coarse)').matches) document.execCommand('insertLineBreak')
+  else sendMessage()
+})
 
 const MESSAGE_INPUT_MAX_LINES = 5 // so viele Zeilen wächst das Feld mit - danach scrollt es für sich weiter
 
@@ -9080,6 +9100,12 @@ function searchableTextOf(row) {
   if (textEl) {
     textEl.childNodes.forEach(node => {
       if (node.nodeType === 1 && node.classList.contains('msg-footer')) return
+      if (node.nodeType === 1 && node.tagName !== 'IMG') {
+        const copy = node.cloneNode(true)
+        copy.querySelectorAll('.msg-footer').forEach(f => f.remove())
+        parts.push(copy.textContent)
+        return
+      }
       parts.push(node.nodeType === 1 && node.tagName === 'IMG' ? node.alt || '' : node.textContent)
     })
   }

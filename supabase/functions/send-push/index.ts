@@ -24,6 +24,68 @@ webpush.setVapidDetails(
 // Eigene Gruppen haben als group_key "grp_<Gruppen-ID>"
 const CUSTOM_GROUP = /^grp_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
+// ===== Text für die Meldung aufbereiten =====
+// Im Chat werden *fett*, _kursiv_, ~durchgestrichen~, `Code` und "> Zitat" beim Anzeigen formatiert. In der Push-Meldung
+// gibt es keine Formatierung, deshalb fallen die Zeichen hier weg (gleiche Regeln wie stripFormatting in script.js).
+// Einladungen ("🎉 Einladung: ...") werden als Titel plus Datum gezeigt.
+function isFormatBoundary(ch) {
+  return ch === undefined || !/[\p{L}\p{N}]/u.test(ch)
+}
+
+function parseInlineFormat(text) {
+  const MARKS = { "*": "b", "_": "i", "~": "s", "`": "code" }
+  const out = []
+  let buf = ""
+  let i = 0
+  const flush = () => { if (buf) { out.push({ type: "text", value: buf }); buf = "" } }
+
+  while (i < text.length) {
+    const c = text[i]
+    const type = MARKS[c]
+    if (type && isFormatBoundary(text[i - 1]) && text[i + 1] !== undefined && !/\s/.test(text[i + 1]) && text[i + 1] !== c) {
+      let close = -1
+      let j = i + 1
+      while (j < text.length) {
+        j = text.indexOf(c, j)
+        if (j === -1) break
+        if (j > i + 1 && !/\s/.test(text[j - 1]) && isFormatBoundary(text[j + 1])) { close = j; break }
+        j++
+      }
+      if (close !== -1) {
+        flush()
+        const inner = text.slice(i + 1, close)
+        out.push(type === "code" ? { type, value: inner } : { type, children: parseInlineFormat(inner) })
+        i = close + 1
+        continue
+      }
+    }
+    buf += c
+    i++
+  }
+  flush()
+  return out
+}
+
+function stripFormatting(text) {
+  const flat = (nodes) => nodes.map((n) => (n.type === "text" || n.type === "code" ? n.value : flat(n.children))).join("")
+  return String(text)
+    .replace(/```([\s\S]*?)```/g, (_m, c) => c.trim())
+    .split("\n")
+    .map((line) => flat(parseInlineFormat(line.replace(/^>\s+/, ""))))
+    .join("\n")
+}
+
+function pushText(text) {
+  const INVITE_HEAD = "🎉 Einladung: "
+  const INVITE_WHEN = "📅 Wann: "
+  if (text.startsWith(INVITE_HEAD)) {
+    const lines = text.split("\n")
+    const when = lines[1] && lines[1].startsWith(INVITE_WHEN) ? lines[1].slice(INVITE_WHEN.length).trim() : ""
+    return lines[0].trim() + (when ? " · " + when : "")
+  }
+  return stripFormatting(text)
+}
+
 Deno.serve(async (req) => {
   try {
     const payload = await req.json()
@@ -115,7 +177,7 @@ Deno.serve(async (req) => {
 
     const senderName = sender.display_name || "Neue Nachricht"
     // Fotos und Audios haben oft keinen Text: dann steht stattdessen ein kurzer Hinweis in der Meldung
-    const bodyText = (record.text || (record.photo_id ? "📷 Foto" : record.audio_id ? "🎵 Audio" : "")).slice(0, 120)
+    const bodyText = (record.text ? pushText(record.text) : (record.photo_id ? "📷 Foto" : record.audio_id ? "🎵 Audio" : "")).slice(0, 120)
     const notificationPayload = JSON.stringify({
       title: groupName ? senderName + " · " + groupName : senderName,
       body: bodyText,
