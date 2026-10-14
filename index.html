@@ -46,7 +46,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261013-11">
+  <link rel="stylesheet" href="style.css?v=20261014-5">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -720,6 +720,48 @@
     </div>
   </div>
 
+  <!-- Pop-up: Einladung (z. B. zum Geburtstag) senden -->
+  <div id="invite-modal" class="modal-overlay" style="display: none;" onclick="closeInviteModal()">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <div class="poll-modal-head">
+        <p class="info-title">Einladung erstellen</p>
+      </div>
+
+      <div class="input-group">
+        <label for="invite-title">Titel</label>
+        <input type="text" id="invite-title" placeholder="Worum geht's?" maxlength="80">
+      </div>
+
+      <div class="invite-fields">
+        <div class="input-group">
+          <label for="invite-date">Datum</label>
+          <input type="date" id="invite-date">
+        </div>
+        <div class="input-group">
+          <label for="invite-time">Uhrzeit (optional)</label>
+          <input type="time" id="invite-time">
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label for="invite-where">Wo (optional)</label>
+        <input type="text" id="invite-where" placeholder="Ort oder Adresse" maxlength="120">
+      </div>
+
+      <div class="input-group">
+        <label for="invite-note">Hinweis (optional)</label>
+        <textarea id="invite-note" placeholder="Was sollen die Gäste noch wissen?" maxlength="300"></textarea>
+      </div>
+
+      <p id="invite-error" class="settings-hint" style="display: none;"></p>
+
+      <div class="modal-actions">
+        <button type="button" class="modal-cancel" onclick="closeInviteModal()">Abbrechen</button>
+        <button type="button" class="modal-confirm poll-confirm" id="invite-submit-btn" onclick="submitInvitation()">Senden</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Pop-up: wer hat für eine Umfrage-Option gestimmt -->
   <div id="poll-voters-modal" class="modal-overlay" style="display: none;" onclick="closePollVotersModal()">
     <div class="modal-box" onclick="event.stopPropagation()">
@@ -810,6 +852,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261013-11"></script>
+  <script src="script.js?v=20261014-5"></script>
 </body>
 </html>

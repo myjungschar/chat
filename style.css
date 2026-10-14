@@ -5042,3 +5042,127 @@ body.light-theme #login-bereich.invite-open #shape-invite {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ===== Einladungs-Karte (Nachricht "Einladung" aus dem Plus-Menü) ===== */
+.invite-card {
+  min-width: 230px;
+  max-width: 100%;
+  margin: 2px 0 6px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border-left: 4px solid var(--accent);
+  background: rgba(127, 127, 127, 0.16);
+}
+
+.invite-card-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.invite-card-title {
+  margin: 4px 0 10px;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.invite-card-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.invite-card-icon {
+  flex: 0 0 auto;
+  width: 22px;
+  text-align: center;
+}
+
+.invite-card-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.invite-card-key {
+  display: block;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.invite-card-note {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(127, 127, 127, 0.3);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.invite-fields {
+  display: flex;
+  gap: 10px;
+}
+
+.invite-fields .input-group {
+  flex: 1;
+  min-width: 0;
+}
+
+#invite-note {
+  min-height: 70px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+#invite-error {
+  color: var(--danger);
+}
+
+/* Das Pop-up hat mehrere Felder: auf kleinen Handys scrollt es, statt unten abgeschnitten zu werden */
+#invite-modal .modal-box {
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+}
+
+/* ===== Textformatierung in Nachrichten (*fett*, _kursiv_, ~durchgestrichen~, `Code`, Listen, Zitat) ===== */
+.msg-text strong { font-weight: 700; }
+.msg-text em { font-style: italic; }
+.msg-text s { text-decoration: line-through; }
+
+.msg-code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(127, 127, 127, 0.22);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+
+.msg-code-block {
+  max-width: 100%;
+  margin: 4px 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.22);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  line-height: 1.35;
+  white-space: pre;
+}
+
+.msg-quote {
+  margin: 4px 0;
+  padding: 2px 0 2px 10px;
+  border-left: 3px solid var(--accent);
+  opacity: 0.9;
+}
+
+.msg-list {
+  margin: 4px 0;
+  padding-left: 22px;
+}

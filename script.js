@@ -1361,6 +1361,12 @@ async function loadMessages() {
   applyEmojiImages(chatBox)
   chatBox.scrollTop = chatBox.scrollHeight
   showUnreadDivider(unreadFromId, messages)
+
+  // Kam während des Ladens (Reaktionen, Umfragen, Anpinnung) eine neue Nachricht an, holen wir sie jetzt nach.
+  // Nur wenn schon Nachrichten da sind - fetchMissedMessages würde sonst bei leerem Chat wieder loadMessages aufrufen.
+  if (!isStale() && Object.keys(messagesById).length > 0) {
+    try { await fetchMissedMessages() } catch (e) { console.error('Nachholen nach dem Laden fehlgeschlagen:', e) }
+  }
 }
 
 // Ab welcher Nachricht ist im Chat noch nichts gelesen? (nur eigene Chats, nicht für den Admin; nur wenn der Chat
@@ -1398,11 +1404,14 @@ function showUnreadDivider(messageId, messages) {
   // Die Linie nach oben ins Fenster holen. Reicht der Inhalt darunter dafür nicht aus, begrenzt der Browser das
   // automatisch auf "ganz unten". (Früher kam die Linie nach dem Scrollen dazu und schob die letzte Nachricht aus dem Bild.)
   const placeDivider = () => {
+    // Ist der Chat gerade nicht sichtbar (Höhe 0), wären alle Messwerte 0 und er würde ganz nach oben springen - dann ganz nach unten
+    if (!chatBox.clientHeight) { chatBox.scrollTop = chatBox.scrollHeight; return }
     const dividerTop = divider.getBoundingClientRect().top - chatBox.getBoundingClientRect().top + chatBox.scrollTop
     chatBox.scrollTop = Math.max(0, dividerTop - 12)
   }
   placeDivider()
   requestAnimationFrame(() => { if (divider.isConnected) placeDivider() }) // nochmal, wenn sich das Layout gesetzt hat
+  setTimeout(() => { if (divider.isConnected && chatBox.clientHeight && chatBox.scrollTop === 0) placeDivider() }, 350) // falls der Chat erst beim Einblenden Höhe bekommt
 }
 
 // ===== Umfragen =====
@@ -2011,12 +2020,178 @@ function toggleAttachMenu(anchorBtn, evt) {
   pollItem.addEventListener('click', () => { closeAttachMenu(); openPollModal() })
   menu.appendChild(pollItem)
 
+  const inviteItem = document.createElement('button')
+  inviteItem.className = 'msg-menu-item'
+  inviteItem.textContent = 'Einladung'
+  inviteItem.addEventListener('click', () => { closeAttachMenu(); openInviteModal() })
+  menu.appendChild(inviteItem)
+
   anchorBtn.parentElement.appendChild(menu)
   applyEmojiImages(menu)
   openAttachMenuEl = menu
 }
 
 document.addEventListener('click', closeAttachMenu)
+
+// ===== Einladungs-Karte =====
+// Eine Einladung (z. B. zum Geburtstag) ist eine ganz normale Textnachricht mit festem Aufbau - in der Datenbank ändert sich
+// nichts. Erkennt renderMessage diesen Aufbau, zeigt es statt des Textes eine Karte. Überall, wo die Karte nicht erkannt wird
+// (Push-Meldung, Suche), bleibt der Text gut lesbar. Aufbau:
+//   🎉 Einladung: <Titel>
+//   📅 Wann: <Datum und Uhrzeit>
+//   📍 Wo: <Ort>          (optional)
+//   📝 <Hinweis>          (optional, darf mehrere Zeilen haben)
+function parseInvitation(text) {
+  const HEAD = '🎉 Einladung: '
+  const WHEN = '📅 Wann: '
+  const WHERE = '📍 Wo: '
+  const NOTE = '📝 '
+  if (!text || text.indexOf(HEAD) !== 0) return null
+
+  const lines = text.split('\n')
+  const title = lines[0].slice(HEAD.length).trim()
+  let when = ''
+  let where = ''
+  let note = null
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i]
+    if (note !== null) { note += '\n' + line; continue }
+    if (line.indexOf(WHEN) === 0) when = line.slice(WHEN.length).trim()
+    else if (line.indexOf(WHERE) === 0) where = line.slice(WHERE.length).trim()
+    else if (line.indexOf(NOTE) === 0) note = line.slice(NOTE.length)
+    else return null // unbekannter Aufbau: ganz normaler Text
+  }
+  if (!title || !when) return null
+  return { title, when, where, note: (note || '').trim() }
+}
+
+// "2026-10-25" + "15:00" -> "Sonntag, 25. Oktober um 15 Uhr"
+function formatInviteWhen(dateStr, timeStr) {
+  let dayPart = ''
+  if (dateStr) {
+    const d = new Date(dateStr + 'T12:00:00')
+    if (!isNaN(d.getTime())) {
+      const opts = { weekday: 'long', day: 'numeric', month: 'long' }
+      if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric'
+      dayPart = d.toLocaleDateString('de-DE', opts)
+    }
+  }
+  let timePart = ''
+  if (timeStr) {
+    const [h, m] = timeStr.split(':')
+    timePart = m === '00' ? Number(h) + ' Uhr' : Number(h) + ':' + m + ' Uhr'
+  }
+  if (dayPart && timePart) return dayPart + ' um ' + timePart
+  return dayPart || timePart
+}
+
+function buildInvitationCard(inv) {
+  const card = document.createElement('div')
+  card.className = 'invite-card'
+
+  const label = document.createElement('div')
+  label.className = 'invite-card-label'
+  label.textContent = '🎉 Einladung'
+  card.appendChild(label)
+
+  const title = document.createElement('div')
+  title.className = 'invite-card-title'
+  title.textContent = inv.title
+  card.appendChild(title)
+
+  const addRow = (icon, key, value) => {
+    if (!value) return
+    const row = document.createElement('div')
+    row.className = 'invite-card-row'
+    const iconEl = document.createElement('span')
+    iconEl.className = 'invite-card-icon'
+    iconEl.textContent = icon
+    const box = document.createElement('div')
+    box.className = 'invite-card-value'
+    const keyEl = document.createElement('span')
+    keyEl.className = 'invite-card-key'
+    keyEl.textContent = key
+    const valEl = document.createElement('span')
+    appendTextWithLinks(valEl, value)
+    box.appendChild(keyEl)
+    box.appendChild(valEl)
+    row.appendChild(iconEl)
+    row.appendChild(box)
+    card.appendChild(row)
+  }
+  addRow('📅', 'Wann', inv.when)
+  addRow('📍', 'Wo', inv.where)
+
+  if (inv.note) {
+    const noteEl = document.createElement('div')
+    noteEl.className = 'invite-card-note'
+    appendTextWithLinks(noteEl, inv.note)
+    card.appendChild(noteEl)
+  }
+  return card
+}
+
+let inviteCardSending = false
+
+function openInviteModal() {
+  ;['invite-title', 'invite-date', 'invite-time', 'invite-where', 'invite-note'].forEach(id => {
+    document.getElementById(id).value = ''
+  })
+  document.getElementById('invite-error').style.display = 'none'
+  document.getElementById('invite-submit-btn').disabled = false
+  document.getElementById('invite-modal').style.display = 'flex'
+}
+
+function closeInviteModal() {
+  document.getElementById('invite-modal').style.display = 'none'
+}
+
+async function submitInvitation() {
+  if (inviteCardSending || !currentUser || isAdmin()) return
+  if (currentRoom.type !== 'group' && currentRoom.type !== 'dm') return
+
+  const title = document.getElementById('invite-title').value.trim()
+  const date = document.getElementById('invite-date').value
+  const time = document.getElementById('invite-time').value
+  const where = document.getElementById('invite-where').value.trim()
+  const note = document.getElementById('invite-note').value.trim()
+
+  const errorEl = document.getElementById('invite-error')
+  errorEl.style.display = 'none'
+  // Fehler rot im Pop-up UND als Meldung oben, damit man sie auf dem Handy nicht übersieht
+  const fail = (msg) => { errorEl.textContent = msg; errorEl.style.display = ''; showToast(msg) }
+  if (!title) return fail('Bitte gib einen Titel ein.')
+  if (!date) return fail('Bitte wähle ein Datum aus.')
+
+  // Zeilenumbrüche im Titel/Ort würden den Aufbau zerstören
+  const oneLine = (t) => t.replace(/\s*\n+\s*/g, ' ')
+  const lines = ['🎉 Einladung: ' + oneLine(title), '📅 Wann: ' + formatInviteWhen(date, time)]
+  if (where) lines.push('📍 Wo: ' + oneLine(where))
+  if (note) lines.push('📝 ' + note)
+  const text = lines.join('\n')
+
+  const row = { sender_id: currentUser.id, text: text }
+  if (currentRoom.type === 'dm') row.recipient_id = currentRoom.userId
+  else row.group_key = currentRoom.groupKey || null
+
+  const btn = document.getElementById('invite-submit-btn')
+  inviteCardSending = true
+  btn.disabled = true
+  const { data: inserted, error } = await supabaseClient
+    .from(currentTable())
+    .insert([row])
+    .select('*, profiles!sender_id(display_name)')
+    .single()
+  inviteCardSending = false
+  btn.disabled = false
+
+  if (error) {
+    await handleSendError(error)
+    return
+  }
+  closeInviteModal()
+  renderMessage(inserted)
+}
 
 // ===== Fotos =====
 // Ablauf: Plus -> "Foto" -> Hinweis auf SwissTransfer -> Foto aussuchen -> Vorschau (mit "HD"-Schalter und optionaler
@@ -2042,7 +2217,10 @@ let photoInputEl = null
 let photoSending = false
 
 function messageSnippet(msg) {
-  return (msg && msg.text) || (msg && msg.photo_id ? '📷 Foto' : '') || (msg && msg.audio_id ? '🎵 Audio' : '')
+  const inv = msg && msg.text ? parseInvitation(msg.text) : null
+  if (inv) return '🎉 Einladung: ' + inv.title
+  const plain = msg && msg.text ? stripFormatting(msg.text) : ''
+  return plain || (msg && msg.photo_id ? '📷 Foto' : '') || (msg && msg.audio_id ? '🎵 Audio' : '')
 }
 
 function formatBytes(bytes) {
@@ -3597,7 +3775,7 @@ function renderMessage(msg) {
   // Menü öffnen: nicht mehr über einen eigenen Button, sondern per Rechtsklick (PC) oder
   // langem Tippen (Handy) direkt auf der Nachricht - Kopieren geht bei jeder Nachricht,
   // der Rest hängt davon ab, wem sie gehört
-  const canEdit = isOwn && !isAdmin() && !msg.photo_id && !msg.audio_id // Foto- und Audio-Nachrichten lassen sich nicht bearbeiten
+  const canEdit = isOwn && !isAdmin() && !msg.photo_id && !msg.audio_id && !parseInvitation(msg.text) // Foto- und Audio-Nachrichten lassen sich nicht bearbeiten
   const canDelete = isOwn || isAdmin()
   const canReact = !isAdmin()
   const canReply = !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
@@ -3616,8 +3794,13 @@ function renderMessage(msg) {
   // Der Text selbst steht als reiner Textknoten davor, die Fußzeile (Uhrzeit + Haken)
   // wird gleich als eigenes, rechts schwebendes Element direkt danach eingehängt (siehe unten) -
   // dadurch rutscht sie bei kurzen Nachrichten ans Textende, bei langen presst sie sich unten rechts an
-  appendTextWithLinks(textEl, msg.text || '')
-  markBigEmoji(textEl, msg.text || '')
+  const invitation = parseInvitation(msg.text)
+  if (invitation) {
+    textEl.appendChild(buildInvitationCard(invitation))
+  } else {
+    appendFormattedText(textEl, msg.text || '')
+    markBigEmoji(textEl, msg.text || '')
+  }
 
   const reactRow = document.createElement('div')
   reactRow.className = 'msg-reactions'
@@ -4999,6 +5182,209 @@ function appendTextWithLinks(container, text) {
   if (lastIndex < text.length) container.appendChild(document.createTextNode(text.slice(lastIndex)))
 }
 
+// ===== Textformatierung (wie bei WhatsApp) =====
+// In der Datenbank steht ganz normaler Text mit Zeichen drumherum, erst beim Anzeigen wird formatiert. HTML-Tags werden NICHT
+// ausgewertet (das wäre ein Sicherheitsloch) - alles wird als Textknoten gebaut, nie als HTML.
+//   *fett*   _kursiv_   ~durchgestrichen~   `Code`   ```Code-Block (auch mehrzeilig)```
+//   "- " oder "* " am Zeilenanfang = Aufzählung, "1. " = nummerierte Liste (ab 2 Zeilen), "> " = Zitat
+// Wie bei WhatsApp zählt ein Zeichen nur, wenn es am Wortanfang steht und direkt am Text klebt (kein Leerzeichen innen),
+// so bleiben snake_case_namen, Links mit Unterstrich und "2 * 3 * 4" unangetastet.
+function isFormatBoundary(ch) {
+  return ch === undefined || !/[\p{L}\p{N}]/u.test(ch)
+}
+
+function parseInlineFormat(text) {
+  const MARKS = { '*': 'b', '_': 'i', '~': 's', '`': 'code' }
+  const out = []
+  let buf = ''
+  let i = 0
+  const flush = () => { if (buf) { out.push({ type: 'text', value: buf }); buf = '' } }
+
+  while (i < text.length) {
+    const c = text[i]
+    const type = MARKS[c]
+    if (type && isFormatBoundary(text[i - 1]) && text[i + 1] !== undefined && !/\s/.test(text[i + 1]) && text[i + 1] !== c) {
+      // passendes Schlusszeichen suchen: davor kein Leerzeichen, danach kein Buchstabe/Zahl
+      let close = -1
+      let j = i + 1
+      while (j < text.length) {
+        j = text.indexOf(c, j)
+        if (j === -1) break
+        if (j > i + 1 && !/\s/.test(text[j - 1]) && isFormatBoundary(text[j + 1])) { close = j; break }
+        j++
+      }
+      if (close !== -1) {
+        flush()
+        const inner = text.slice(i + 1, close)
+        out.push(type === 'code' ? { type, value: inner } : { type, children: parseInlineFormat(inner) })
+        i = close + 1
+        continue
+      }
+    }
+    buf += c
+    i++
+  }
+  flush()
+  return out
+}
+
+function appendInlineNodes(container, nodes) {
+  nodes.forEach(n => {
+    if (n.type === 'text') { appendTextWithLinks(container, n.value); return }
+    const tag = n.type === 'b' ? 'strong' : n.type === 'i' ? 'em' : n.type === 's' ? 's' : 'code'
+    const el = document.createElement(tag)
+    if (n.type === 'code') { el.className = 'msg-code'; el.textContent = n.value }
+    else appendInlineNodes(el, n.children)
+    container.appendChild(el)
+  })
+}
+
+// Eine Zeile (oder mehrere, durch Zeilenumbruch getrennt) mit Inline-Formatierung einhängen
+function appendInlineLines(container, lines) {
+  lines.forEach((line, k) => {
+    if (k > 0) container.appendChild(document.createElement('br'))
+    appendInlineNodes(container, parseInlineFormat(line))
+  })
+}
+
+function appendFormattedLines(container, text) {
+  const lines = text.split('\n')
+  let plain = []
+  const flushPlain = () => {
+    if (plain.length) appendInlineLines(container, plain)
+    plain = []
+  }
+
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]
+
+    if (/^>\s/.test(line)) { // Zitat
+      flushPlain()
+      const quote = document.createElement('blockquote')
+      quote.className = 'msg-quote'
+      const qLines = []
+      while (i < lines.length && /^>\s/.test(lines[i])) { qLines.push(lines[i].replace(/^>\s+/, '')); i++ }
+      appendInlineLines(quote, qLines)
+      container.appendChild(quote)
+      continue
+    }
+
+    if (/^[-*•]\s+\S/.test(line)) { // Aufzählung
+      flushPlain()
+      const ul = document.createElement('ul')
+      ul.className = 'msg-list'
+      while (i < lines.length && /^[-*•]\s+\S/.test(lines[i])) {
+        const li = document.createElement('li')
+        appendInlineNodes(li, parseInlineFormat(lines[i].replace(/^[-*•]\s+/, '')))
+        ul.appendChild(li)
+        i++
+      }
+      container.appendChild(ul)
+      continue
+    }
+
+    if (/^\d+[.)]\s+\S/.test(line) && i + 1 < lines.length && /^\d+[.)]\s+\S/.test(lines[i + 1])) { // nummerierte Liste (erst ab 2 Zeilen, damit "3. Oktober ..." normal bleibt)
+      flushPlain()
+      const ol = document.createElement('ol')
+      ol.className = 'msg-list'
+      while (i < lines.length && /^\d+[.)]\s+\S/.test(lines[i])) {
+        const m = lines[i].match(/^(\d+)[.)]\s+(.*)$/)
+        const li = document.createElement('li')
+        li.value = Number(m[1])
+        appendInlineNodes(li, parseInlineFormat(m[2]))
+        ol.appendChild(li)
+        i++
+      }
+      container.appendChild(ol)
+      continue
+    }
+
+    plain.push(line)
+    i++
+  }
+  flushPlain()
+}
+
+function appendFormattedText(container, text) {
+  // ```Text``` in einer Zeile ist einfach Code im Text; mehrzeilig wird es ein eigener Block
+  const src = String(text).replace(/```([^\n`]+)```/g, (m, c) => (c.trim() ? '`' + c.trim() + '`' : m))
+  const parts = src.split(/```([\s\S]*?)```/)
+  parts.forEach((part, idx) => {
+    if (idx % 2 === 1) {
+      const pre = document.createElement('pre')
+      pre.className = 'msg-code-block'
+      pre.textContent = part.replace(/^\n/, '').replace(/\n$/, '')
+      container.appendChild(pre)
+      return
+    }
+    let t = part
+    if (idx > 0) t = t.replace(/^\n/, '')
+    if (idx < parts.length - 1) t = t.replace(/\n$/, '')
+    if (t !== '') appendFormattedLines(container, t)
+  })
+}
+
+// Text ohne die Formatierzeichen - für Vorschau in der Chatliste, Antwort-Zitat und angepinnte Nachricht
+function stripFormatting(text) {
+  const flat = (nodes) => nodes.map(n => n.type === 'text' || n.type === 'code' ? n.value : flat(n.children)).join('')
+  return String(text)
+    .replace(/```([\s\S]*?)```/g, (m, c) => c.trim())
+    .split('\n')
+    .map(line => flat(parseInlineFormat(line.replace(/^>\s+/, ''))))
+    .join('\n')
+}
+
+// Tastenkürzel im Nachrichtenfeld (PC): Strg+B fett, Strg+I kursiv, Strg+Umschalt+X durchgestrichen, Strg+E Code.
+// Markierter Text bekommt die Zeichen davor und danach; ohne Markierung steht der Cursor zwischen zwei Zeichen.
+function wrapMessageSelection(marker) {
+  const el = messageInputEl()
+  const sel = window.getSelection()
+  if (!el || !sel || sel.rangeCount === 0) return
+  const range = sel.getRangeAt(0)
+  if (!el.contains(range.commonAncestorContainer)) return
+
+  if (range.collapsed) {
+    const node = document.createTextNode(marker + marker)
+    range.insertNode(node)
+    const caret = document.createRange()
+    caret.setStart(node, marker.length)
+    caret.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(caret)
+  } else {
+    const endNode = document.createTextNode(marker)
+    const startNode = document.createTextNode(marker)
+    const endRange = range.cloneRange()
+    endRange.collapse(false)
+    endRange.insertNode(endNode)
+    const startRange = range.cloneRange()
+    startRange.collapse(true)
+    startRange.insertNode(startNode)
+    const inner = document.createRange()
+    inner.setStartAfter(startNode)
+    inner.setEndBefore(endNode)
+    sel.removeAllRanges()
+    sel.addRange(inner)
+  }
+  savedMessageRange = sel.getRangeAt(0).cloneRange()
+  el.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
+document.getElementById('message-input').addEventListener('keydown', (e) => {
+  if (e.isComposing || e.keyCode === 229) return
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return
+  const key = e.key.toLowerCase()
+  let marker = null
+  if (!e.shiftKey && key === 'b') marker = '*'
+  else if (!e.shiftKey && key === 'i') marker = '_'
+  else if (e.shiftKey && key === 'x') marker = '~'
+  else if (!e.shiftKey && key === 'e') marker = '`'
+  if (!marker) return
+  e.preventDefault()
+  wrapMessageSelection(marker)
+})
+
 // Baut das kleine Zitat der beantworteten Nachricht oben in einer Sprechblase
 function buildReplyQuote(replyToId) {
   const original = messagesById[replyToId]
@@ -5188,8 +5574,12 @@ function updateMessageElement(msg) {
   if (!row) return
 
   const textEl = row.querySelector('.msg-text')
-  if (textEl && !msg.photo_id && !msg.audio_id) {
-    textEl.textContent = msg.text
+  if (textEl && !msg.photo_id && !msg.audio_id && !parseInvitation(msg.text)) {
+    const footer = textEl.querySelector(':scope > .msg-footer')
+    textEl.textContent = ''
+    appendFormattedText(textEl, msg.text || '')
+    if (footer) textEl.appendChild(footer)
+    applyEmojiImages(textEl)
     markBigEmoji(textEl, msg.text)
   }
 
@@ -6039,9 +6429,14 @@ function isVip() {
   return !isAdmin() && !!currentUser && vipIds.has(currentUser.id)
 }
 
-// Anpinnen darf ein VIP im eigenen Chat (nicht im rein lesenden Einblick in fremde Einzelchats)
+// Anpinnen darf in Einzelchats und allen Gruppen (Jungs, Mädels, eigene Gruppen) jeder, in der Hauptgruppe nur ein VIP
+// ("Besondere Rechte"). Nicht im rein lesenden Einblick in fremde Einzelchats und nie der Admin. Die Datenbank prüft dasselbe
+// (Policies auf pinned_messages).
 function canPinHere() {
-  return isVip() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
+  if (!currentUser || isAdmin()) return false
+  if (currentRoom.type === 'dm') return true
+  if (currentRoom.type === 'group') return pinChatKey() !== 'main' || isVip()
+  return false
 }
 
 // Aufheben darf, wer angepinnt hat, und der Admin
