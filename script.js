@@ -2134,7 +2134,7 @@ function buildInvitationCard(inv) {
 let inviteCardSending = false
 
 function openInviteModal() {
-  ;['invite-title', 'invite-date', 'invite-time', 'invite-where', 'invite-note'].forEach(id => {
+  ;['invite-card-name', 'invite-date', 'invite-time', 'invite-where', 'invite-note'].forEach(id => {
     document.getElementById(id).value = ''
   })
   document.getElementById('invite-error').style.display = 'none'
@@ -2150,7 +2150,7 @@ async function submitInvitation() {
   if (inviteCardSending || !currentUser || isAdmin()) return
   if (currentRoom.type !== 'group' && currentRoom.type !== 'dm') return
 
-  const title = document.getElementById('invite-title').value.trim()
+  const title = document.getElementById('invite-card-name').value.trim()
   const date = document.getElementById('invite-date').value
   const time = document.getElementById('invite-time').value
   const where = document.getElementById('invite-where').value.trim()
