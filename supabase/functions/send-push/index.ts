@@ -183,6 +183,7 @@ Deno.serve(async (req) => {
       body: bodyText,
       tag: chatKey,
       chatKey, // damit ein Klick auf die Meldung genau diesen Chat öffnet
+      createdAt: record.created_at, // damit der Service Worker "zugestellt" für genau diese Nachricht melden kann
       url: "./"
     })
 
