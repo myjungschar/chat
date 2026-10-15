@@ -4474,8 +4474,9 @@ document.addEventListener('scroll', (e) => {
 // Öffnet das Nachrichtenmenü nicht mehr über einen eigenen Button, sondern per Rechtsklick
 // (PC) oder langem Tippen (Handy) direkt auf der Nachricht. Auf den Haken, dem Zitat und den
 // Reaktions-Chips wird das ignoriert, die haben ihre eigene Funktion bei einem normalen Klick.
-// Doppelklick (PC) oder Doppeltipp (Handy) auf die Höhe einer Nachricht startet die Antwort - auch daneben, nicht nur
-// genau auf der Sprechblase. Ausgenommen sind Knöpfe, Links, Fotos, der Audio-Player und die Reaktionen.
+// Doppelklick (PC) oder Doppeltipp (Handy) auf die Höhe einer Nachricht startet die Antwort - aber nur NEBEN der Sprechblase
+// (gleiche Höhe, die Seite ist egal). Direkt auf der Sprechblase passiert nichts. Ausgenommen sind außerdem Knöpfe, Links,
+// Fotos, der Audio-Player und die Reaktionen.
 function attachReplyGesture(row, msg) {
   const IGNORED = 'a, button, input, textarea, .msg-photo, .msg-audio, .msg-reactions, .msg-ticks, .msg-reply-quote, .msg-avatar'
   let lastTap = null
@@ -4491,14 +4492,14 @@ function attachReplyGesture(row, msg) {
   }
 
   row.addEventListener('dblclick', (event) => {
-    if (event.target.closest && event.target.closest(IGNORED)) return
+    if (event.target.closest && (event.target.closest(IGNORED) || event.target.closest('.msg'))) return
     reply()
   })
 
   // Doppeltipp am Handy: zwei kurze Tipps kurz hintereinander an fast derselben Stelle
   row.addEventListener('pointerup', (event) => {
     if (event.pointerType === 'mouse') return
-    if (event.target.closest && event.target.closest(IGNORED)) return
+    if (event.target.closest && (event.target.closest(IGNORED) || event.target.closest('.msg'))) return
     const now = Date.now()
     if (lastTap && now - lastTap.time < 320 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 30) {
       lastTap = null
@@ -6088,8 +6089,10 @@ function renderUserDetail(u) {
 
   const identityBody = `
     <div class="input-group">
-      <label for="user-name-input">Name (zugleich der Benutzername zum Anmelden)</label>
+      <label for="user-name-input">Name (so steht er im Chat)</label>
       <input type="text" id="user-name-input" maxlength="40" autocomplete="off" value="${escapeHTML(u.display_name || '')}">
+      <label for="user-username-input" class="user-edit-label">Benutzername zum Anmelden</label>
+      <input type="text" id="user-username-input" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="vorname.nachname" value="${escapeHTML(u.username || '')}">
       <label for="user-email-input" class="user-edit-label">E-Mail-Adresse</label>
       <input type="email" id="user-email-input" autocomplete="off" placeholder="Wird geladen …" disabled>
       <p class="field-error" id="user-identity-error" style="display: none;"></p>
@@ -6172,17 +6175,20 @@ function renderUserDetail(u) {
   document.getElementById('user-delete-btn').addEventListener('click', () => deleteUser(u))
 }
 
-// Admin: Name (= Benutzername zum Anmelden) und E-Mail-Adresse einer Person ändern.
-// Der Name steht in "profiles" (Admin-Policy), die E-Mail in auth.users und lässt sich nur über die Edge Function
+// Admin: Name (Anzeigename im Chat), Benutzername (zum Anmelden, klein geschrieben, z. B. vorname.nachname) und E-Mail-Adresse
+// einer Person ändern. Name und Benutzername stehen in "profiles" (Admin-Policy), die E-Mail in auth.users und lässt sich nur über die Edge Function
 // "admin-update-user" ändern, die serverseitig prüft, ob der Aufrufer Admin ist.
 function setupAdminIdentity(user) {
   const nameInput = document.getElementById('user-name-input')
+  const usernameInput = document.getElementById('user-username-input')
   const emailInput = document.getElementById('user-email-input')
   const saveBtn = document.getElementById('user-identity-save-btn')
   const errorEl = document.getElementById('user-identity-error')
   let savedName = user.display_name || ''
   let savedEmail = profileEmailCache[user.id] || ''
+  let savedUsername = (user.username || '').trim().toLowerCase()
   nameInput.value = savedName
+  usernameInput.value = savedUsername
   let emailLoaded = !!savedEmail
   let saving = false
 
@@ -6195,17 +6201,27 @@ function setupAdminIdentity(user) {
     const taken = allUsers.some(o => o.id !== user.id && (o.display_name || '').trim().toLowerCase() === name.toLowerCase())
     return taken ? 'Diesen Namen gibt es schon.' : ''
   }
+  const normUsername = (v) => v.trim().toLowerCase()
+  const usernameProblem = (un) => {
+    if (un.length < 2) return 'Der Benutzername ist zu kurz.'
+    if (/\s/.test(un) || un.includes('@')) return 'Der Benutzername darf keine Leerzeichen und kein @ enthalten.'
+    const taken = allUsers.some(o => o.id !== user.id && (o.username || '').trim().toLowerCase() === un)
+    return taken ? 'Diesen Benutzernamen gibt es schon.' : ''
+  }
   const emailProblem = (email) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? '' : 'Bitte eine gültige E-Mail-Adresse eingeben.')
   const refresh = () => {
     const name = nameInput.value.trim()
+    const username = normUsername(usernameInput.value)
     const email = emailInput.value.trim()
     const nameChanged = name !== savedName
+    const usernameChanged = username !== savedUsername
     const emailChanged = emailLoaded && email !== savedEmail
-    const problem = (nameChanged ? nameProblem(name) : '') || (emailChanged ? emailProblem(email) : '')
+    const problem = (nameChanged ? nameProblem(name) : '') || (usernameChanged ? usernameProblem(username) : '') || (emailChanged ? emailProblem(email) : '')
     showError(problem)
-    saveBtn.disabled = saving || !(nameChanged || emailChanged) || !!problem
+    saveBtn.disabled = saving || !(nameChanged || usernameChanged || emailChanged) || !!problem
   }
   nameInput.addEventListener('input', refresh)
+  usernameInput.addEventListener('input', refresh)
   emailInput.addEventListener('input', refresh)
 
   // Aktuelle E-Mail-Adresse holen (kommt nur für den Admin über die Edge Function "get-user-email")
@@ -6233,11 +6249,15 @@ function setupAdminIdentity(user) {
   saveBtn.addEventListener('click', async () => {
     if (!isAdmin() || saving) return
     const name = nameInput.value.trim()
+    const username = normUsername(usernameInput.value)
     const email = emailInput.value.trim()
     const nameChanged = name !== savedName
+    const usernameChanged = username !== savedUsername
     const emailChanged = emailLoaded && email !== savedEmail
-    if (!nameChanged && !emailChanged) return
-    if ((nameChanged && nameProblem(name)) || (emailChanged && emailProblem(email))) return
+    if (!nameChanged && !usernameChanged && !emailChanged) return
+    if ((nameChanged && nameProblem(name)) || (usernameChanged && usernameProblem(username)) || (emailChanged && emailProblem(email))) return
+
+    if (usernameChanged && !(await askConfirm('Den Benutzernamen von ' + (savedName || 'dieser Person') + ' wirklich auf "' + username + '" ändern? Zum Anmelden gilt dann nur noch dieser Name.', { okText: 'Ändern' }))) return
 
     if (emailChanged && !(await askConfirm('Die E-Mail-Adresse von ' + (savedName || 'dieser Person') + ' wirklich auf ' + email + ' ändern? Einladungs- und Passwort-Mails gehen dann dorthin.', { okText: 'Ändern' }))) return
 
@@ -6257,6 +6277,14 @@ function setupAdminIdentity(user) {
         if (preview) preview.textContent = initialsOf(name)
         renderUserList()
         renderChatList()
+      }
+      if (usernameChanged) {
+        const { data, error } = await supabaseClient.from('profiles').update({ username: username }).eq('id', user.id).select('id')
+        if (error) throw new Error(error.code === '23505' ? 'Diesen Benutzernamen gibt es schon.' : error.message)
+        if (!data || data.length === 0) throw new Error('Änderung nicht erlaubt.')
+        user.username = username
+        savedUsername = username
+        usernameInput.value = username
       }
       if (emailChanged) {
         const { data: session } = await supabaseClient.auth.getSession()
