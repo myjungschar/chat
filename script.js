@@ -653,37 +653,68 @@ async function loadChatPreviews() {
     }
   }
 
-  const { data: groupRows } = await supabaseClient
-    .from('messages')
-    .select('text, photo_id, audio_id, created_at, group_key, sender_id')
-    .order('created_at', { ascending: false })
-    .limit(300)
-
-  if (groupRows) {
-    groupRows.forEach(row => {
-      const key = row.group_key || 'main'
-      if (!newGroupPreviews[key]) newGroupPreviews[key] = row
-      countIfUnread(key, row)
-      if (row.sender_id !== me && !newestFromOthers[key]) newestFromOthers[key] = row.created_at
+  // Neu: Die Datenbankfunktion chat_previews liefert je Chat die letzte Nachricht, die Zahl der ungelesenen und die neueste
+  // Nachricht von anderen - genau, auch für ruhige Chats. Vorher: nur die letzten 300/400 Nachrichten aller Chats zusammen,
+  // da fehlten Vorschau und Zähler, sobald ein anderer Chat viel Betrieb hatte. Gibt es die Funktion noch nicht (SQL nicht
+  // ausgeführt) oder schlägt sie fehl, läuft wie bisher die alte Abfrage.
+  let usedPreviewRpc = false
+  const { data: previewRows, error: previewError } = await supabaseClient.rpc('chat_previews')
+  if (!previewError && Array.isArray(previewRows)) {
+    usedPreviewRpc = true
+    previewRows.forEach(r => {
+      const row = {
+        text: r.msg_text,
+        photo_id: r.has_photo ? true : null,
+        audio_id: r.has_audio ? true : null,
+        created_at: r.msg_created_at,
+        sender_id: r.msg_sender_id
+      }
+      const key = r.kind === 'dm' ? 'dm:' + r.chat_key : r.chat_key
+      if (r.kind === 'dm') {
+        row.recipient_id = r.msg_recipient_id
+        newDmPreviews[r.chat_key] = row
+      } else {
+        newGroupPreviews[r.chat_key] = row
+      }
+      // Der Admin sieht alle Chats neutral: nirgends ein Ungelesen-Zähler
+      if (!isAdmin() && Number(r.unread_count) > 0) newUnread[key] = Number(r.unread_count)
+      if (r.newest_from_others) newestFromOthers[key] = r.newest_from_others
     })
   }
 
-  const { data: dmRows } = await supabaseClient
-    .from('direct_messages')
-    .select('text, photo_id, audio_id, created_at, sender_id, recipient_id')
-    .order('created_at', { ascending: false })
-    .limit(400)
+  if (!usedPreviewRpc) {
+    const { data: groupRows } = await supabaseClient
+      .from('messages')
+      .select('text, photo_id, audio_id, created_at, group_key, sender_id')
+      .order('created_at', { ascending: false })
+      .limit(300)
 
-  if (dmRows) {
-    dmRows.forEach(row => {
-      const other = row.sender_id === me ? row.recipient_id : row.sender_id
-      if (!newDmPreviews[other]) newDmPreviews[other] = row
-      // Der Admin sieht alle Einzelchats nur zum Mitlesen - das sind nicht seine eigenen, also kein Zähler
-      if (!isAdmin()) countIfUnread('dm:' + other, row)
-      if (row.sender_id !== me && row.recipient_id === me && !newestFromOthers['dm:' + other]) {
-        newestFromOthers['dm:' + other] = row.created_at
-      }
-    })
+    if (groupRows) {
+      groupRows.forEach(row => {
+        const key = row.group_key || 'main'
+        if (!newGroupPreviews[key]) newGroupPreviews[key] = row
+        countIfUnread(key, row)
+        if (row.sender_id !== me && !newestFromOthers[key]) newestFromOthers[key] = row.created_at
+      })
+    }
+
+    const { data: dmRows } = await supabaseClient
+      .from('direct_messages')
+      .select('text, photo_id, audio_id, created_at, sender_id, recipient_id')
+      .order('created_at', { ascending: false })
+      .limit(400)
+
+    if (dmRows) {
+      dmRows.forEach(row => {
+        const other = row.sender_id === me ? row.recipient_id : row.sender_id
+        if (!newDmPreviews[other]) newDmPreviews[other] = row
+        // Der Admin sieht alle Einzelchats nur zum Mitlesen - das sind nicht seine eigenen, also kein Zähler
+        if (!isAdmin()) countIfUnread('dm:' + other, row)
+        if (row.sender_id !== me && row.recipient_id === me && !newestFromOthers['dm:' + other]) {
+          newestFromOthers['dm:' + other] = row.created_at
+        }
+      })
+    }
   }
 
   // Alles, was hier angekommen ist, gilt als zugestellt (die Absender sehen dann die grauen Doppel-Häkchen)
