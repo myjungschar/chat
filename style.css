@@ -5166,3 +5166,23 @@ body.light-theme #login-bereich.invite-open #shape-invite {
   margin: 4px 0;
   padding-left: 22px;
 }
+
+/* Pop-up "Einladung senden" mit Benutzername */
+.confirm-dialog .confirm-label {
+  display: block;
+  margin: 0 0 6px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.confirm-dialog .confirm-hint {
+  margin: 8px 0 14px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.confirm-dialog .confirm-error {
+  margin: -6px 0 14px 0;
+  font-size: 13px;
+  color: var(--danger);
+}

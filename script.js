@@ -6834,6 +6834,98 @@ function askGender(email) {
   })
 }
 
+// Pop-up vor dem Senden einer Einladung: Der Benutzername zum Anmelden wird aus der E-Mail-Adresse vorgeschlagen
+// (alles vor dem @, klein geschrieben, normalerweise vorname.nachname). Bei Personen, bei denen er anders sein soll,
+// ändert der Admin ihn hier. Gibt { username } zurück oder null (abgebrochen).
+function askInviteDetails(email) {
+  return new Promise(resolve => {
+    const suggestion = email.split('@')[0].trim().toLowerCase().replace(/\s+/g, '.')
+
+    const overlay = document.createElement('div')
+    overlay.className = 'confirm-overlay'
+
+    const dialog = document.createElement('div')
+    dialog.className = 'confirm-dialog'
+    dialog.setAttribute('role', 'dialog')
+    dialog.setAttribute('aria-modal', 'true')
+
+    const text = document.createElement('p')
+    text.textContent = 'Einladung an ' + email + ' senden?'
+
+    const label = document.createElement('label')
+    label.className = 'confirm-label'
+    label.textContent = 'Benutzername zum Anmelden'
+    label.setAttribute('for', 'invite-username-input')
+
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.id = 'invite-username-input'
+    input.maxLength = 40
+    input.autocomplete = 'off'
+    input.setAttribute('autocapitalize', 'none')
+    input.spellcheck = false
+    input.value = suggestion
+
+    const hint = document.createElement('p')
+    hint.className = 'confirm-hint'
+    hint.textContent = 'Meistens vorname.nachname. Ändere ihn nur, wenn er bei dieser Person anders sein soll.'
+
+    const error = document.createElement('p')
+    error.className = 'confirm-error'
+    error.style.display = 'none'
+
+    const buttons = document.createElement('div')
+    buttons.className = 'confirm-buttons'
+    const cancelBtn = document.createElement('button')
+    cancelBtn.type = 'button'
+    cancelBtn.className = 'confirm-cancel'
+    cancelBtn.textContent = 'Abbrechen'
+    const okBtn = document.createElement('button')
+    okBtn.type = 'button'
+    okBtn.className = 'confirm-ok'
+    okBtn.textContent = 'Senden'
+    buttons.append(cancelBtn, okBtn)
+
+    dialog.append(text, label, input, hint, error, buttons)
+    overlay.appendChild(dialog)
+    document.body.appendChild(overlay)
+
+    const problemOf = (name) => {
+      if (name.length < 2) return 'Der Benutzername ist zu kurz.'
+      if (/\s/.test(name) || name.includes('@')) return 'Der Benutzername darf keine Leerzeichen und kein @ enthalten.'
+      if (allUsers.some(u => (u.username || '').trim().toLowerCase() === name)) return 'Diesen Benutzernamen gibt es schon.'
+      return ''
+    }
+    const refresh = () => {
+      const problem = problemOf(input.value.trim().toLowerCase())
+      error.textContent = problem
+      error.style.display = problem ? '' : 'none'
+      okBtn.disabled = !!problem
+    }
+    refresh()
+    input.focus()
+    input.select()
+
+    const finish = result => {
+      document.removeEventListener('keydown', onKey)
+      overlay.remove()
+      resolve(result)
+    }
+    const submit = () => {
+      const name = input.value.trim().toLowerCase()
+      if (problemOf(name)) return
+      finish({ username: name })
+    }
+    const onKey = e => { if (e.key === 'Escape') finish(null) }
+    document.addEventListener('keydown', onKey)
+    input.addEventListener('input', refresh)
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit() } })
+    cancelBtn.addEventListener('click', () => finish(null))
+    okBtn.addEventListener('click', submit)
+    overlay.addEventListener('click', e => { if (e.target === overlay) finish(null) })
+  })
+}
+
 async function inviteUser() {
   if (!isAdmin()) return
   const input = document.getElementById('new-user-email')
@@ -6856,8 +6948,10 @@ async function inviteUser() {
   // Einstellungen > Nutzer verwalten > (Person) > Rechte geben.
   const makeVip = false
 
-  // Frage: wirklich senden?
-  if (!(await askConfirm('Möchtest du die E-Mail wirklich an ' + email + ' senden?', { okText: 'Senden', cancelText: 'Abbrechen' }))) return
+  // Frage: wirklich senden? Dabei gleich den Benutzernamen prüfen/ändern lassen (er wird mitgeschickt und im Profil gespeichert)
+  const details = await askInviteDetails(email)
+  if (!details) return
+  const username = details.username
 
   inviteSending = true
   btn.disabled = true
@@ -6879,7 +6973,7 @@ async function inviteUser() {
   const { data, error } = await invokeWithRetry('invite-user', async () => {
     const { data: { session: fresh } } = await supabaseClient.auth.getSession()
     return {
-      body: { email, gender, vip: makeVip },
+      body: { email, gender, vip: makeVip, username },
       headers: { Authorization: 'Bearer ' + (fresh || session).access_token }
     }
   })
@@ -6926,10 +7020,34 @@ async function inviteUser() {
     if (vipError && vipError.code !== '23505') showToast('Besondere Rechte konnten nicht gespeichert werden: ' + vipError.message)
   }
 
-  if (!genderSaved) {
-    await showInfoDialog('Die E-Mail an ' + email + ' wurde gesendet, aber das Geschlecht konnte NICHT gespeichert werden (' + genderProblem + '). Bitte sofort unter „Nutzer verwalten“ Junge oder Mädchen einstellen.')
+  // Benutzername: Die neue Fassung der Funktion meldet usernameSaved, sonst tragen wir ihn hier im Profil nach
+  let usernameSaved = !!(data && data.usernameSaved === true)
+  let usernameProblem = ''
+  if (!usernameSaved) {
+    if (!userId) {
+      usernameProblem = 'Die Funktion hat keine Nutzer-ID zurückgegeben.'
+    } else {
+      for (let attempt = 0; attempt < 6 && !usernameSaved; attempt++) {
+        if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 700))
+        const { data: updated, error: usernameError } = await supabaseClient
+          .from('profiles')
+          .update({ username })
+          .eq('id', userId)
+          .select('id')
+        if (usernameError) usernameProblem = usernameError.code === '23505' ? 'Diesen Benutzernamen gibt es schon.' : usernameError.message
+        else if (!updated || updated.length === 0) usernameProblem = 'Das Profil wurde nicht gefunden oder darf nicht geändert werden.'
+        else usernameSaved = true
+      }
+    }
+  }
+
+  const unsaved = []
+  if (!genderSaved) unsaved.push('das Geschlecht (' + genderProblem + ')')
+  if (!usernameSaved) unsaved.push('der Benutzername (' + usernameProblem + ')')
+  if (unsaved.length > 0) {
+    await showInfoDialog('Die E-Mail an ' + email + ' wurde gesendet, aber ' + unsaved.join(' und ') + ' konnte NICHT gespeichert werden. Bitte sofort unter „Nutzer verwalten“ nachtragen.')
   } else {
-    await showInfoDialog('Die E-Mail an ' + email + ' wurde erfolgreich gesendet!')
+    await showInfoDialog('Die E-Mail an ' + email + ' wurde erfolgreich gesendet! Benutzername zum Anmelden: ' + username)
   }
   loadUsers()
 }
