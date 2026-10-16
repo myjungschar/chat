@@ -440,8 +440,9 @@ async function fillResetUsername(userId) {
     id = user && user.id
   }
   if (!id) return
-  const { data: profile } = await supabaseClient.from('profiles').select('display_name').eq('id', id).single()
-  if (profile && profile.display_name) field.value = profile.display_name
+  const { data: profile } = await supabaseClient.from('profiles').select('display_name, username').eq('id', id).single()
+  const loginName = profile && (profile.username || profile.display_name)
+  if (loginName) field.value = loginName
 }
 
 function showPasswordReset() {
@@ -458,7 +459,7 @@ function showPasswordReset() {
 async function showInviteSetup(userId) {
   const { data: profile } = await supabaseClient
     .from('profiles')
-    .select('display_name')
+    .select('display_name, username')
     .eq('id', userId)
     .single()
 
@@ -466,7 +467,7 @@ async function showInviteSetup(userId) {
   // Benutzername = alles vor dem @ der E-Mail (so steht er im Profil); begrüßt wird mit dem Vornamen
   const firstName = name ? name.split(/[.\s]+/)[0] : ''
   const greeting = firstName ? firstName.charAt(0).toUpperCase() + firstName.slice(1) : ''
-  document.getElementById('reset-username').value = name || ''
+  document.getElementById('reset-username').value = profile?.username || name || ''
   document.getElementById('reset-heading').textContent = greeting ? `Willkommen, ${greeting}!` : 'Willkommen!'
   document.getElementById('reset-subtext').style.display = 'none'
   document.getElementById('reset-username-hint').style.display = ''
@@ -6834,12 +6835,24 @@ function askGender(email) {
   })
 }
 
-// Pop-up vor dem Senden einer Einladung: Der Benutzername zum Anmelden wird aus der E-Mail-Adresse vorgeschlagen
-// (alles vor dem @, klein geschrieben, normalerweise vorname.nachname). Bei Personen, bei denen er anders sein soll,
-// ändert der Admin ihn hier. Gibt { username } zurück oder null (abgebrochen).
+// Pop-up vor dem Senden einer Einladung: Name im Chat und Benutzername zum Anmelden prüfen/ändern.
+// Vorgeschlagen wird beides aus der E-Mail-Adresse (alles vor dem @: "timo.ebert" -> Name "Timo Ebert", Benutzername
+// "timo.ebert"). Schreibt der Admin einen anderen Namen (z. B. "Timo Ebert"), baut das Fenster den Benutzernamen daraus
+// (klein, Punkt statt Leerzeichen) - solange er den Benutzernamen nicht selbst ändert. Gibt { displayName, username }
+// zurück oder null (abgebrochen).
+function nameFromLocalPart(local) {
+  return local.split(/[._\-\s]+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+}
+
+function usernameFromName(name) {
+  return name.trim().toLowerCase()
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .replace(/\s+/g, '.')
+}
+
 function askInviteDetails(email) {
   return new Promise(resolve => {
-    const suggestion = email.split('@')[0].trim().toLowerCase().replace(/\s+/g, '.')
+    const local = email.split('@')[0].trim()
 
     const overlay = document.createElement('div')
     overlay.className = 'confirm-overlay'
@@ -6852,23 +6865,28 @@ function askInviteDetails(email) {
     const text = document.createElement('p')
     text.textContent = 'Einladung an ' + email + ' senden?'
 
-    const label = document.createElement('label')
-    label.className = 'confirm-label'
-    label.textContent = 'Benutzername zum Anmelden'
-    label.setAttribute('for', 'invite-username-input')
-
-    const input = document.createElement('input')
-    input.type = 'text'
-    input.id = 'invite-username-input'
-    input.maxLength = 40
-    input.autocomplete = 'off'
-    input.setAttribute('autocapitalize', 'none')
-    input.spellcheck = false
-    input.value = suggestion
+    const makeField = (id, labelText, value, maxLength) => {
+      const label = document.createElement('label')
+      label.className = 'confirm-label'
+      label.textContent = labelText
+      label.setAttribute('for', id)
+      const input = document.createElement('input')
+      input.type = 'text'
+      input.id = id
+      input.maxLength = maxLength
+      input.autocomplete = 'off'
+      input.setAttribute('autocapitalize', 'none')
+      input.spellcheck = false
+      input.value = value
+      return { label, input }
+    }
+    const nameField = makeField('invite-dialog-name', 'Name im Chat', nameFromLocalPart(local), 60)
+    const userField = makeField('invite-dialog-username', 'Benutzername zum Anmelden', local.toLowerCase().replace(/\s+/g, '.'), 40)
+    nameField.input.setAttribute('autocapitalize', 'words')
 
     const hint = document.createElement('p')
     hint.className = 'confirm-hint'
-    hint.textContent = 'Meistens vorname.nachname. Ändere ihn nur, wenn er bei dieser Person anders sein soll.'
+    hint.textContent = 'Passen Name oder Benutzername nicht zur E-Mail-Adresse, ändere sie hier. Der Benutzername wird aus dem Namen gebaut (klein, Punkt statt Leerzeichen), bis du ihn selbst änderst.'
 
     const error = document.createElement('p')
     error.className = 'confirm-error'
@@ -6886,25 +6904,31 @@ function askInviteDetails(email) {
     okBtn.textContent = 'Senden'
     buttons.append(cancelBtn, okBtn)
 
-    dialog.append(text, label, input, hint, error, buttons)
+    dialog.append(text, nameField.label, nameField.input, userField.label, userField.input, hint, error, buttons)
     overlay.appendChild(dialog)
     document.body.appendChild(overlay)
 
-    const problemOf = (name) => {
-      if (name.length < 2) return 'Der Benutzername ist zu kurz.'
-      if (/\s/.test(name) || name.includes('@')) return 'Der Benutzername darf keine Leerzeichen und kein @ enthalten.'
-      if (allUsers.some(u => (u.username || '').trim().toLowerCase() === name)) return 'Diesen Benutzernamen gibt es schon.'
+    let usernameTouched = false
+    const same = (a, b) => (a || '').trim().toLowerCase() === b
+    const problemOf = (name, username) => {
+      if (name.length < 1) return 'Bitte gib einen Namen ein.'
+      if (allUsers.some(u => same(u.display_name, name.toLowerCase()))) return 'Diesen Namen gibt es schon.'
+      if (username.length < 2) return 'Der Benutzername ist zu kurz.'
+      if (/\s/.test(username) || username.includes('@')) return 'Der Benutzername darf keine Leerzeichen und kein @ enthalten.'
+      if (allUsers.some(u => same(u.username, username))) return 'Diesen Benutzernamen gibt es schon.'
       return ''
     }
+    const current = () => ({ name: nameField.input.value.trim(), username: userField.input.value.trim().toLowerCase() })
     const refresh = () => {
-      const problem = problemOf(input.value.trim().toLowerCase())
+      const c = current()
+      const problem = problemOf(c.name, c.username)
       error.textContent = problem
       error.style.display = problem ? '' : 'none'
       okBtn.disabled = !!problem
     }
     refresh()
-    input.focus()
-    input.select()
+    nameField.input.focus()
+    nameField.input.select()
 
     const finish = result => {
       document.removeEventListener('keydown', onKey)
@@ -6912,14 +6936,20 @@ function askInviteDetails(email) {
       resolve(result)
     }
     const submit = () => {
-      const name = input.value.trim().toLowerCase()
-      if (problemOf(name)) return
-      finish({ username: name })
+      const c = current()
+      if (problemOf(c.name, c.username)) return
+      finish({ displayName: c.name, username: c.username })
     }
     const onKey = e => { if (e.key === 'Escape') finish(null) }
     document.addEventListener('keydown', onKey)
-    input.addEventListener('input', refresh)
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit() } })
+    nameField.input.addEventListener('input', () => {
+      if (!usernameTouched) userField.input.value = usernameFromName(nameField.input.value)
+      refresh()
+    })
+    userField.input.addEventListener('input', () => { usernameTouched = true; refresh() })
+    const onEnter = e => { if (e.key === 'Enter') { e.preventDefault(); submit() } }
+    nameField.input.addEventListener('keydown', onEnter)
+    userField.input.addEventListener('keydown', onEnter)
     cancelBtn.addEventListener('click', () => finish(null))
     okBtn.addEventListener('click', submit)
     overlay.addEventListener('click', e => { if (e.target === overlay) finish(null) })
@@ -6951,7 +6981,7 @@ async function inviteUser() {
   // Frage: wirklich senden? Dabei gleich den Benutzernamen prüfen/ändern lassen (er wird mitgeschickt und im Profil gespeichert)
   const details = await askInviteDetails(email)
   if (!details) return
-  const username = details.username
+  const { username, displayName } = details
 
   inviteSending = true
   btn.disabled = true
@@ -6973,7 +7003,7 @@ async function inviteUser() {
   const { data, error } = await invokeWithRetry('invite-user', async () => {
     const { data: { session: fresh } } = await supabaseClient.auth.getSession()
     return {
-      body: { email, gender, vip: makeVip, username },
+      body: { email, gender, vip: makeVip, username, display_name: displayName },
       headers: { Authorization: 'Bearer ' + (fresh || session).access_token }
     }
   })
@@ -7031,7 +7061,7 @@ async function inviteUser() {
         if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 700))
         const { data: updated, error: usernameError } = await supabaseClient
           .from('profiles')
-          .update({ username })
+          .update({ username, display_name: displayName })
           .eq('id', userId)
           .select('id')
         if (usernameError) usernameProblem = usernameError.code === '23505' ? 'Diesen Benutzernamen gibt es schon.' : usernameError.message
@@ -7043,11 +7073,11 @@ async function inviteUser() {
 
   const unsaved = []
   if (!genderSaved) unsaved.push('das Geschlecht (' + genderProblem + ')')
-  if (!usernameSaved) unsaved.push('der Benutzername (' + usernameProblem + ')')
+  if (!usernameSaved) unsaved.push('Name und Benutzername (' + usernameProblem + ')')
   if (unsaved.length > 0) {
     await showInfoDialog('Die E-Mail an ' + email + ' wurde gesendet, aber ' + unsaved.join(' und ') + ' konnte NICHT gespeichert werden. Bitte sofort unter „Nutzer verwalten“ nachtragen.')
   } else {
-    await showInfoDialog('Die E-Mail an ' + email + ' wurde erfolgreich gesendet! Benutzername zum Anmelden: ' + username)
+    await showInfoDialog('Die E-Mail an ' + email + ' wurde erfolgreich gesendet! Name: ' + displayName + ', Benutzername zum Anmelden: ' + username)
   }
   loadUsers()
 }

@@ -1,12 +1,17 @@
 // Supabase Edge Function "invite-user"
 // Liegt als supabase/functions/invite-user/index.ts, daneben die Datei deno.json (dort steht, woher @supabase/supabase-js kommt).
 //
-// Ablauf (die E-Mail geht erst raus, wenn das Geschlecht sicher gespeichert ist):
+// Ablauf (die E-Mail geht erst raus, wenn Geschlecht, Name und Benutzername sicher gespeichert sind):
 //  1. Prüft, dass der Aufrufer angemeldet UND Admin ist.
-//  2. Verlangt ein Geschlecht ("junge" oder "maedchen") - ohne wird gar nichts gemacht.
-//  3. Legt das Konto an, OHNE eine E-Mail zu senden.
-//  4. Speichert das Geschlecht im Profil (mehrere Versuche, weil das Profil gerade erst entsteht)
-//     und prüft es durch Nachlesen. Klappt das nicht: Konto wieder löschen, KEINE E-Mail.
+//  2. Verlangt ein Geschlecht ("junge" oder "maedchen") - ohne wird gar nichts gemacht. Dazu kommen der Benutzername
+//     zum Anmelden (klein, z. B. vorname.nachname; ohne Angabe: alles vor dem @) und der Name im Chat (display_name;
+//     ohne Angabe: aus dem Benutzernamen gebaut). Beide dürfen noch nicht vergeben sein.
+//  3. Legt das Konto an, OHNE eine E-Mail zu senden. Name und Benutzername stehen auch in den Nutzerdaten,
+//     damit die E-Mail-Vorlage sie anzeigen kann (".Data.display_name", ".Data.username").
+//  4. Speichert Geschlecht, Name und Benutzername im Profil (mehrere Versuche, weil das Profil gerade erst entsteht)
+//     und prüft sie durch Nachlesen. Klappt das nicht: Konto wieder löschen, KEINE E-Mail.
+//  4b. Prüft mit der Datenbankfunktion get_email_by_username, dass man sich mit diesem Benutzernamen wirklich anmelden
+//     kann (sie muss die E-Mail-Adresse dieser Person liefern). Sonst: Konto wieder löschen, KEINE E-Mail.
 //  5. Erst jetzt wird die Einladungs-E-Mail gesendet. Scheitert das, wird das Konto wieder gelöscht.
 //
 // Einladungs-Link ohne Ablaufzeit: Ist das Secret INVITE_SECRET gesetzt, bekommt jede Einladung einen Code
@@ -44,6 +49,18 @@ function json(body: unknown, status = 200) {
   })
 }
 
+// "timo.ebert" -> "Timo Ebert" (nur als Vorschlag, wenn kein Name angegeben wurde)
+function nameFromUsername(username: string): string {
+  return username
+    .split(/[._\-\s]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+}
+
+// Zeichen, die bei ilike (Groß-/Kleinschreibung egal) Platzhalter wären, werden entschärft
+const escapeLike = (text: string) => text.replace(/[\%_]/g, '\\$&')
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
@@ -62,7 +79,8 @@ Deno.serve(async (req) => {
     if (!me || me.role !== 'admin') return json({ error: 'Nur Admins dürfen Nutzer einladen.' }, 403)
 
     // 2. Eingaben prüfen
-    const { email, gender, vip } = await req.json()
+    const body = await req.json()
+    const { email, gender, vip } = body
     if (typeof email !== 'string' || !email.includes('@')) {
       return json({ error: 'Bitte eine gültige E-Mail-Adresse angeben.' }, 400)
     }
@@ -70,11 +88,28 @@ Deno.serve(async (req) => {
       return json({ error: 'Das Geschlecht fehlt (Junge oder Mädchen).' }, 400)
     }
 
+    // Benutzername zum Anmelden: klein geschrieben, ohne Leerzeichen und ohne @. Ohne Angabe: alles vor dem @ der E-Mail.
+    const username = (typeof body.username === 'string' && body.username.trim() ? body.username : email.split('@')[0]).trim().toLowerCase()
+    if (username.length < 2 || username.length > 40 || /\s/.test(username) || username.includes('@')) {
+      return json({ error: 'Der Benutzername ist ungültig (2 bis 40 Zeichen, keine Leerzeichen, kein @).' }, 400)
+    }
+    // Name im Chat: frei wählbar. Ohne Angabe wird er aus dem Benutzernamen gebaut.
+    const displayName = (typeof body.display_name === 'string' && body.display_name.trim() ? body.display_name.trim() : nameFromUsername(username)).slice(0, 60)
+    if (displayName.length < 1) {
+      return json({ error: 'Der Name fehlt.' }, 400)
+    }
+
+    // Beides darf noch niemand haben
+    const { data: sameUsername } = await admin.from('profiles').select('id').eq('username', username).limit(1)
+    if (sameUsername && sameUsername.length > 0) return json({ error: 'Diesen Benutzernamen gibt es schon.' }, 400)
+    const { data: sameName } = await admin.from('profiles').select('id').ilike('display_name', escapeLike(displayName)).limit(1)
+    if (sameName && sameName.length > 0) return json({ error: 'Diesen Namen gibt es schon.' }, 400)
+
     // 3. Konto anlegen, noch ohne E-Mail
     //    needs_password: bis zum ersten eigenen Passwort bleibt die Person im Passwort-Fenster.
     //    invite_token: steht später in der E-Mail-Vorlage (".Data.invite_token") und läuft nicht ab.
     const inviteToken = await makeInviteToken(email)
-    const userData: Record<string, unknown> = { gender, needs_password: true }
+    const userData: Record<string, unknown> = { gender, needs_password: true, display_name: displayName, username }
     if (inviteToken) userData.invite_token = inviteToken
     const { data: created, error: createError } = await admin.auth.admin.createUser({
       email: email.trim(),
@@ -86,7 +121,7 @@ Deno.serve(async (req) => {
     }
     const userId = created.user.id
 
-    // 4. Geschlecht im Profil speichern und durch Nachlesen prüfen
+    // 4. Geschlecht, Name und Benutzername im Profil speichern und durch Nachlesen prüfen
     //    (das Profil wird meist per Trigger angelegt, das kann einen Moment dauern)
     let genderSaved = false
     let genderProblem = 'Das Profil wurde nicht gefunden.'
@@ -95,7 +130,7 @@ Deno.serve(async (req) => {
 
       const { data: updated, error: updateError } = await admin
         .from('profiles')
-        .update({ gender })
+        .update({ gender, display_name: displayName, username })
         .eq('id', userId)
         .select('id')
       if (updateError) {
@@ -104,21 +139,40 @@ Deno.serve(async (req) => {
       }
       if (!updated || updated.length === 0) {
         // Kein Profil vorhanden: selbst anlegen
-        const { error: insertError } = await admin.from('profiles').insert({ id: userId, gender })
+        const { error: insertError } = await admin.from('profiles').insert({ id: userId, gender, display_name: displayName, username })
         if (insertError) {
           genderProblem = insertError.message
           continue
         }
       }
 
-      const { data: check } = await admin.from('profiles').select('gender').eq('id', userId).maybeSingle()
-      if (check?.gender === gender) genderSaved = true
-      else genderProblem = 'Das gespeicherte Geschlecht stimmt nicht.'
+      const { data: check } = await admin.from('profiles').select('gender, display_name, username').eq('id', userId).maybeSingle()
+      if (check?.gender === gender && check?.display_name === displayName && check?.username === username) genderSaved = true
+      else genderProblem = 'Geschlecht, Name oder Benutzername wurden nicht richtig gespeichert.'
     }
 
     if (!genderSaved) {
       await admin.auth.admin.deleteUser(userId)
-      return json({ error: 'Geschlecht konnte nicht gespeichert werden, es wurde keine E-Mail gesendet (' + genderProblem + ')' }, 500)
+      return json({ error: 'Geschlecht, Name oder Benutzername konnten nicht gespeichert werden, es wurde keine E-Mail gesendet (' + genderProblem + ')' }, 500)
+    }
+
+    // 4b. Kann man sich mit diesem Benutzernamen wirklich anmelden? Die Anmeldung fragt get_email_by_username ab;
+    //     sie muss die E-Mail-Adresse dieser Person liefern (die E-Mail im Profil kann einen Moment später da sein).
+    let loginOk = false
+    let loginProblem = 'keine Antwort'
+    for (let attempt = 0; attempt < 6 && !loginOk; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 500))
+      const { data: found, error: lookupError } = await admin.rpc('get_email_by_username', { uname: username })
+      if (lookupError) {
+        loginProblem = lookupError.message
+        continue
+      }
+      if (typeof found === 'string' && found.trim().toLowerCase() === email.trim().toLowerCase()) loginOk = true
+      else loginProblem = 'Antwort der Datenbank: ' + JSON.stringify(found)
+    }
+    if (!loginOk) {
+      await admin.auth.admin.deleteUser(userId)
+      return json({ error: 'Mit dem Benutzernamen "' + username + '" könnte man sich nicht anmelden, es wurde keine E-Mail gesendet (' + loginProblem + ')' }, 500)
     }
 
     // 5. Jetzt erst die Einladungs-E-Mail senden
@@ -138,7 +192,7 @@ Deno.serve(async (req) => {
       vipSaved = !vipError
     }
 
-    return json({ userId, genderSaved: true, vipSaved })
+    return json({ userId, genderSaved: true, usernameSaved: true, displayNameSaved: true, username, displayName, vipSaved })
   } catch (e) {
     return json({ error: String((e as Error)?.message ?? e) }, 500)
   }
