@@ -424,30 +424,46 @@ input:focus-visible {
   white-space: nowrap;
 }
 
+/* Zurück-Knopf: schlichter Winkel in der Akzentfarbe, ohne Rahmen (Antippfläche bleibt 40 x 40) */
 .back-btn {
-  width: auto;
+  width: 40px;
   min-width: 40px;
   height: 40px;
   flex-shrink: 0;
-  padding: 0 10px;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   background: transparent;
-  border: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
+  border: none;
+  color: var(--accent);
   font-size: 15px;
-  border-radius: 12px;
+  border-radius: 50%;
 }
 
 .back-btn svg {
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   flex-shrink: 0;
+  stroke-width: 2.6;
 }
 
 .back-btn:hover {
+  background: var(--bg-input);
+  color: var(--accent-hover);
+}
+
+/* Der Text-Knopf "← Abbrechen" im Passwort-Fenster behält die alte Form */
+.back-btn.back-btn-text {
+  width: auto;
+  padding: 0 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  color: var(--text-secondary);
+}
+
+.back-btn.back-btn-text:hover {
   background: transparent;
   border-color: var(--accent);
   color: var(--accent);

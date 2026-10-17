@@ -20,7 +20,7 @@
 
   <meta property="og:site_name" content="JungscharChat">
   <meta property="og:title" content="JungscharChat – Gifhorn">
-  <meta property="og:description" content="Der offizielle JungscharChat für Gifhorn.">
+  <meta property="og:description" content="Der private Chat der Jungschar der ECBG Gifhorn: Nachrichten, Termine und Infos.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://myjungschar.github.io/chat/">
 
@@ -46,7 +46,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261016-1">
+  <link rel="stylesheet" href="style.css?v=20261016-3">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -174,7 +174,7 @@
     <!-- BEREICH 2: NEUES PASSWORT SETZEN (nach Klick auf den Link aus der E-Mail) -->
     <div id="reset-bereich" class="card" style="display: none;">
       <div class="reset-top">
-        <button type="button" class="back-btn" onclick="cancelPasswordSetup()">← Abbrechen</button>
+        <button type="button" class="back-btn back-btn-text" onclick="cancelPasswordSetup()">← Abbrechen</button>
       </div>
       <h2 id="reset-heading">Neues Passwort setzen</h2>
       <p id="reset-subtext">Bitte vergib ein neues Passwort, bevor es weitergeht.</p>
@@ -254,7 +254,7 @@
     <div id="settings-bereich" class="card" style="display: none;">
 
       <header class="chat-header">
-        <button class="back-btn" onclick="showList()" aria-label="Zurück zur Übersicht"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
+        <button class="back-btn" onclick="showList()" aria-label="Zurück zur Übersicht"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
         <div class="user-info">
           <span>Einstellungen</span>
         </div>
@@ -374,7 +374,7 @@
     <div id="users-bereich" class="card" style="display: none;">
 
       <header class="chat-header">
-        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
+        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
         <div class="user-info">
           <span>Nutzer verwalten</span>
         </div>
@@ -403,7 +403,7 @@
       <div class="form-card">
 
       <header class="chat-header">
-        <button class="back-btn" onclick="openUserManagement()" aria-label="Zurück zur Nutzerliste"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
+        <button class="back-btn" onclick="openUserManagement()" aria-label="Zurück zur Nutzerliste"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
         <div class="user-info">
           <span id="user-detail-title">Nutzer</span>
         </div>
@@ -419,7 +419,7 @@
       <div class="form-card">
 
       <header class="chat-header">
-        <button class="back-btn" onclick="openUserManagement()" aria-label="Zurück zur Nutzerliste"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
+        <button class="back-btn" onclick="openUserManagement()" aria-label="Zurück zur Nutzerliste"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
         <div class="user-info">
           <span>Neuen Nutzer hinzufügen</span>
         </div>
@@ -448,7 +448,7 @@
       <div class="form-card">
 
       <header class="chat-header">
-        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
+        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
         <div class="user-info">
           <span>Angemeldete Geräte</span>
         </div>
@@ -467,7 +467,7 @@
       <div class="form-card">
 
       <header class="chat-header">
-        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
+        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
         <div class="user-info">
           <span>E-Mail-Adresse ändern</span>
         </div>
@@ -493,7 +493,7 @@
       <div class="form-card">
 
       <header class="chat-header">
-        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
+        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
         <div class="user-info">
           <span>Passwort ändern</span>
         </div>
@@ -537,7 +537,7 @@
     <div id="admin-contacts-bereich" class="card" style="display: none;">
 
       <header class="chat-header">
-        <button class="back-btn" onclick="showList()" aria-label="Zurück zur Übersicht"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
+        <button class="back-btn" onclick="showList()" aria-label="Zurück zur Übersicht"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
         <div class="user-info">
           <span id="admin-contacts-title">Chats von …</span>
         </div>
@@ -551,7 +551,7 @@
     <div id="conversation-bereich" class="card" style="display: none;">
 
       <header class="chat-header">
-        <button class="back-btn" onclick="showList()" aria-label="Zurück zur Übersicht"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg></button>
+        <button class="back-btn" onclick="showList()" aria-label="Zurück zur Übersicht"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
         <div class="user-info">
           <span id="conversation-title" onclick="onConversationTitleClick()">JungscharChat</span>
           <span id="online-status" class="online-status" style="display: none;" onclick="openOnlineList()"></span>
@@ -852,6 +852,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261016-1"></script>
+  <script src="script.js?v=20261016-3"></script>
 </body>
 </html>
