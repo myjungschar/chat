@@ -3987,6 +3987,35 @@ input[type="date"]::-webkit-date-and-time-value {
   animation: confetti-fall linear forwards;
 }
 
+/* Konfetti von den Seiten (Geburtstags-Fenster): fliegt erst ein Stück nach oben/innen, dann fällt es */
+.confetti-piece.confetti-side {
+  top: 20%;
+  animation: confetti-side ease-in forwards;
+}
+
+.confetti-piece.confetti-side.left { left: -12px; }
+.confetti-piece.confetti-side.right { right: -12px; }
+
+@keyframes confetti-side {
+  0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  35% { transform: translate(calc(var(--dx) * 0.7), calc(var(--dy) * -0.3)) rotate(calc(var(--rot) * 0.4)); }
+  100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); opacity: 0.85; }
+}
+
+#birthday-modal {
+  overflow: hidden;
+}
+
+.modal-box .birthday-person {
+  margin-bottom: 6px;
+}
+
+.modal-box .birthday-age strong.birthday-person-name {
+  color: var(--text-primary);
+  font-weight: 700;
+  white-space: normal;
+}
+
 @keyframes confetti-fall {
   to {
     transform: translate(var(--drift, 0px), 110vh) rotate(600deg);

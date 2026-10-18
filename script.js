@@ -971,10 +971,6 @@ async function renderChatList() {
   const others = Object.entries(profileCache)
     .filter(([id, info]) => id !== currentUser.id && info.role !== 'admin' && info.active !== false)
     .sort((a, b) => {
-      // Wer heute Geburtstag hat, steht ganz oben (unter den Gruppen)
-      const birthdayA = hasBirthdayToday(a[0]) ? 1 : 0
-      const birthdayB = hasBirthdayToday(b[0]) ? 1 : 0
-      if (birthdayA !== birthdayB) return birthdayB - birthdayA
       const timeA = dmPreviews[a[0]] ? new Date(dmPreviews[a[0]].created_at).getTime() : 0
       const timeB = dmPreviews[b[0]] ? new Date(dmPreviews[b[0]].created_at).getTime() : 0
       if (timeA !== timeB) return timeB - timeA
@@ -8194,22 +8190,37 @@ function birthdayPeopleToday() {
   return Object.keys(profileCache).filter(hasBirthdayToday).sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'de', { sensitivity: 'base' }))
 }
 
-function launchConfetti(container) {
+// Konfetti kommt von beiden Seiten, solange das Geburtstags-Fenster offen ist (Ende: Knopf oder Tipp daneben).
+// Jedes Stück entfernt sich nach seinem Flug selbst, es sammelt sich also nichts an.
+let confettiTimer = null
+
+function startConfetti(container) {
+  stopConfetti()
   if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
   const colors = ['#ffc83d', '#ff6b6b', '#4ea3e0', '#6bd68a', '#c77dff', '#ff9f43']
-  const pieces = []
-  for (let i = 0; i < 46; i++) {
+  const spawn = (side) => {
     const piece = document.createElement('span')
-    piece.className = 'confetti-piece'
-    piece.style.left = Math.random() * 100 + '%'
-    piece.style.background = colors[i % colors.length]
-    piece.style.animationDuration = 2.2 + Math.random() * 2 + 's'
-    piece.style.animationDelay = Math.random() * 0.8 + 's'
-    piece.style.setProperty('--drift', (Math.random() * 120 - 60) + 'px')
+    piece.className = 'confetti-piece confetti-side ' + side
+    piece.style.background = colors[Math.floor(Math.random() * colors.length)]
+    piece.style.top = (8 + Math.random() * 40) + '%'
+    piece.style.setProperty('--dx', (side === 'left' ? 1 : -1) * (25 + Math.random() * 50) + 'vw')
+    piece.style.setProperty('--dy', (40 + Math.random() * 60) + 'vh')
+    piece.style.setProperty('--rot', (360 + Math.random() * 720) + 'deg')
+    piece.style.animationDuration = (2.4 + Math.random() * 1.8) + 's'
+    piece.addEventListener('animationend', () => piece.remove())
     container.appendChild(piece)
-    pieces.push(piece)
   }
-  setTimeout(() => pieces.forEach(p => p.remove()), 5500)
+  const burst = () => {
+    for (let i = 0; i < 3; i++) { spawn('left'); spawn('right') }
+  }
+  burst()
+  confettiTimer = setInterval(burst, 500)
+}
+
+function stopConfetti() {
+  if (confettiTimer) clearInterval(confettiTimer)
+  confettiTimer = null
+  document.querySelectorAll('#birthday-modal .confetti-piece').forEach(p => p.remove())
 }
 
 function showBirthdayAnnouncement(force) {
@@ -8236,41 +8247,34 @@ function showBirthdayAnnouncement(force) {
     body.appendChild(el)
     return el
   }
-  const addList = (people) => {
-    const list = document.createElement('ul')
-    list.className = 'birthday-list'
-    people.forEach(id => {
-      const li = document.createElement('li')
-      const name = document.createElement('span')
-      name.className = 'birthday-list-name'
-      name.textContent = BIRTHDAY_EMOJI + ' ' + nameOf(id)
-      const age = document.createElement('span')
-      age.className = 'birthday-age-pill'
-      age.textContent = birthdayTurningAge(id) + ' Jahre'
-      li.append(name, age)
-      list.appendChild(li)
-    })
-    body.appendChild(list)
-  }
-  // Satz mit hervorgehobenem Alter: "<vorne> 12 Jahre <hinten>"
-  const addAgeLine = (before, id, after) => {
-    const p = document.createElement('p')
-    p.className = 'birthday-sub birthday-age'
-    p.append(before)
-    const strong = document.createElement('strong')
-    strong.textContent = birthdayTurningAge(id) + ' Jahre'
-    p.append(strong, after)
-    body.appendChild(p)
-  }
-
-  // Überschrift als Satz, der Name hervorgehoben: "Heute hat <Name> Geburtstag"
-  const addTitle = (before, name, after) => {
+  // Überschrift als Satz, die Namen hervorgehoben: "Heute haben <A> und <B> Geburtstag"
+  const addTitle = (before, names, after) => {
     const p = document.createElement('p')
     p.className = 'birthday-name'
     p.append(before)
+    names.forEach((name, i) => {
+      if (i > 0) p.append(i === names.length - 1 ? ' und ' : ', ')
+      const strong = document.createElement('strong')
+      strong.className = 'birthday-name-strong'
+      strong.textContent = name
+      p.append(strong)
+    })
+    p.append(after)
+    body.appendChild(p)
+  }
+  // Zeile mit hervorgehobenem Alter: "<vorne> 12 Jahre <hinten>"; vorne darf ein Name (fett) stehen
+  const addAgeLine = (before, id, after, nameInFront, shortAge) => {
+    const p = document.createElement('p')
+    p.className = 'birthday-sub birthday-age' + (nameInFront ? ' birthday-person' : '')
+    if (nameInFront) {
+      const who = document.createElement('strong')
+      who.className = 'birthday-person-name'
+      who.textContent = nameInFront
+      p.append(who)
+    }
+    p.append(before)
     const strong = document.createElement('strong')
-    strong.className = 'birthday-name-strong'
-    strong.textContent = name
+    strong.textContent = shortAge ? String(birthdayTurningAge(id)) : birthdayTurningAge(id) + ' Jahre'
     p.append(strong, after)
     body.appendChild(p)
   }
@@ -8282,27 +8286,29 @@ function showBirthdayAnnouncement(force) {
 
   add('div', 'birthday-emoji', mine ? '🎉' : BIRTHDAY_EMOJI)
   if (mine) {
-    addTitle('Alles Gute zum Geburtstag, ', nameOf(currentUser.id).split(/\s+/)[0], '!')
-    addAgeLine('Du bist heute ', currentUser.id, ' alt geworden\u00a0🎈')
+    addTitle('Alles Gute zum Geburtstag, ', [nameOf(currentUser.id).split(/\s+/)[0]], '!')
+    addAgeLine('Du bist jetzt ', currentUser.id, ' alt\u00a0🎈')
     if (others.length > 0) {
       add('p', 'birthday-sub', 'Außerdem hat heute Geburtstag:')
-      addList(others)
+      others.forEach(id => addAgeLine(' ist jetzt ', id, '', nameOf(id), true))
     }
   } else if (others.length === 1) {
-    addTitle('Heute hat ', nameOf(others[0]), ' Geburtstag')
+    addTitle('Heute hat ', [nameOf(others[0])], ' Geburtstag')
     const pronoun = pronounOf(others[0])
-    addAgeLine(pronoun ? pronoun + ' ist heute ' : 'Heute ', others[0], ' alt geworden\u00a0🎈')
+    addAgeLine(pronoun ? pronoun + ' ist jetzt ' : 'Jetzt ', others[0], ' alt\u00a0🎈')
   } else {
-    add('p', 'birthday-label', 'Heute haben Geburtstag')
-    addList(others)
+    addTitle('Heute haben ', others.map(nameOf), ' Geburtstag')
+    others.forEach(id => addAgeLine(' ist jetzt ', id, '', nameOf(id), true))
   }
+  document.getElementById('birthday-close-btn').textContent = mine ? 'Danke! 🎉' : 'Alles Gute! 🎉'
 
   const modal = document.getElementById('birthday-modal')
   modal.style.display = 'flex'
-  launchConfetti(modal)
+  startConfetti(modal)
 }
 
 function closeBirthdayModal() {
+  stopConfetti()
   document.getElementById('birthday-modal').style.display = 'none'
 }
 
@@ -9957,7 +9963,7 @@ function openProfile(userId) {
   document.getElementById('profile-name').textContent = name + birthdayMark(userId)
   const pill = document.getElementById('profile-birthday')
   pill.style.display = hasBirthdayToday(userId) ? '' : 'none'
-  if (hasBirthdayToday(userId)) pill.textContent = '🎉 Hat heute Geburtstag und wird ' + birthdayTurningAge(userId)
+  if (hasBirthdayToday(userId)) pill.textContent = '🎉 Hat heute Geburtstag'
 
   fillProfileInfo(document.getElementById('profile-rows'), userId, myRequest)
   document.getElementById('profile-modal').style.display = 'flex'
