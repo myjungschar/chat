@@ -5243,3 +5243,59 @@ body.light-theme #login-bereich.invite-open #shape-invite {
   font-size: 13px;
   color: var(--danger);
 }
+
+/* ===== Geburtstag in der Chatliste: Zeile hervorgehoben, Pille neben dem Namen ===== */
+.chat-list-item.birthday-row {
+  background: linear-gradient(90deg, rgba(255, 200, 61, 0.16), rgba(255, 200, 61, 0) 75%);
+  box-shadow: inset 3px 0 0 #ffc83d;
+}
+
+.chat-list-item.birthday-row:hover {
+  background: linear-gradient(90deg, rgba(255, 200, 61, 0.24), rgba(255, 200, 61, 0.04) 75%);
+}
+
+.chat-list-item.birthday-row .chat-list-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-list-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.birthday-pill {
+  flex-shrink: 0;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(255, 200, 61, 0.2);
+  color: #ffc83d;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* Hellmodus: das Gold braucht dunklere Schrift, sonst ist es kaum lesbar */
+body.light-theme .birthday-pill,
+body.light-theme .modal-box .birthday-label,
+body.light-theme .modal-box .birthday-age strong,
+body.light-theme .birthday-age-pill {
+  color: #946500;
+}
+
+body.light-theme .birthday-pill,
+body.light-theme .birthday-age-pill {
+  background: rgba(255, 200, 61, 0.35);
+}
+
+/* Der eigene Name oben ist antippbar (öffnet "Meine Daten") */
+.user-info-link {
+  cursor: pointer;
+}
+
+.user-info-link:hover #user-display-name {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

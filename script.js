@@ -840,7 +840,7 @@ function truncate(text, max) {
 const MUTE_ICON_HTML = '<svg class="mute-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Stummgeschaltet"><path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="m2 2 20 20"/></svg>'
 
 // Baut den Inhalt eines Listeneintrags: Avatar, Name, Vorschau-Text, Uhrzeit, Ungelesen-Zähler
-function chatListItemHTML(avatarHTML, name, preview, unreadCount, muted) {
+function chatListItemHTML(avatarHTML, name, preview, unreadCount, muted, birthday) {
   const previewText = preview ? truncate(messageSnippet(preview), 34) : 'Noch keine Nachrichten'
   const timeText = preview ? formatChatListTime(preview.created_at) : 'Keine Nachrichten'
   const badge = unreadCount > 0
@@ -849,7 +849,7 @@ function chatListItemHTML(avatarHTML, name, preview, unreadCount, muted) {
   return `
     ${avatarHTML}
     <div class="chat-list-text">
-      <div class="chat-list-name">${escapeHTML(name)}${muted ? MUTE_ICON_HTML : ''}</div>
+      <div class="chat-list-name">${birthday ? `<span class="chat-list-name-text">${escapeHTML(name)}</span><span class="birthday-pill" title="Heute Geburtstag">🎂 Geburtstag</span>` : escapeHTML(name)}${muted ? MUTE_ICON_HTML : ''}</div>
       <div class="chat-list-preview">${escapeHTML(previewText)}</div>
     </div>
     <div class="chat-list-time-badge">
@@ -971,6 +971,10 @@ async function renderChatList() {
   const others = Object.entries(profileCache)
     .filter(([id, info]) => id !== currentUser.id && info.role !== 'admin' && info.active !== false)
     .sort((a, b) => {
+      // Wer heute Geburtstag hat, steht ganz oben (unter den Gruppen)
+      const birthdayA = hasBirthdayToday(a[0]) ? 1 : 0
+      const birthdayB = hasBirthdayToday(b[0]) ? 1 : 0
+      if (birthdayA !== birthdayB) return birthdayB - birthdayA
       const timeA = dmPreviews[a[0]] ? new Date(dmPreviews[a[0]].created_at).getTime() : 0
       const timeB = dmPreviews[b[0]] ? new Date(dmPreviews[b[0]].created_at).getTime() : 0
       if (timeA !== timeB) return timeB - timeA
@@ -980,18 +984,24 @@ async function renderChatList() {
   others.forEach(([id, info]) => {
     const name = info.name
     const item = document.createElement('li')
-    item.className = 'chat-list-item' + (isChatMuted('dm:' + id) ? ' muted' : '')
+    item.className = 'chat-list-item' + (isChatMuted('dm:' + id) ? ' muted' : '') + (hasBirthdayToday(id) ? ' birthday-row' : '')
     item.innerHTML = chatListItemHTML(
       `<div class="chat-list-avatar${hasBirthdayToday(id) ? ' birthday' : ''}" style="background:${avatarColor(id)}">${initialsOf(name)}</div>`,
-      (name || 'Ohne Namen') + birthdayMark(id),
+      name || 'Ohne Namen',
       dmPreviews[id],
       unreadFor('dm:' + id),
-      isChatMuted('dm:' + id)
+      isChatMuted('dm:' + id),
+      hasBirthdayToday(id)
     )
     item.dataset.chatKey = 'dm:' + id
     item.dataset.tabs = 'alle' + (info.gender ? ' ' + info.gender : '')
     item.dataset.name = name || ''
-    item.addEventListener('click', () => {
+    item.addEventListener('click', (event) => {
+      // Tipp auf die Geburtstags-Pille: das Geburtstags-Fenster noch einmal zeigen
+      if (event.target.closest && event.target.closest('.birthday-pill')) {
+        showBirthdayAnnouncement(true)
+        return
+      }
       if (isAdmin()) openAdminContactsFor(id, name)
       else openDirectChat(id, name)
     })
@@ -6213,10 +6223,10 @@ function setupAdminIdentity(user) {
   const refresh = () => {
     const name = nameInput.value.trim()
     const username = normUsername(usernameInput.value)
-    const email = emailInput.value.trim()
+    const email = emailInput.value.trim().toLowerCase()
     const nameChanged = name !== savedName
     const usernameChanged = username !== savedUsername
-    const emailChanged = emailLoaded && email !== savedEmail
+    const emailChanged = emailLoaded && email !== savedEmail.toLowerCase()
     const problem = (nameChanged ? nameProblem(name) : '') || (usernameChanged ? usernameProblem(username) : '') || (emailChanged ? emailProblem(email) : '')
     showError(problem)
     saveBtn.disabled = saving || !(nameChanged || usernameChanged || emailChanged) || !!problem
@@ -6251,10 +6261,10 @@ function setupAdminIdentity(user) {
     if (!isAdmin() || saving) return
     const name = nameInput.value.trim()
     const username = normUsername(usernameInput.value)
-    const email = emailInput.value.trim()
+    const email = emailInput.value.trim().toLowerCase()
     const nameChanged = name !== savedName
     const usernameChanged = username !== savedUsername
-    const emailChanged = emailLoaded && email !== savedEmail
+    const emailChanged = emailLoaded && email !== savedEmail.toLowerCase()
     if (!nameChanged && !usernameChanged && !emailChanged) return
     if ((nameChanged && nameProblem(name)) || (usernameChanged && usernameProblem(username)) || (emailChanged && emailProblem(email))) return
 
@@ -6956,11 +6966,22 @@ function askInviteDetails(email) {
   })
 }
 
+// E-Mail-Adressen werden beim Tippen sofort klein geschrieben (Groß-/Kleinschreibung spielt bei Adressen keine Rolle;
+// der Cursor bleibt dabei an seiner Stelle).
+function lowercaseEmailInput(input) {
+  const lower = input.value.toLowerCase()
+  if (lower === input.value) return
+  const start = input.selectionStart
+  const end = input.selectionEnd
+  input.value = lower
+  try { input.setSelectionRange(start, end) } catch (e) { /* E-Mail-Felder kennen das auf manchen Geräten nicht */ }
+}
+
 async function inviteUser() {
   if (!isAdmin()) return
   const input = document.getElementById('new-user-email')
   const btn = document.getElementById('invite-user-btn')
-  const email = input.value.trim()
+  const email = input.value.trim().toLowerCase()
 
   if (!email || !email.includes('@')) {
     showToast('Bitte eine gültige E-Mail-Adresse eingeben.')
@@ -7077,7 +7098,7 @@ async function inviteUser() {
   if (unsaved.length > 0) {
     await showInfoDialog('Die E-Mail an ' + email + ' wurde gesendet, aber ' + unsaved.join(' und ') + ' konnte NICHT gespeichert werden. Bitte sofort unter „Nutzer verwalten“ nachtragen.')
   } else {
-    await showInfoDialog('Die E-Mail an ' + email + ' wurde erfolgreich gesendet! Name: ' + displayName + ', Benutzername zum Anmelden: ' + username)
+    await showInfoDialog('Die E-Mail an ' + email + ' wurde erfolgreich gesendet!\n\nName: ' + displayName + '\nBenutzername: ' + username)
   }
   loadUsers()
 }
@@ -7375,6 +7396,7 @@ function showInfoDialog(message, okText = 'OK') {
 
     const text = document.createElement('p')
     text.textContent = message
+    if (message.includes('\n')) text.style.whiteSpace = 'pre-line' // Zeilenumbrüche (\n) im Text bleiben sichtbar
 
     const buttons = document.createElement('div')
     buttons.className = 'confirm-buttons'
@@ -8190,15 +8212,16 @@ function launchConfetti(container) {
   setTimeout(() => pieces.forEach(p => p.remove()), 5500)
 }
 
-function showBirthdayAnnouncement() {
+function showBirthdayAnnouncement(force) {
   if (!currentUser || !currentProfile) return
   if (document.getElementById('birthdate-modal').style.display === 'flex') return // erst das Pflicht-Fenster
   if (document.getElementById('birthday-modal').style.display === 'flex') return
   const today = toISODate(new Date())
-  if (localStorage.getItem(BIRTHDAY_SHOWN_KEY) === today) return
+  // Von selbst nur einmal am Tag; "force" (Tipp auf die Pille in der Chatliste) zeigt es immer wieder
+  if (!force && localStorage.getItem(BIRTHDAY_SHOWN_KEY) === today) return
   const ids = birthdayPeopleToday()
   if (ids.length === 0) return
-  localStorage.setItem(BIRTHDAY_SHOWN_KEY, today)
+  if (!force) localStorage.setItem(BIRTHDAY_SHOWN_KEY, today)
 
   const nameOf = id => (profileCache[id] && profileCache[id].name) || 'Ohne Namen'
   const mine = ids.includes(currentUser.id)

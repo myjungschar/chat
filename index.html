@@ -46,7 +46,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261017-1">
+  <link rel="stylesheet" href="style.css?v=20261018-2">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -217,7 +217,7 @@
     <div id="list-bereich" class="card" style="display: none;">
 
       <header class="chat-header">
-        <div class="user-info">
+        <div class="user-info user-info-link" role="button" tabindex="0" title="Meine Daten" onclick="openProfile(currentUser && currentUser.id)" onkeydown="if (event.key === 'Enter') openProfile(currentUser && currentUser.id)">
           <span id="user-display-name">Nutzer</span>
         </div>
         <div class="header-actions">
@@ -427,7 +427,7 @@
 
       <div class="input-group">
         <label for="new-user-email">E-Mail-Adresse</label>
-        <input type="email" id="new-user-email" placeholder="name@adresse.de" autocomplete="off" oninput="updateInviteButton()">
+        <input type="email" id="new-user-email" placeholder="name@adresse.de" autocomplete="off" autocapitalize="none" oninput="lowercaseEmailInput(this); updateInviteButton()">
       </div>
 
       <div class="input-group">
@@ -852,6 +852,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261017-1"></script>
+  <script src="script.js?v=20261018-2"></script>
 </body>
 </html>
