@@ -3912,11 +3912,17 @@ input[type="date"]::-webkit-date-and-time-value {
 }
 
 .modal-box .birthday-name {
-  margin-bottom: 10px;
-  font-size: 28px;
-  font-weight: 800;
-  line-height: 1.15;
+  margin-bottom: 12px;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text-secondary);
   word-break: break-word;
+}
+
+.modal-box .birthday-name-strong {
+  font-weight: 800;
+  color: var(--text-primary);
 }
 
 .modal-box .birthday-sub {
@@ -5246,12 +5252,12 @@ body.light-theme #login-bereich.invite-open #shape-invite {
 
 /* ===== Geburtstag in der Chatliste: Zeile hervorgehoben, Pille neben dem Namen ===== */
 .chat-list-item.birthday-row {
-  background: linear-gradient(90deg, rgba(255, 200, 61, 0.16), rgba(255, 200, 61, 0) 75%);
-  box-shadow: inset 3px 0 0 #ffc83d;
+  background: linear-gradient(90deg, rgba(255, 200, 61, 0.10), rgba(255, 200, 61, 0) 70%);
+  box-shadow: inset 2px 0 0 rgba(255, 200, 61, 0.7);
 }
 
 .chat-list-item.birthday-row:hover {
-  background: linear-gradient(90deg, rgba(255, 200, 61, 0.24), rgba(255, 200, 61, 0.04) 75%);
+  background: linear-gradient(90deg, rgba(255, 200, 61, 0.18), rgba(255, 200, 61, 0.03) 70%);
 }
 
 .chat-list-item.birthday-row .chat-list-name {
@@ -5295,7 +5301,10 @@ body.light-theme .birthday-age-pill {
   cursor: pointer;
 }
 
+#user-display-name {
+  transition: color 0.12s ease;
+}
+
 .user-info-link:hover #user-display-name {
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  color: var(--accent);
 }

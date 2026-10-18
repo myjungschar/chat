@@ -8263,19 +8263,35 @@ function showBirthdayAnnouncement(force) {
     body.appendChild(p)
   }
 
+  // Überschrift als Satz, der Name hervorgehoben: "Heute hat <Name> Geburtstag"
+  const addTitle = (before, name, after) => {
+    const p = document.createElement('p')
+    p.className = 'birthday-name'
+    p.append(before)
+    const strong = document.createElement('strong')
+    strong.className = 'birthday-name-strong'
+    strong.textContent = name
+    p.append(strong, after)
+    body.appendChild(p)
+  }
+  // "Er" / "Sie" nach dem Geschlecht aus dem Profil (ohne Angabe: kurze Form ohne Fürwort)
+  const pronounOf = (id) => {
+    const gender = profileCache[id] && profileCache[id].gender
+    return gender === 'junge' ? 'Er' : gender === 'maedchen' ? 'Sie' : ''
+  }
+
   add('div', 'birthday-emoji', mine ? '🎉' : BIRTHDAY_EMOJI)
   if (mine) {
-    add('p', 'birthday-label', 'Alles Gute zum Geburtstag')
-    add('p', 'birthday-name', nameOf(currentUser.id).split(/\s+/)[0] + '!')
+    addTitle('Alles Gute zum Geburtstag, ', nameOf(currentUser.id).split(/\s+/)[0], '!')
     addAgeLine('Du bist heute ', currentUser.id, ' alt geworden\u00a0🎈')
     if (others.length > 0) {
       add('p', 'birthday-sub', 'Außerdem hat heute Geburtstag:')
       addList(others)
     }
   } else if (others.length === 1) {
-    add('p', 'birthday-label', 'Heute hat Geburtstag')
-    add('p', 'birthday-name', nameOf(others[0]))
-    addAgeLine('ist heute ', others[0], ' alt geworden\u00a0🎈')
+    addTitle('Heute hat ', nameOf(others[0]), ' Geburtstag')
+    const pronoun = pronounOf(others[0])
+    addAgeLine(pronoun ? pronoun + ' ist heute ' : 'Heute ', others[0], ' alt geworden\u00a0🎈')
   } else {
     add('p', 'birthday-label', 'Heute haben Geburtstag')
     addList(others)
