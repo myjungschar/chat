@@ -8218,25 +8218,43 @@ function showBirthdayAnnouncement() {
     list.className = 'birthday-list'
     people.forEach(id => {
       const li = document.createElement('li')
-      li.textContent = BIRTHDAY_EMOJI + ' ' + nameOf(id) + ' wird ' + birthdayTurningAge(id)
+      const name = document.createElement('span')
+      name.className = 'birthday-list-name'
+      name.textContent = BIRTHDAY_EMOJI + ' ' + nameOf(id)
+      const age = document.createElement('span')
+      age.className = 'birthday-age-pill'
+      age.textContent = birthdayTurningAge(id) + ' Jahre'
+      li.append(name, age)
       list.appendChild(li)
     })
     body.appendChild(list)
   }
+  // Satz mit hervorgehobenem Alter: "<vorne> 12 Jahre <hinten>"
+  const addAgeLine = (before, id, after) => {
+    const p = document.createElement('p')
+    p.className = 'birthday-sub birthday-age'
+    p.append(before)
+    const strong = document.createElement('strong')
+    strong.textContent = birthdayTurningAge(id) + ' Jahre'
+    p.append(strong, after)
+    body.appendChild(p)
+  }
 
   add('div', 'birthday-emoji', mine ? '🎉' : BIRTHDAY_EMOJI)
   if (mine) {
-    add('p', 'birthday-title', 'Alles Gute zum Geburtstag, ' + nameOf(currentUser.id).split(/\s+/)[0] + '!')
-    add('p', 'birthday-sub', 'Du wirst heute ' + birthdayTurningAge(currentUser.id) + ' Jahre alt. 🎈')
+    add('p', 'birthday-label', 'Alles Gute zum Geburtstag')
+    add('p', 'birthday-name', nameOf(currentUser.id).split(/\s+/)[0] + '!')
+    addAgeLine('Du bist heute ', currentUser.id, ' alt geworden\u00a0🎈')
     if (others.length > 0) {
       add('p', 'birthday-sub', 'Außerdem hat heute Geburtstag:')
       addList(others)
     }
   } else if (others.length === 1) {
-    add('p', 'birthday-title', '🎉 Heute hat ' + nameOf(others[0]) + ' Geburtstag!')
-    add('p', 'birthday-sub', 'Wird heute ' + birthdayTurningAge(others[0]) + ' Jahre alt.')
+    add('p', 'birthday-label', 'Heute hat Geburtstag')
+    add('p', 'birthday-name', nameOf(others[0]))
+    addAgeLine('ist heute ', others[0], ' alt geworden\u00a0🎈')
   } else {
-    add('p', 'birthday-title', '🎉 Heute haben ' + others.length + ' Geburtstag!')
+    add('p', 'birthday-label', 'Heute haben Geburtstag')
     addList(others)
   }
 
