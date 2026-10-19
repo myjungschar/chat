@@ -2107,19 +2107,21 @@ body.split-view.chat-open #chat-placeholder {
 /* ===== Profilfarbe wählen: ein Kreis je Farbe, der aktive hat einen Ring ===== */
 .color-picker {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 14px;
 }
 
 .color-swatches {
   display: flex;
+  flex: 1;
+  min-width: 0;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .color-swatch {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: none;
   border-radius: 50%;
@@ -3179,6 +3181,18 @@ html:has(body.light-theme) {
 .filter-btn.active {
   background: #3498db;
   border-color: #3498db;
+  color: #fff;
+}
+
+/* Das allgemeine "button:hover" färbte die Fläche blau, die Schrift blieb grau. Jetzt: unscheinbar hinterlegt,
+   der aktive Filter bleibt blau mit weißer Schrift. */
+.filter-btn:hover:not(.active) {
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+
+.filter-btn.active:hover {
+  background: #3498db;
   color: #fff;
 }
 

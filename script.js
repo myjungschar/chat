@@ -61,7 +61,13 @@ function isAdmin() {
 
 // Feste Farbpalette für Avatare (ohne Lila). Der Admin kann jeder Person eine Farbe zuweisen (profiles.color);
 // ohne gespeicherte Farbe wird sie aus der ID berechnet, damit jeder Nutzer immer dieselbe Farbe bekommt.
-const AVATAR_COLORS = ['#5b8def', '#3fb98c', '#e2a33d', '#e2665f', '#3fb0c9', '#d16fa8', '#4d6fa3', '#5b8c6b']
+// Ausgesuchte Farben (12). Neue Personen bekommen beim Einladen automatisch eine zufällige, am seltensten genutzte
+// Farbe aus dieser Liste (Function invite-user), so ist jede Farbe etwa gleich oft vergeben. Der Admin kann sie
+// in den Einstellungen einer Person noch ändern.
+const AVATAR_COLORS = [
+  '#5b8def', '#4d6fa3', '#3fb0c9', '#3fb98c', '#5b8c6b', '#e2a33d',
+  '#e08a3c', '#e2665f', '#d16fa8', '#c75d7b', '#3b9c9c', '#7c8aa5'
+]
 // Berechnete Farbe: dieselbe Reihenfolge wie früher, damit jede Person ihre gewohnte Farbe behält.
 // Nur das frühere Lila ist durch ein blasses Dunkelblau ersetzt.
 const COMPUTED_COLORS = ['#5b8def', '#3fb98c', '#e2a33d', '#e2665f', '#4d6fa3', '#3fb0c9', '#d16fa8']

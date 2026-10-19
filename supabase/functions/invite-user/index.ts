@@ -8,7 +8,7 @@
 //     ohne Angabe: aus dem Benutzernamen gebaut). Beide dürfen noch nicht vergeben sein.
 //  3. Legt das Konto an, OHNE eine E-Mail zu senden. Name und Benutzername stehen auch in den Nutzerdaten,
 //     damit die E-Mail-Vorlage sie anzeigen kann (".Data.display_name", ".Data.username").
-//  4. Speichert Geschlecht, Name und Benutzername im Profil (mehrere Versuche, weil das Profil gerade erst entsteht)
+//  4. Speichert Geschlecht, Name, Benutzername und eine zufällige freie Profilfarbe im Profil (mehrere Versuche, weil das Profil gerade erst entsteht)
 //     und prüft sie durch Nachlesen. Klappt das nicht: Konto wieder löschen, KEINE E-Mail.
 //  4b. Prüft mit der Datenbankfunktion get_email_by_username, dass man sich mit diesem Benutzernamen wirklich anmelden
 //     kann (sie muss die E-Mail-Adresse dieser Person liefern). Sonst: Konto wieder löschen, KEINE E-Mail.
@@ -47,6 +47,25 @@ function json(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
+}
+
+// Profilfarben (dieselbe Liste wie AVATAR_COLORS in script.js). Neue Personen bekommen beim Einladen zufällig eine der
+// Farben, die am seltensten vergeben sind - so ist jede Farbe etwa gleich oft in Benutzung.
+const PROFILE_COLORS = [
+  '#5b8def', '#4d6fa3', '#3fb0c9', '#3fb98c', '#5b8c6b', '#e2a33d',
+  '#e08a3c', '#e2665f', '#d16fa8', '#c75d7b', '#3b9c9c', '#7c8aa5'
+]
+
+function pickProfileColor(usedColors: (string | null)[]): string {
+  const counts = new Map<string, number>()
+  for (const c of PROFILE_COLORS) counts.set(c.toLowerCase(), 0)
+  for (const c of usedColors) {
+    const key = (c ?? '').toLowerCase()
+    if (counts.has(key)) counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  const fewest = Math.min(...counts.values())
+  const candidates = PROFILE_COLORS.filter((c) => counts.get(c.toLowerCase()) === fewest)
+  return candidates[Math.floor(Math.random() * candidates.length)]
 }
 
 // "timo.ebert" -> "Timo Ebert" (nur als Vorschlag, wenn kein Name angegeben wurde)
@@ -105,6 +124,10 @@ Deno.serve(async (req) => {
     const { data: sameName } = await admin.from('profiles').select('id').ilike('display_name', escapeLike(displayName)).limit(1)
     if (sameName && sameName.length > 0) return json({ error: 'Diesen Namen gibt es schon.' }, 400)
 
+    // Profilfarbe: zufällig, möglichst eine, die noch niemand hat
+    const { data: colorRows } = await admin.from('profiles').select('color')
+    const color = pickProfileColor((colorRows ?? []).map((r: { color: string | null }) => r.color))
+
     // 3. Konto anlegen, noch ohne E-Mail
     //    needs_password: bis zum ersten eigenen Passwort bleibt die Person im Passwort-Fenster.
     //    invite_token: steht später in der E-Mail-Vorlage (".Data.invite_token") und läuft nicht ab.
@@ -130,7 +153,7 @@ Deno.serve(async (req) => {
 
       const { data: updated, error: updateError } = await admin
         .from('profiles')
-        .update({ gender, display_name: displayName, username })
+        .update({ gender, display_name: displayName, username, color })
         .eq('id', userId)
         .select('id')
       if (updateError) {
@@ -139,7 +162,7 @@ Deno.serve(async (req) => {
       }
       if (!updated || updated.length === 0) {
         // Kein Profil vorhanden: selbst anlegen
-        const { error: insertError } = await admin.from('profiles').insert({ id: userId, gender, display_name: displayName, username })
+        const { error: insertError } = await admin.from('profiles').insert({ id: userId, gender, display_name: displayName, username, color })
         if (insertError) {
           genderProblem = insertError.message
           continue
@@ -192,7 +215,7 @@ Deno.serve(async (req) => {
       vipSaved = !vipError
     }
 
-    return json({ userId, genderSaved: true, usernameSaved: true, displayNameSaved: true, username, displayName, vipSaved })
+    return json({ userId, genderSaved: true, usernameSaved: true, displayNameSaved: true, username, displayName, color, vipSaved })
   } catch (e) {
     return json({ error: String((e as Error)?.message ?? e) }, 500)
   }
