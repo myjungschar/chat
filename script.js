@@ -61,16 +61,16 @@ function isAdmin() {
 
 // Feste Farbpalette für Avatare (ohne Lila). Der Admin kann jeder Person eine Farbe zuweisen (profiles.color);
 // ohne gespeicherte Farbe wird sie aus der ID berechnet, damit jeder Nutzer immer dieselbe Farbe bekommt.
-// Ausgesuchte Farben (12). Neue Personen bekommen beim Einladen automatisch eine zufällige, am seltensten genutzte
-// Farbe aus dieser Liste (Function invite-user), so ist jede Farbe etwa gleich oft vergeben. Der Admin kann sie
-// in den Einstellungen einer Person noch ändern.
+// Ausgesuchte Farben (12), gleichmäßig über alle Farbtöne verteilt (ohne Lila): 3x Rot/Rosa, 3x Orange/Gelb/Braun,
+// 1x Gelbgrün, 2x Grün/Türkis, 3x Blau. Neue Personen bekommen beim Einladen automatisch eine zufällige, am seltensten
+// genutzte Farbe aus dieser Liste (Function invite-user), so ist jede Farbe etwa gleich oft vergeben.
 const AVATAR_COLORS = [
-  '#5b8def', '#4d6fa3', '#3fb0c9', '#3fb98c', '#5b8c6b', '#e2a33d',
-  '#e08a3c', '#e2665f', '#d16fa8', '#c75d7b', '#3b9c9c', '#7c8aa5'
+  '#e2665f', '#c75d7b', '#d16fa8', '#e08a3c', '#e2b93d', '#b8794f',
+  '#a3c84f', '#4caf7d', '#3b9c9c', '#3fb0c9', '#5b8def', '#4d6fa3'
 ]
-// Berechnete Farbe: dieselbe Reihenfolge wie früher, damit jede Person ihre gewohnte Farbe behält.
-// Nur das frühere Lila ist durch ein blasses Dunkelblau ersetzt.
-const COMPUTED_COLORS = ['#5b8def', '#3fb98c', '#e2a33d', '#e2665f', '#4d6fa3', '#3fb0c9', '#d16fa8']
+// Berechnete Farbe (nur Rückfall, falls eine Person noch keine gespeicherte Farbe hat) und Farbe eigener Gruppen:
+// aus der ID berechnet, also immer dieselbe, aber ohne Muster.
+const COMPUTED_COLORS = AVATAR_COLORS
 const AVATAR_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
 
 function computedAvatarColor(id) {
@@ -403,6 +403,8 @@ function hideAllScreens() {
 
 // Login-Ansicht anzeigen und alles Nutzerbezogene aufräumen
 function showLogin() {
+  saveDraftNow() // noch angemeldet: den angefangenen Text als Entwurf sichern
+  draftRoomKey = null
   stopListening()
   stopListListening()
   stopInboxChannel()
@@ -1104,6 +1106,8 @@ function escapeHTML(str) {
 // Vor dem Wechsel den bisherigen Chat noch als gelesen markieren (am PC wechselt man direkt von Chat zu Chat)
 function switchRoom(room) {
   markCurrentRoomRead()
+  saveDraftNow() // Entwurf des bisherigen Chats sichern, bevor das Nachrichtenfeld zum nächsten Chat wechselt
+  draftRoomKey = null
   currentRoom = room
 }
 
@@ -1185,7 +1189,10 @@ async function openConversation(title) {
   updateOnlineIndicator()
   showScreen('conversation-bereich')
   cancelEditingMessage()
+  clearMessageInput() // das Feld gehört dem neuen Chat; ein früherer Text steht als Entwurf im jeweiligen Chat
   cancelReplyingTo()
+  draftRoomKey = isAdmin() ? null : chatKeyForRoom(currentRoom)
+  if (draftRoomKey) restoreDraftText(draftRoomKey)
 
   // Admins lesen überall mit, schreiben aber nirgends
   document.querySelector('.chat-input-area').style.display = isAdmin() ? 'none' : 'flex'
@@ -1201,7 +1208,7 @@ async function openConversation(title) {
   // Am PC bleibt die Liste sichtbar: Ungelesen-Zähler dort nach dem Markieren auffrischen
   markCurrentRoomRead().then(() => { if (isSplitView()) renderChatList() })
   loadPeerMarks() // Häkchen (Einzelchat und Gruppe), muss nicht abgewartet werden
-  if (desktopQuery.matches && !isAdmin()) document.getElementById('message-input').focus()
+  if (desktopQuery.matches && !isAdmin()) placeCaretAtEnd(document.getElementById('message-input')) // Cursor hinter einen gespeicherten Entwurf
 }
 
 // Am PC: geöffnete Einstellungs-Unterseiten rechts wieder schließen (ein offener Chat bleibt stehen)
@@ -4833,6 +4840,7 @@ async function sendMessage() {
 
   sendBtn.dataset.busy = '1'
   sendBtn.disabled = true
+  const sentFromKey = draftRoomKey
 
   const row = { sender_id: currentUser.id, text: text }
   if (currentRoom.type === 'dm') row.recipient_id = currentRoom.userId
@@ -4855,6 +4863,8 @@ async function sendMessage() {
     cancelReplyingTo()
     renderMessage(inserted)
     clearMessageInput()
+    saveDraftNow() // gesendet: der Entwurf ist erledigt (sofort, nicht erst nach der kurzen Wartezeit)
+    if (sentFromKey && sentFromKey !== draftRoomKey) removeDraft(sentFromKey)
     notifyTyping() // Feld ist leer -> "tippt" beim anderen ausblenden
     input.focus()
   }
@@ -5524,6 +5534,7 @@ function startEditingMessage(id, oldText) {
     return
   }
   cancelReplyingTo() // Bearbeiten und gleichzeitig auf etwas antworten schließen sich aus
+  saveDraftNow() // der angefangene Text bleibt als Entwurf erhalten, während man bearbeitet
   editingMessageId = id
   setMessageText(oldText)
   document.getElementById('edit-bar').style.display = 'flex'
@@ -5531,10 +5542,14 @@ function startEditingMessage(id, oldText) {
 }
 
 function cancelEditingMessage() {
+  const wasEditing = !!editingMessageId
   editingMessageId = null
-  clearMessageInput()
   document.getElementById('edit-bar').style.display = 'none'
   document.getElementById('send-btn').textContent = '➤'
+  // Nur beim Bearbeiten wird das Feld geleert. Ohne Bearbeiten (Antworten, Auswählen) bleibt der getippte Text stehen.
+  if (!wasEditing) return
+  clearMessageInput()
+  if (draftRoomKey) restoreDraftText(draftRoomKey) // der Entwurf kommt nach dem Bearbeiten zurück
 }
 
 let savingEdit = false // verhindert, dass ein doppelter Enter-Druck die Änderung zweimal abschickt
@@ -6023,12 +6038,11 @@ function makeDetailsSmooth(details) {
   if (!summary || !body) return
   let anim = null
 
-  summary.addEventListener('click', (e) => {
-    e.preventDefault()
+  // Auf- oder zuklappen (mit Gleiten); auch von außen nutzbar, damit beim Öffnen eines Bereichs die anderen zugehen
+  const setOpen = (opening) => {
     const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (anim) { anim.cancel(); anim = null } // erneut getippt, mitten in der Bewegung: neu ansetzen
 
-    const opening = !details.open
     if (reduce || !body.animate) { details.open = opening; return }
 
     if (opening) details.open = true
@@ -6045,20 +6059,28 @@ function makeDetailsSmooth(details) {
       anim = null
       if (!opening) details.open = false
     }
+  }
+  details._setOpen = setOpen
+
+  summary.addEventListener('click', (e) => {
+    e.preventDefault()
+    const opening = !details.open
+    if (opening && details.parentElement) {
+      details.parentElement.querySelectorAll(':scope > details.admin-section').forEach(other => {
+        if (other !== details && other.open && other._setOpen) other._setOpen(false)
+      })
+    }
+    setOpen(opening)
   })
 }
 
-// Welche Bereiche auf der Seite einer Person gerade aufgeklappt sind. Die Seite wird nach jeder Änderung neu gezeichnet
-// (z. B. beim Umschalten eines Rechts) - so bleibt, was offen war, offen. Bei einer anderen Person ist erst alles zu.
+// Welcher Bereich auf der Seite einer Person gerade aufgeklappt ist. Die Seite wird nach jeder Änderung neu gezeichnet
+// (z. B. beim Umschalten eines Rechts) - so bleibt, was offen war, offen. Auch beim Wechsel zu einer anderen Person bleibt
+// derselbe Bereich offen, nur die Angaben darin ändern sich. Es ist immer höchstens ein Bereich offen.
 let userDetailOpenSections = new Set()
-let userDetailShownId = null
 
 // Einstellungen einer einzelnen Person (Name, Geschlecht, Rechte, Sperren)
 function openUserDetail(u) {
-  if (userDetailShownId !== u.id) {
-    userDetailOpenSections = new Set()
-    userDetailShownId = u.id
-  }
   showScreen('user-detail-bereich')
   renderUserDetail(u)
 }
@@ -7472,6 +7494,79 @@ function updateMessagePlaceholder() {
 }
 
 // Der Senden-Knopf ist ausgegraut, solange nichts im Feld steht (oder gerade gesendet wird)
+// ===== Entwürfe =====
+// Was in einem Chat angefangen, aber nicht gesendet wurde, bleibt pro Chat gespeichert (nur auf diesem Gerät, im Browser,
+// getrennt je Konto). Es kommt zurück, wenn man den Chat wieder öffnet - auch nach Schließen der App oder Neuladen.
+const DRAFTS_STORAGE_PREFIX = 'chatDrafts:'
+let draftRoomKey = null // Chat, dessen Text gerade im Nachrichtenfeld steht (null: keiner, z. B. beim Admin)
+let draftTimer = null
+
+function readDrafts() {
+  try {
+    if (!currentUser) return {}
+    const raw = localStorage.getItem(DRAFTS_STORAGE_PREFIX + currentUser.id)
+    const obj = raw ? JSON.parse(raw) : {}
+    return obj && typeof obj === 'object' ? obj : {}
+  } catch (e) {
+    return {}
+  }
+}
+
+function writeDrafts(drafts) {
+  try {
+    if (!currentUser) return
+    const storageKey = DRAFTS_STORAGE_PREFIX + currentUser.id
+    if (Object.keys(drafts).length === 0) localStorage.removeItem(storageKey)
+    else localStorage.setItem(storageKey, JSON.stringify(drafts))
+  } catch (e) {
+    // Nicht schlimm (z. B. privater Modus): dann gibt es eben keinen Entwurf
+  }
+}
+
+function removeDraft(key) {
+  const drafts = readDrafts()
+  if (!(key in drafts)) return
+  delete drafts[key]
+  writeDrafts(drafts)
+}
+
+// Text im Feld jetzt als Entwurf des offenen Chats speichern (leer = Entwurf löschen). Beim Bearbeiten nicht:
+// dann steht im Feld die alte Nachricht, kein Entwurf.
+function saveDraftNow() {
+  clearTimeout(draftTimer)
+  draftTimer = null
+  if (!currentUser || !draftRoomKey || editingMessageId) return
+  const text = getMessageText()
+  if (text.trim() === '') {
+    removeDraft(draftRoomKey)
+    return
+  }
+  const drafts = readDrafts()
+  if (drafts[draftRoomKey] === text) return
+  drafts[draftRoomKey] = text
+  writeDrafts(drafts)
+}
+
+function scheduleDraftSave() {
+  if (!draftRoomKey) return
+  clearTimeout(draftTimer)
+  draftTimer = setTimeout(saveDraftNow, 400)
+}
+
+// Gespeicherten Entwurf ins Feld setzen - ohne den Cursor hineinzusetzen, sonst springt am Handy die Tastatur auf
+function restoreDraftText(key) {
+  const text = readDrafts()[key]
+  if (!text) return
+  const el = messageInputEl()
+  el.textContent = ''
+  el.appendChild(textToNodes(clipToLength(String(text), MESSAGE_MAX_LENGTH)))
+  autoResizeMessageInput()
+}
+
+// App schließen, in den Hintergrund wechseln oder Seite verlassen: sofort sichern
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveDraftNow() })
+window.addEventListener('pagehide', saveDraftNow)
+
 function updateSendButton() {
   const btn = document.getElementById('send-btn')
   if (!btn) return
@@ -7479,6 +7574,7 @@ function updateSendButton() {
 }
 
 function autoResizeMessageInput() {
+  scheduleDraftSave()
   updateSendButton()
   const input = document.getElementById('message-input')
   updateMessagePlaceholder()
@@ -8465,7 +8561,7 @@ function appendCustomGroupItems(list) {
     const item = document.createElement('li')
     item.className = 'chat-list-item pinned' + (isChatMuted(key) ? ' muted' : '')
     item.innerHTML = chatListItemHTML(
-      '<div class="chat-list-avatar group-avatar">👥</div>',
+      `<div class="chat-list-avatar group-avatar" style="background:${computedAvatarColor(group.id)}">👥</div>`,
       group.name,
       groupPreviews[key],
       unreadFor(key),
