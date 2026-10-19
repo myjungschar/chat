@@ -867,7 +867,7 @@ const MUTE_ICON_HTML = '<svg class="mute-icon" viewBox="0 0 24 24" width="13" he
 // Baut den Inhalt eines Listeneintrags: Avatar, Name, Vorschau-Text, Uhrzeit, Ungelesen-Zähler
 function chatListItemHTML(avatarHTML, name, preview, unreadCount, muted, birthday, chatKey) {
   const previewText = preview ? truncate(messageSnippet(preview), 34) : 'Noch keine Nachrichten'
-  const draftHTML = chatKey ? draftPreviewHTML(readDrafts()[chatKey]) : ''
+  const draftHTML = chatKey ? draftPreviewHTML(readDrafts()[chatKey], chatKey) : ''
   const timeText = preview ? formatChatListTime(preview.created_at) : 'Keine Nachrichten'
   const badge = unreadCount > 0
     ? `<span class="unread-badge">${unreadCount}</span>`
@@ -1132,8 +1132,10 @@ function escapeHTML(str) {
 function switchRoom(room) {
   markCurrentRoomRead()
   saveDraftNow() // Entwurf des bisherigen Chats sichern, bevor das Nachrichtenfeld zum nächsten Chat wechselt
+  const leftKey = draftRoomKey
   draftRoomKey = null
   currentRoom = room
+  if (leftKey) updateDraftPreview(leftKey) // der verlassene Chat zeigt jetzt seinen Entwurf in der Liste
 }
 
 function openGroupChat() {
@@ -1217,7 +1219,10 @@ async function openConversation(title) {
   clearMessageInput() // das Feld gehört dem neuen Chat; ein früherer Text steht als Entwurf im jeweiligen Chat
   cancelReplyingTo()
   draftRoomKey = isAdmin() ? null : chatKeyForRoom(currentRoom)
-  if (draftRoomKey) restoreDraftText(draftRoomKey)
+  if (draftRoomKey) {
+    restoreDraftText(draftRoomKey)
+    updateDraftPreview(draftRoomKey) // der geöffnete Chat zeigt in der Liste wieder die letzte Nachricht
+  }
 
   // Admins lesen überall mit, schreiben aber nirgends
   document.querySelector('.chat-input-area').style.display = isAdmin() ? 'none' : 'flex'
@@ -1247,6 +1252,7 @@ function closeSettingsPanels() {
 // Zurück zur Chatliste (wird vom Zurück-Pfeil im HTML als showList() aufgerufen)
 function showList() {
   // Am Handy verlässt man dabei den Chat; am PC bleibt er rechts einfach offen
+  saveDraftNow() // angefangener Text soll gleich als Entwurf in der Liste stehen
   if (!desktopQuery.matches) stopListening()
   showScreen('list-bereich')
   closeSettingsPanels()
@@ -6172,6 +6178,21 @@ function renderUserDetail(u) {
     rightsRow('Darf Fotos und Audio senden', canPhoto, 'user-photo-switch') +
     rightsRow('Darf Gruppen erstellen', canGroup, 'user-group-switch')
 
+  // Profilfarbe: links die Vorschau mit den Initialen, daneben ein Kreis je Farbe - Antippen wählt die Farbe.
+  // Rosa gibt es nur bei Mädchen.
+  const currentColor = avatarColor(u.id).toLowerCase()
+  const swatches = AVATAR_COLORS.filter(col => colorAllowedFor(col, u.gender)).map(col => {
+    const on = col.toLowerCase() === currentColor
+    return `<button type="button" class="color-swatch${on ? ' active' : ''}" data-color="${col}" style="background:${col}" role="radio" aria-checked="${on}" aria-label="Farbe ${col}"></button>`
+  }).join('')
+  const colorBody = `
+    <div class="input-group">
+      <div class="color-picker">
+        <div class="reaction-avatar" id="user-color-preview" style="background:${avatarColor(u.id)}">${escapeHTML(initialsOf(u.display_name || ''))}</div>
+        <div class="color-swatches" role="radiogroup" aria-label="Profilfarbe">${swatches}</div>
+      </div>
+    </div>`
+
   const birthBody = `
     <div class="input-group">
       <div class="birth-select-row">
@@ -6187,6 +6208,7 @@ function renderUserDetail(u) {
     section('identity', 'Name und E-Mail', '', identityBody) +
     section('gender', 'Geschlecht', genderText, genderBody) +
     section('rights', 'Rechte', rightsText, rightsBody) +
+    section('color', 'Profilfarbe', `<span class="admin-section-dot" style="background:${avatarColor(u.id)}"></span>`, colorBody) +
     section('birth', 'Geburtsdatum', '', birthBody) +
     `<div class="user-actions">
       <button type="button" class="${u.is_blocked ? 'unblock-btn' : 'block-btn'}" id="user-block-btn">${u.is_blocked ? 'Entsperren' : 'Sperren'}</button>
@@ -6212,6 +6234,9 @@ function renderUserDetail(u) {
   document.getElementById('user-photo-switch').addEventListener('click', () => setPhotoAllowed(u, photoBlockedIds.has(u.id)))
   document.getElementById('user-group-switch').addEventListener('click', () => setGroupCreateAllowed(u, groupCreateBlockedIds.has(u.id)))
   setupAdminIdentity(u)
+  box.querySelectorAll('.color-swatch').forEach(btn => {
+    btn.addEventListener('click', () => setUserColor(u, btn.dataset.color))
+  })
   setupAdminBirthdate(u)
   document.getElementById('user-block-btn').addEventListener('click', () => setBlocked(u, !u.is_blocked))
   document.getElementById('user-delete-btn').addEventListener('click', () => deleteUser(u))
@@ -6348,6 +6373,38 @@ function setupAdminIdentity(user) {
       refresh()
     }
   })
+}
+
+// Admin: der Person die angetippte Farbe aus der Palette geben (gespeichert in profiles.color)
+async function setUserColor(user, color) {
+  if (!isAdmin() || !AVATAR_COLORS.includes(color) || !colorAllowedFor(color, user.gender)) return
+  if (avatarColor(user.id).toLowerCase() === color.toLowerCase()) return // schon die aktuelle Farbe
+
+  const swatches = document.querySelectorAll('#user-detail-content .color-swatch')
+  swatches.forEach(b => { b.disabled = true })
+  const { data, error } = await supabaseClient.from('profiles').update({ color }).eq('id', user.id).select('id')
+  swatches.forEach(b => { b.disabled = false })
+
+  if (error) {
+    showToast('Fehler: ' + error.message)
+    return
+  }
+  if (!data || data.length === 0) {
+    showToast('Änderung nicht erlaubt (oder die Spalte "color" fehlt noch).')
+    return
+  }
+  user.color = color
+  if (profileCache[user.id]) profileCache[user.id].color = color
+  const preview = document.getElementById('user-color-preview')
+  if (preview) preview.style.background = color
+  swatches.forEach(b => {
+    const on = b.dataset.color === color
+    b.classList.toggle('active', on)
+    b.setAttribute('aria-checked', String(on))
+  })
+  const dot = document.querySelector('#user-detail-content .admin-section-dot')
+  if (dot) dot.style.background = color
+  renderChatList()
 }
 
 // Admin: Geburtsdatum mit drei Auswahlfeldern (Tag, Monat, Jahr) - das Jahr steht direkt zur Wahl
@@ -7507,8 +7564,9 @@ function removeDraft(key) {
 }
 
 // Vorschau-Zeile in der Chatliste bei einem Entwurf: rotes "Entwurf:" und dahinter der Anfang des Textes
-function draftPreviewHTML(text) {
+function draftPreviewHTML(text, key) {
   if (isAdmin() || typeof text !== 'string') return ''
+  if (key && key === draftRoomKey && isConversationVisible()) return '' // der gerade offene Chat zeigt noch keinen Entwurf
   const flat = text.replace(/\s+/g, ' ').trim()
   if (!flat) return ''
   return '<span class="chat-list-draft">Entwurf:</span> ' + escapeHTML(truncate(flat, 34))
@@ -7522,7 +7580,7 @@ function updateDraftPreview(key) {
   const item = Array.from(list.querySelectorAll('li[data-chat-key]')).find(li => li.dataset.chatKey === key)
   const box = item && item.querySelector('.chat-list-preview[data-base]')
   if (!box) return
-  const html = draftPreviewHTML(readDrafts()[key])
+  const html = draftPreviewHTML(readDrafts()[key], key)
   if (html) box.innerHTML = html
   else box.textContent = box.dataset.base
 }
