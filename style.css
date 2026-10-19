@@ -1313,6 +1313,11 @@ img.emoji {
   margin-top: 2px;
 }
 
+/* Entwurf in der Chatliste: rotes "Entwurf:" vor dem angefangenen Text */
+.chat-list-draft {
+  color: var(--danger);
+}
+
 .chat-list-time-badge {
   flex-shrink: 0;
   display: flex;

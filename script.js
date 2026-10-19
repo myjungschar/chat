@@ -61,40 +61,46 @@ function isAdmin() {
 
 // Feste Farbpalette für Avatare (ohne Lila). Der Admin kann jeder Person eine Farbe zuweisen (profiles.color);
 // ohne gespeicherte Farbe wird sie aus der ID berechnet, damit jeder Nutzer immer dieselbe Farbe bekommt.
-// Ausgesuchte Farben (12), gleichmäßig über alle Farbtöne verteilt (ohne Lila, ohne grelle Töne): Gelb/Orange (2),
-// Rot/Rosa (3), Grün/Türkis (3), Blau (3), Grau (1). Die Farbe einer Person ist zufällig und fest (der Admin kann sie nicht
-// ändern). Neue Personen bekommen beim Einladen eine zufällige, am seltensten genutzte Farbe aus dieser Liste (invite-user).
-const AVATAR_COLORS = [
-  '#EDAA25', '#F28C28', '#E5484D', '#D6406F', '#E5679B', '#1FA971',
-  '#2D7A52', '#1BA9B5', '#3FA7E1', '#4C7DF0', '#3D5A9E', '#6E7B8B'
-]
-// Die rosa Farben bekommen Jungen nie (Mädchen und alle anderen schon). Die grünen Farben sind eher für Jungen gedacht -
-// das ist nur eine Neigung bei der Verteilung (assign_profile_colors.sql, invite-user), keine Regel.
-const PINK_COLORS = ['#D6406F', '#E5679B']
-function isPinkColor(color) {
-  return PINK_COLORS.some(c => c.toLowerCase() === String(color || '').toLowerCase())
+// Wenige, ruhige Farben (7), alle aus der früheren Palette, ohne Lila und ohne das grelle Orange: Blau, Grün, Gelb-Orange,
+// Rot, Dunkelblau, Grau und Rosa. Rosa bekommen nur Mädchen. Die Farbe einer Person ist zufällig und fest (der Admin kann sie
+// nicht ändern). Die Reihenfolge ist dieselbe wie früher bei der berechneten Farbe, damit viele Personen ihre gewohnte behalten.
+const AVATAR_COLORS = ['#6f9be0', '#52b08d', '#e0c04e', '#e06a64', '#5a77a3', '#5f6b82', '#d377ab']
+const PINK_COLOR = '#d377ab'
+// Frühere, kräftigere Fassungen der Farben (schon in der Datenbank gespeichert) werden als die neuen, blasseren angezeigt
+const LEGACY_COLORS = {
+  '#5b8def': '#6f9be0', '#3fb98c': '#52b08d', '#e2a33d': '#e0c04e', '#ebc12e': '#e0c04e',
+  '#e2665f': '#e06a64', '#dc7570': '#e06a64', '#4d6fa3': '#5a77a3', '#7c8aa5': '#5f6b82',
+  '#d16fa8': '#d377ab', '#cc82ad': '#d377ab'
 }
 
-// Berechnete Farbe (nur Rückfall, falls eine Person noch keine passende gespeicherte Farbe hat) und Farbe eigener Gruppen:
-// aus der ID berechnet, also immer dieselbe, aber ohne Muster. Jungen bekommen darin kein Rosa.
+// Rosa darf nur ein Mädchen haben (wer kein Mädchen ist, auch Gruppen, bekommt es nie)
+function colorAllowedFor(color, gender) {
+  return String(color || '').toLowerCase() !== PINK_COLOR || gender === 'maedchen'
+}
+
+// Berechnete Farbe (Rückfall, falls eine Person noch keine gespeicherte Farbe aus der Palette hat) und Farbe eigener Gruppen:
+// aus der ID berechnet, also immer dieselbe, aber ohne Muster. Wäre es Rosa für jemanden, der kein Mädchen ist, gilt die
+// nächste Farbe in der Liste.
 const AVATAR_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
 
 function computedAvatarColor(id, gender) {
   const text = String(id || '')
   let hash = 0
   for (let i = 0; i < text.length; i++) hash = text.charCodeAt(i) + ((hash << 5) - hash)
-  const pool = gender === 'junge' ? AVATAR_COLORS.filter(c => !isPinkColor(c)) : AVATAR_COLORS
-  return pool[Math.abs(hash) % pool.length]
+  let index = Math.abs(hash) % AVATAR_COLORS.length
+  if (!colorAllowedFor(AVATAR_COLORS[index], gender)) index = (index + 1) % AVATAR_COLORS.length
+  return AVATAR_COLORS[index]
 }
 
 // Die Farbe landet teils direkt in style="..." - deshalb nur ein echter Hex-Wert, nie beliebiger Text aus der Datenbank
 function avatarColor(id) {
   const info = profileCache[id]
   const gender = info ? info.gender : null
-  // Nur Farben aus der aktuellen Palette zählen (und kein Rosa bei Jungen); sonst gilt die berechnete Farbe
-  if (info && typeof info.color === 'string' && AVATAR_COLOR_PATTERN.test(info.color) &&
-      AVATAR_COLORS.some(c => c.toLowerCase() === info.color.toLowerCase()) &&
-      !(gender === 'junge' && isPinkColor(info.color))) return info.color
+  const stored = info && typeof info.color === 'string' ? (LEGACY_COLORS[info.color.toLowerCase()] || info.color) : null
+  // Nur Farben aus der aktuellen Palette zählen (Rosa nur bei Mädchen); sonst gilt die berechnete Farbe
+  if (stored && AVATAR_COLOR_PATTERN.test(stored) &&
+      AVATAR_COLORS.some(c => c.toLowerCase() === stored.toLowerCase()) &&
+      colorAllowedFor(stored, gender)) return stored
   return computedAvatarColor(id, gender)
 }
 
@@ -859,8 +865,9 @@ function truncate(text, max) {
 const MUTE_ICON_HTML = '<svg class="mute-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Stummgeschaltet"><path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="m2 2 20 20"/></svg>'
 
 // Baut den Inhalt eines Listeneintrags: Avatar, Name, Vorschau-Text, Uhrzeit, Ungelesen-Zähler
-function chatListItemHTML(avatarHTML, name, preview, unreadCount, muted, birthday) {
+function chatListItemHTML(avatarHTML, name, preview, unreadCount, muted, birthday, chatKey) {
   const previewText = preview ? truncate(messageSnippet(preview), 34) : 'Noch keine Nachrichten'
+  const draftHTML = chatKey ? draftPreviewHTML(readDrafts()[chatKey]) : ''
   const timeText = preview ? formatChatListTime(preview.created_at) : 'Keine Nachrichten'
   const badge = unreadCount > 0
     ? `<span class="unread-badge">${unreadCount}</span>`
@@ -869,7 +876,7 @@ function chatListItemHTML(avatarHTML, name, preview, unreadCount, muted, birthda
     ${avatarHTML}
     <div class="chat-list-text">
       <div class="chat-list-name">${birthday ? `<span class="chat-list-name-text">${escapeHTML(name)}</span><span class="birthday-pill" title="Heute Geburtstag">🎂 Geburtstag</span>` : escapeHTML(name)}${muted ? MUTE_ICON_HTML : ''}</div>
-      <div class="chat-list-preview">${escapeHTML(previewText)}</div>
+      <div class="chat-list-preview" data-base="${escapeHTML(previewText)}">${draftHTML || escapeHTML(previewText)}</div>
     </div>
     <div class="chat-list-time-badge">
       <div class="chat-list-time">${timeText}</div>
@@ -942,7 +949,9 @@ async function renderChatList() {
     'JungscharChat',
     groupPreviews['main'],
     unreadFor('main'),
-    isChatMuted('main')
+    isChatMuted('main'),
+    false,
+    'main'
   )
   groupItem.dataset.chatKey = 'main'
   groupItem.dataset.tabs = 'alle gruppen'
@@ -961,7 +970,9 @@ async function renderChatList() {
       'Jungs',
       groupPreviews['junge'],
       unreadFor('junge'),
-      isChatMuted('junge')
+      isChatMuted('junge'),
+      false,
+      'junge'
     )
     item.dataset.chatKey = 'junge'
     item.dataset.tabs = 'alle gruppen' // die Gruppe selbst gehört nur unter "Gruppen", die passenden Einzelchats tragen "junge" schon eigenständig
@@ -978,7 +989,9 @@ async function renderChatList() {
       'Mädels',
       groupPreviews['maedchen'],
       unreadFor('maedchen'),
-      isChatMuted('maedchen')
+      isChatMuted('maedchen'),
+      false,
+      'maedchen'
     )
     item.dataset.chatKey = 'maedchen'
     item.dataset.tabs = 'alle gruppen' // die Gruppe selbst gehört nur unter "Gruppen", die passenden Einzelchats tragen "maedchen" schon eigenständig
@@ -1006,7 +1019,8 @@ async function renderChatList() {
       dmPreviews[id],
       unreadFor('dm:' + id),
       isChatMuted('dm:' + id),
-      hasBirthdayToday(id)
+      hasBirthdayToday(id),
+      'dm:' + id
     )
     item.dataset.chatKey = 'dm:' + id
     item.dataset.tabs = 'alle' + (info.gender ? ' ' + info.gender : '')
@@ -7489,6 +7503,28 @@ function removeDraft(key) {
   if (!(key in drafts)) return
   delete drafts[key]
   writeDrafts(drafts)
+  updateDraftPreview(key)
+}
+
+// Vorschau-Zeile in der Chatliste bei einem Entwurf: rotes "Entwurf:" und dahinter der Anfang des Textes
+function draftPreviewHTML(text) {
+  if (isAdmin() || typeof text !== 'string') return ''
+  const flat = text.replace(/\s+/g, ' ').trim()
+  if (!flat) return ''
+  return '<span class="chat-list-draft">Entwurf:</span> ' + escapeHTML(truncate(flat, 34))
+}
+
+// Die Zeile eines Chats in der (schon gezeichneten) Liste auf Entwurf oder wieder auf die letzte Nachricht stellen,
+// ohne die ganze Liste neu zu laden
+function updateDraftPreview(key) {
+  const list = document.getElementById('chat-list')
+  if (!list || !key) return
+  const item = Array.from(list.querySelectorAll('li[data-chat-key]')).find(li => li.dataset.chatKey === key)
+  const box = item && item.querySelector('.chat-list-preview[data-base]')
+  if (!box) return
+  const html = draftPreviewHTML(readDrafts()[key])
+  if (html) box.innerHTML = html
+  else box.textContent = box.dataset.base
 }
 
 // Text im Feld jetzt als Entwurf des offenen Chats speichern (leer = Entwurf löschen). Beim Bearbeiten nicht:
@@ -7506,6 +7542,7 @@ function saveDraftNow() {
   if (drafts[draftRoomKey] === text) return
   drafts[draftRoomKey] = text
   writeDrafts(drafts)
+  updateDraftPreview(draftRoomKey)
 }
 
 function scheduleDraftSave() {
@@ -8526,7 +8563,9 @@ function appendCustomGroupItems(list) {
       group.name,
       groupPreviews[key],
       unreadFor(key),
-      isChatMuted(key)
+      isChatMuted(key),
+      false,
+      key
     )
     item.dataset.chatKey = key
     item.dataset.tabs = 'alle gruppen'
