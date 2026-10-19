@@ -61,12 +61,12 @@ function isAdmin() {
 
 // Feste Farbpalette für Avatare (ohne Lila). Der Admin kann jeder Person eine Farbe zuweisen (profiles.color);
 // ohne gespeicherte Farbe wird sie aus der ID berechnet, damit jeder Nutzer immer dieselbe Farbe bekommt.
-// Ausgesuchte Farben (12), gleichmäßig über alle Farbtöne verteilt (ohne Lila): 3x Rot/Rosa, 3x Orange/Gelb/Braun,
-// 1x Gelbgrün, 2x Grün/Türkis, 3x Blau. Neue Personen bekommen beim Einladen automatisch eine zufällige, am seltensten
-// genutzte Farbe aus dieser Liste (Function invite-user), so ist jede Farbe etwa gleich oft vergeben.
+// Ausgesuchte Farben (12), gleichmäßig über alle Farbtöne verteilt (ohne Lila, ohne grelle Töne): Gelb/Orange (2),
+// Rot/Rosa (3), Grün/Türkis (3), Blau (3), Grau (1). Die Farbe einer Person ist zufällig und fest (der Admin kann sie nicht
+// ändern). Neue Personen bekommen beim Einladen eine zufällige, am seltensten genutzte Farbe aus dieser Liste (invite-user).
 const AVATAR_COLORS = [
-  '#e2665f', '#c75d7b', '#d16fa8', '#e08a3c', '#e2b93d', '#b8794f',
-  '#a3c84f', '#4caf7d', '#3b9c9c', '#3fb0c9', '#5b8def', '#4d6fa3'
+  '#EDAA25', '#F28C28', '#E5484D', '#D6406F', '#E5679B', '#1FA971',
+  '#2D7A52', '#1BA9B5', '#3FA7E1', '#4C7DF0', '#3D5A9E', '#6E7B8B'
 ]
 // Berechnete Farbe (nur Rückfall, falls eine Person noch keine gespeicherte Farbe hat) und Farbe eigener Gruppen:
 // aus der ID berechnet, also immer dieselbe, aber ohne Muster.
@@ -83,7 +83,9 @@ function computedAvatarColor(id) {
 // Die Farbe landet teils direkt in style="..." - deshalb nur ein echter Hex-Wert, nie beliebiger Text aus der Datenbank
 function avatarColor(id) {
   const info = profileCache[id]
-  if (info && typeof info.color === 'string' && AVATAR_COLOR_PATTERN.test(info.color)) return info.color
+  // Nur Farben aus der aktuellen Palette zählen; eine alte oder fremde Farbe wird durch die berechnete ersetzt
+  if (info && typeof info.color === 'string' && AVATAR_COLOR_PATTERN.test(info.color) &&
+      AVATAR_COLORS.some(c => c.toLowerCase() === info.color.toLowerCase())) return info.color
   return computedAvatarColor(id)
 }
 
@@ -6147,20 +6149,6 @@ function renderUserDetail(u) {
     rightsRow('Darf Fotos und Audio senden', canPhoto, 'user-photo-switch') +
     rightsRow('Darf Gruppen erstellen', canGroup, 'user-group-switch')
 
-  // Profilfarbe: links die Vorschau mit den Initialen, daneben ein Kreis je Farbe - Antippen wählt die Farbe
-  const currentColor = avatarColor(u.id).toLowerCase()
-  const swatches = AVATAR_COLORS.map(col => {
-    const on = col.toLowerCase() === currentColor
-    return `<button type="button" class="color-swatch${on ? ' active' : ''}" data-color="${col}" style="background:${col}" role="radio" aria-checked="${on}" aria-label="Farbe ${col}"></button>`
-  }).join('')
-  const colorBody = `
-    <div class="input-group">
-      <div class="color-picker">
-        <div class="reaction-avatar" id="user-color-preview" style="background:${avatarColor(u.id)}">${escapeHTML(initialsOf(u.display_name || ''))}</div>
-        <div class="color-swatches" role="radiogroup" aria-label="Profilfarbe">${swatches}</div>
-      </div>
-    </div>`
-
   const birthBody = `
     <div class="input-group">
       <div class="birth-select-row">
@@ -6176,7 +6164,6 @@ function renderUserDetail(u) {
     section('identity', 'Name und E-Mail', '', identityBody) +
     section('gender', 'Geschlecht', genderText, genderBody) +
     section('rights', 'Rechte', rightsText, rightsBody) +
-    section('color', 'Profilfarbe', `<span class="admin-section-dot" style="background:${avatarColor(u.id)}"></span>`, colorBody) +
     section('birth', 'Geburtsdatum', '', birthBody) +
     `<div class="user-actions">
       <button type="button" class="${u.is_blocked ? 'unblock-btn' : 'block-btn'}" id="user-block-btn">${u.is_blocked ? 'Entsperren' : 'Sperren'}</button>
@@ -6202,9 +6189,6 @@ function renderUserDetail(u) {
   document.getElementById('user-photo-switch').addEventListener('click', () => setPhotoAllowed(u, photoBlockedIds.has(u.id)))
   document.getElementById('user-group-switch').addEventListener('click', () => setGroupCreateAllowed(u, groupCreateBlockedIds.has(u.id)))
   setupAdminIdentity(u)
-  box.querySelectorAll('.color-swatch').forEach(btn => {
-    btn.addEventListener('click', () => setUserColor(u, btn.dataset.color))
-  })
   setupAdminBirthdate(u)
   document.getElementById('user-block-btn').addEventListener('click', () => setBlocked(u, !u.is_blocked))
   document.getElementById('user-delete-btn').addEventListener('click', () => deleteUser(u))
@@ -6341,38 +6325,6 @@ function setupAdminIdentity(user) {
       refresh()
     }
   })
-}
-
-// Admin: der Person die angetippte Farbe aus der Palette geben (gespeichert in profiles.color)
-async function setUserColor(user, color) {
-  if (!isAdmin() || !AVATAR_COLORS.includes(color)) return
-  if (avatarColor(user.id).toLowerCase() === color.toLowerCase()) return // schon die aktuelle Farbe
-
-  const swatches = document.querySelectorAll('#user-detail-content .color-swatch')
-  swatches.forEach(b => { b.disabled = true })
-  const { data, error } = await supabaseClient.from('profiles').update({ color }).eq('id', user.id).select('id')
-  swatches.forEach(b => { b.disabled = false })
-
-  if (error) {
-    showToast('Fehler: ' + error.message)
-    return
-  }
-  if (!data || data.length === 0) {
-    showToast('Änderung nicht erlaubt (oder die Spalte "color" fehlt noch).')
-    return
-  }
-  user.color = color
-  if (profileCache[user.id]) profileCache[user.id].color = color
-  const preview = document.getElementById('user-color-preview')
-  if (preview) preview.style.background = color
-  swatches.forEach(b => {
-    const on = b.dataset.color === color
-    b.classList.toggle('active', on)
-    b.setAttribute('aria-checked', String(on))
-  })
-  const dot = document.querySelector('#user-detail-content .admin-section-dot')
-  if (dot) dot.style.background = color
-  renderChatList()
 }
 
 // Admin: Geburtsdatum mit drei Auswahlfeldern (Tag, Monat, Jahr) - das Jahr steht direkt zur Wahl
