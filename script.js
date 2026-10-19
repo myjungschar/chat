@@ -68,25 +68,34 @@ const AVATAR_COLORS = [
   '#EDAA25', '#F28C28', '#E5484D', '#D6406F', '#E5679B', '#1FA971',
   '#2D7A52', '#1BA9B5', '#3FA7E1', '#4C7DF0', '#3D5A9E', '#6E7B8B'
 ]
-// Berechnete Farbe (nur Rückfall, falls eine Person noch keine gespeicherte Farbe hat) und Farbe eigener Gruppen:
-// aus der ID berechnet, also immer dieselbe, aber ohne Muster.
-const COMPUTED_COLORS = AVATAR_COLORS
+// Die rosa Farben bekommen Jungen nie (Mädchen und alle anderen schon). Die grünen Farben sind eher für Jungen gedacht -
+// das ist nur eine Neigung bei der Verteilung (assign_profile_colors.sql, invite-user), keine Regel.
+const PINK_COLORS = ['#D6406F', '#E5679B']
+function isPinkColor(color) {
+  return PINK_COLORS.some(c => c.toLowerCase() === String(color || '').toLowerCase())
+}
+
+// Berechnete Farbe (nur Rückfall, falls eine Person noch keine passende gespeicherte Farbe hat) und Farbe eigener Gruppen:
+// aus der ID berechnet, also immer dieselbe, aber ohne Muster. Jungen bekommen darin kein Rosa.
 const AVATAR_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
 
-function computedAvatarColor(id) {
+function computedAvatarColor(id, gender) {
   const text = String(id || '')
   let hash = 0
   for (let i = 0; i < text.length; i++) hash = text.charCodeAt(i) + ((hash << 5) - hash)
-  return COMPUTED_COLORS[Math.abs(hash) % COMPUTED_COLORS.length]
+  const pool = gender === 'junge' ? AVATAR_COLORS.filter(c => !isPinkColor(c)) : AVATAR_COLORS
+  return pool[Math.abs(hash) % pool.length]
 }
 
 // Die Farbe landet teils direkt in style="..." - deshalb nur ein echter Hex-Wert, nie beliebiger Text aus der Datenbank
 function avatarColor(id) {
   const info = profileCache[id]
-  // Nur Farben aus der aktuellen Palette zählen; eine alte oder fremde Farbe wird durch die berechnete ersetzt
+  const gender = info ? info.gender : null
+  // Nur Farben aus der aktuellen Palette zählen (und kein Rosa bei Jungen); sonst gilt die berechnete Farbe
   if (info && typeof info.color === 'string' && AVATAR_COLOR_PATTERN.test(info.color) &&
-      AVATAR_COLORS.some(c => c.toLowerCase() === info.color.toLowerCase())) return info.color
-  return computedAvatarColor(id)
+      AVATAR_COLORS.some(c => c.toLowerCase() === info.color.toLowerCase()) &&
+      !(gender === 'junge' && isPinkColor(info.color))) return info.color
+  return computedAvatarColor(id, gender)
 }
 
 // Initialen für das Profilbild: Anfangsbuchstabe von Vor- UND Nachname ("Levi Betke" -> "LB").
