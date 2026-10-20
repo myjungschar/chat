@@ -46,7 +46,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261019-12">
+  <link rel="stylesheet" href="style.css?v=20261019-13">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -718,6 +718,30 @@
     </div>
   </div>
 
+  <!-- Pop-up: Hilfe zur Textformatierung (Beispiele, Ausprobier-Feld, Tasten) -->
+  <div id="format-modal" class="modal-overlay" style="display: none;" onclick="closeFormatHelp()">
+    <div class="modal-box format-help-box" onclick="event.stopPropagation()">
+      <div class="poll-modal-head">
+        <p class="info-title">Textformatierung</p>
+      </div>
+
+      <p class="settings-hint">Links steht, was du tippst, rechts, wie es in der Nachricht aussieht. Das Zeichen muss direkt am Text kleben: *fett* geht, * fett * nicht.</p>
+      <div id="format-help-list"></div>
+
+      <p class="format-help-title">Zum Ausprobieren</p>
+      <textarea id="format-try" rows="3" maxlength="500" placeholder="Hier tippen, z. B. *fett* oder _kursiv_"></textarea>
+      <div id="format-try-preview" class="format-shown"></div>
+
+      <p class="format-help-title">Tasten</p>
+      <div id="format-help-keys"></div>
+      <p class="settings-hint">Am PC erst Text markieren, dann die Tasten drücken.</p>
+
+      <div class="modal-actions">
+        <button type="button" class="modal-confirm" onclick="closeFormatHelp()">Schließen</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Pop-up: Einladung (z. B. zum Geburtstag) senden -->
   <div id="invite-modal" class="modal-overlay" style="display: none;" onclick="closeInviteModal()">
     <div class="modal-box" onclick="event.stopPropagation()">
@@ -850,6 +874,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261019-12"></script>
+  <script src="script.js?v=20261019-13"></script>
 </body>
 </html>

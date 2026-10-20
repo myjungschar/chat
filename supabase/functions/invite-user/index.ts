@@ -8,7 +8,7 @@
 //     ohne Angabe: aus dem Benutzernamen gebaut). Beide dürfen noch nicht vergeben sein.
 //  3. Legt das Konto an, OHNE eine E-Mail zu senden. Name und Benutzername stehen auch in den Nutzerdaten,
 //     damit die E-Mail-Vorlage sie anzeigen kann (".Data.display_name", ".Data.username").
-//  4. Speichert Geschlecht, Name, Benutzername und eine zufällige freie Profilfarbe im Profil (mehrere Versuche, weil das Profil gerade erst entsteht)
+//  4. Speichert Geschlecht, Name, Benutzername und eine zufällige freie Profilfarbe (Rosa nur für Mädchen) im Profil (mehrere Versuche, weil das Profil gerade erst entsteht)
 //     und prüft sie durch Nachlesen. Klappt das nicht: Konto wieder löschen, KEINE E-Mail.
 //  4b. Prüft mit der Datenbankfunktion get_email_by_username, dass man sich mit diesem Benutzernamen wirklich anmelden
 //     kann (sie muss die E-Mail-Adresse dieser Person liefern). Sonst: Konto wieder löschen, KEINE E-Mail.
@@ -50,21 +50,31 @@ function json(body: unknown, status = 200) {
 }
 
 // Profilfarben (dieselbe Liste wie AVATAR_COLORS in script.js). Neue Personen bekommen beim Einladen zufällig eine der
-// Farben, die am seltensten vergeben sind - so ist jede Farbe etwa gleich oft in Benutzung.
+// Farben, die am seltensten vergeben sind - so ist jede Farbe etwa gleich oft in Benutzung. Rosa bekommen nur Mädchen.
 const PROFILE_COLORS = [
-  '#5b8def', '#4d6fa3', '#3fb0c9', '#3fb98c', '#5b8c6b', '#e2a33d',
-  '#e08a3c', '#e2665f', '#d16fa8', '#c75d7b', '#3b9c9c', '#7c8aa5'
+  '#5b8def', '#3fb98c', '#ebc12e', '#e2665f', '#4d6fa3', '#7c8aa5', '#d16fa8'
 ]
+const PINK_COLOR = '#d16fa8'
 
-function pickProfileColor(usedColors: (string | null)[]): string {
+// Frühere Fassungen der Farben (so stehen sie vielleicht noch in der Datenbank): zählen als die passende Farbe oben
+const LEGACY_COLORS: Record<string, string> = {
+  '#6f9be0': '#5b8def', '#52b08d': '#3fb98c', '#e2a33d': '#ebc12e', '#e0c04e': '#ebc12e',
+  '#e06a64': '#e2665f', '#dc7570': '#e2665f', '#9d6fe0': '#4d6fa3', '#5a77a3': '#4d6fa3',
+  '#5f6b82': '#7c8aa5', '#d377ab': '#d16fa8', '#cc82ad': '#d16fa8'
+}
+
+function pickProfileColor(usedColors: (string | null)[], gender: string): string {
+  // Rosa darf nur ein Mädchen bekommen
+  const allowed = PROFILE_COLORS.filter((c) => c !== PINK_COLOR || gender === 'maedchen')
   const counts = new Map<string, number>()
-  for (const c of PROFILE_COLORS) counts.set(c.toLowerCase(), 0)
+  for (const c of allowed) counts.set(c.toLowerCase(), 0)
   for (const c of usedColors) {
-    const key = (c ?? '').toLowerCase()
+    const raw = (c ?? '').toLowerCase()
+    const key = LEGACY_COLORS[raw] ?? raw
     if (counts.has(key)) counts.set(key, (counts.get(key) ?? 0) + 1)
   }
   const fewest = Math.min(...counts.values())
-  const candidates = PROFILE_COLORS.filter((c) => counts.get(c.toLowerCase()) === fewest)
+  const candidates = allowed.filter((c) => counts.get(c.toLowerCase()) === fewest)
   return candidates[Math.floor(Math.random() * candidates.length)]
 }
 
@@ -126,7 +136,7 @@ Deno.serve(async (req) => {
 
     // Profilfarbe: zufällig, möglichst eine, die noch niemand hat
     const { data: colorRows } = await admin.from('profiles').select('color')
-    const color = pickProfileColor((colorRows ?? []).map((r: { color: string | null }) => r.color))
+    const color = pickProfileColor((colorRows ?? []).map((r: { color: string | null }) => r.color), gender)
 
     // 3. Konto anlegen, noch ohne E-Mail
     //    needs_password: bis zum ersten eigenen Passwort bleibt die Person im Passwort-Fenster.

@@ -5364,3 +5364,81 @@ body.light-theme .birthday-age-pill {
 .user-info-link:hover #user-display-name {
   color: var(--accent);
 }
+
+/* ===== Hilfe zur Textformatierung (Plus-Menü -> Formatierung) ===== */
+.format-help-box {
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.format-help-title {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.format-help-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.format-typed {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+
+.format-shown {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+}
+
+#format-try {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 15px;
+  resize: vertical;
+}
+
+#format-try:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+#format-try-preview {
+  min-height: 1.35em;
+  padding: 8px 2px;
+}
+
+.format-keys-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.format-keys-row kbd {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+  font-family: inherit;
+  font-size: 13px;
+}

@@ -2112,12 +2112,95 @@ function toggleAttachMenu(anchorBtn, evt) {
   inviteItem.addEventListener('click', () => { closeAttachMenu(); openInviteModal() })
   menu.appendChild(inviteItem)
 
+  const formatItem = document.createElement('button')
+  formatItem.className = 'msg-menu-item'
+  formatItem.textContent = 'Formatierung'
+  formatItem.addEventListener('click', () => { closeAttachMenu(); openFormatHelp() })
+  menu.appendChild(formatItem)
+
   anchorBtn.parentElement.appendChild(menu)
   applyEmojiImages(menu)
   openAttachMenuEl = menu
 }
 
 document.addEventListener('click', closeAttachMenu)
+
+// ===== Hilfe: Textformatierung =====
+// Pop-up aus dem Plus-Menü: links steht, was man tippt, rechts, wie es in der Nachricht aussieht (mit derselben Funktion, die
+// auch die Nachrichten darstellt). Darunter ein Feld zum Ausprobieren mit Live-Vorschau und die Tasten für den PC.
+const FORMAT_HELP_EXAMPLES = [
+  '*fett*',
+  '_kursiv_',
+  '~durchgestrichen~',
+  '`Code`',
+  '```\nCode über\nmehrere Zeilen\n```',
+  '- Äpfel\n- Birnen',
+  '1. Erst das\n2. Dann das',
+  '> Ein Zitat'
+]
+const FORMAT_HELP_KEYS = [
+  ['Umschalt + Enter', 'neue Zeile (am Handy reicht Enter)'],
+  ['Enter', 'senden (am Handy der Pfeil ➤)'],
+  ['Strg + B', 'fett'],
+  ['Strg + I', 'kursiv'],
+  ['Strg + Umschalt + X', 'durchgestrichen'],
+  ['Strg + E', 'Code']
+]
+let formatHelpBuilt = false
+
+function renderFormatPreview(container, text) {
+  container.textContent = ''
+  appendFormattedText(container, text)
+  applyEmojiImages(container)
+}
+
+function buildFormatHelp() {
+  const list = document.getElementById('format-help-list')
+  FORMAT_HELP_EXAMPLES.forEach(example => {
+    const row = document.createElement('div')
+    row.className = 'format-help-row'
+    const typed = document.createElement('div')
+    typed.className = 'format-typed'
+    typed.textContent = example
+    const shown = document.createElement('div')
+    shown.className = 'format-shown'
+    renderFormatPreview(shown, example)
+    row.append(typed, shown)
+    list.appendChild(row)
+  })
+
+  const keys = document.getElementById('format-help-keys')
+  FORMAT_HELP_KEYS.forEach(([combo, what]) => {
+    const row = document.createElement('div')
+    row.className = 'format-keys-row'
+    const kbd = document.createElement('kbd')
+    kbd.textContent = combo
+    const label = document.createElement('span')
+    label.textContent = what
+    row.append(kbd, label)
+    keys.appendChild(row)
+  })
+
+  const tryInput = document.getElementById('format-try')
+  const tryPreview = document.getElementById('format-try-preview')
+  tryInput.addEventListener('input', () => renderFormatPreview(tryPreview, tryInput.value))
+  formatHelpBuilt = true
+}
+
+function onFormatHelpKey(e) {
+  if (e.key === 'Escape') closeFormatHelp()
+}
+
+function openFormatHelp() {
+  if (!formatHelpBuilt) buildFormatHelp()
+  document.getElementById('format-modal').style.display = 'flex'
+  document.addEventListener('keydown', onFormatHelpKey)
+}
+
+function closeFormatHelp() {
+  document.getElementById('format-modal').style.display = 'none'
+  document.removeEventListener('keydown', onFormatHelpKey)
+}
 
 // ===== Einladungs-Karte =====
 // Eine Einladung (z. B. zum Geburtstag) ist eine ganz normale Textnachricht mit festem Aufbau - in der Datenbank ändert sich
@@ -7529,11 +7612,33 @@ function onEnter(id, fn) {
 // gesendet wird mit dem Pfeil-Knopf - dort gibt es ja keine Umschalt-Taste.
 document.getElementById('message-input').addEventListener('keydown', (e) => {
   if (e.isComposing || e.keyCode === 229) return // Bestätigen eines Vorschlags der Tastatur ist kein Senden
-  if (e.key !== 'Enter' || e.shiftKey) return
+  if (e.key !== 'Enter') return
   e.preventDefault()
-  if (window.matchMedia('(pointer: coarse)').matches) document.execCommand('insertLineBreak')
+  // Umschalt+Enter (oder Alt+Enter) ist immer eine neue Zeile. Sie wird hier ausdrücklich gesetzt, statt sich auf das
+  // Standardverhalten des Browsers zu verlassen.
+  if (e.shiftKey || e.altKey) { insertMessageLineBreak(); return }
+  if (window.matchMedia('(pointer: coarse)').matches) insertMessageLineBreak()
   else sendMessage()
 })
+
+// Setzt an der Cursorstelle einen Zeilenumbruch ins Nachrichtenfeld
+function insertMessageLineBreak() {
+  const el = document.getElementById('message-input')
+  if (document.activeElement !== el) el.focus()
+  if (document.execCommand('insertLineBreak')) return // der Browser meldet die Änderung selbst (input-Ereignis)
+  // Rückfall, falls der Browser das nicht kann: von Hand einen Umbruch einsetzen
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) return
+  const range = sel.getRangeAt(0)
+  range.deleteContents()
+  const br = document.createElement('br')
+  range.insertNode(br)
+  range.setStartAfter(br)
+  range.collapse(true)
+  sel.removeAllRanges()
+  sel.addRange(range)
+  el.dispatchEvent(new Event('input', { bubbles: true }))
+}
 
 const MESSAGE_INPUT_MAX_LINES = 5 // so viele Zeilen wächst das Feld mit - danach scrollt es für sich weiter
 
