@@ -61,16 +61,16 @@ function isAdmin() {
 
 // Feste Farbpalette für Avatare (ohne Lila). Der Admin kann jeder Person eine Farbe zuweisen (profiles.color);
 // ohne gespeicherte Farbe wird sie aus der ID berechnet, damit jeder Nutzer immer dieselbe Farbe bekommt.
-// Die Farben von ganz am Anfang, ohne das Lila, dafür mit einem dunklen Grau: Blau, Grün, Gelb-Orange, Rot, Dunkelgrau, Türkis
-// und Rosa. Rosa bekommen nur Mädchen. Die Reihenfolge ist dieselbe wie früher bei der berechneten Farbe (das Lila ist durch das
-// Grau ersetzt), damit viele Personen ihre gewohnte Farbe behalten. Der Admin stellt die Farbe pro Person selbst ein.
-const AVATAR_COLORS = ['#5b8def', '#3fb98c', '#e2a33d', '#e2665f', '#5f6b82', '#3fb0c9', '#d16fa8']
+// Die guten Farben von ganz am Anfang, ohne Lila: Blau, Grün, Gelb, Rot, Dunkelblau, Grau und Rosa. Rosa bekommen nur Mädchen.
+// Die Reihenfolge ist dieselbe wie früher bei der berechneten Farbe (das Lila ist durch Dunkelblau ersetzt), damit viele
+// Personen ihre gewohnte Farbe behalten. Der Admin stellt die Farbe pro Person selbst ein.
+const AVATAR_COLORS = ['#5b8def', '#3fb98c', '#ebc12e', '#e2665f', '#4d6fa3', '#7c8aa5', '#d16fa8']
 const PINK_COLOR = '#d16fa8'
-// Andere, später ausprobierte Fassungen (schon in der Datenbank gespeichert) werden als die passende Farbe oben angezeigt
+// Andere, zwischendurch ausprobierte Fassungen (schon in der Datenbank gespeichert) werden als die passende Farbe oben angezeigt
 const LEGACY_COLORS = {
-  '#6f9be0': '#5b8def', '#52b08d': '#3fb98c', '#e0c04e': '#e2a33d', '#ebc12e': '#e2a33d',
-  '#e06a64': '#e2665f', '#dc7570': '#e2665f', '#9d6fe0': '#5f6b82', '#4d6fa3': '#5f6b82',
-  '#5a77a3': '#5f6b82', '#7c8aa5': '#5f6b82', '#d377ab': '#d16fa8', '#cc82ad': '#d16fa8'
+  '#6f9be0': '#5b8def', '#52b08d': '#3fb98c', '#e2a33d': '#ebc12e', '#e0c04e': '#ebc12e',
+  '#e06a64': '#e2665f', '#dc7570': '#e2665f', '#9d6fe0': '#4d6fa3', '#5a77a3': '#4d6fa3',
+  '#5f6b82': '#7c8aa5', '#d377ab': '#d16fa8', '#cc82ad': '#d16fa8'
 }
 
 // Rosa darf nur ein Mädchen haben (wer kein Mädchen ist, auch Gruppen, bekommt es nie)
