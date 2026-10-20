@@ -61,16 +61,16 @@ function isAdmin() {
 
 // Feste Farbpalette für Avatare (ohne Lila). Der Admin kann jeder Person eine Farbe zuweisen (profiles.color);
 // ohne gespeicherte Farbe wird sie aus der ID berechnet, damit jeder Nutzer immer dieselbe Farbe bekommt.
-// Wenige, ruhige Farben (7), alle aus der früheren Palette, ohne Lila und ohne das grelle Orange: Blau, Grün, Gelb-Orange,
-// Rot, Dunkelblau, Grau und Rosa. Rosa bekommen nur Mädchen. Die Farbe einer Person ist zufällig und fest (der Admin kann sie
-// nicht ändern). Die Reihenfolge ist dieselbe wie früher bei der berechneten Farbe, damit viele Personen ihre gewohnte behalten.
-const AVATAR_COLORS = ['#6f9be0', '#52b08d', '#e0c04e', '#e06a64', '#5a77a3', '#5f6b82', '#d377ab']
-const PINK_COLOR = '#d377ab'
-// Frühere, kräftigere Fassungen der Farben (schon in der Datenbank gespeichert) werden als die neuen, blasseren angezeigt
+// Die Farben von ganz am Anfang, ohne das Lila, dafür mit einem dunklen Grau: Blau, Grün, Gelb-Orange, Rot, Dunkelgrau, Türkis
+// und Rosa. Rosa bekommen nur Mädchen. Die Reihenfolge ist dieselbe wie früher bei der berechneten Farbe (das Lila ist durch das
+// Grau ersetzt), damit viele Personen ihre gewohnte Farbe behalten. Der Admin stellt die Farbe pro Person selbst ein.
+const AVATAR_COLORS = ['#5b8def', '#3fb98c', '#e2a33d', '#e2665f', '#5f6b82', '#3fb0c9', '#d16fa8']
+const PINK_COLOR = '#d16fa8'
+// Andere, später ausprobierte Fassungen (schon in der Datenbank gespeichert) werden als die passende Farbe oben angezeigt
 const LEGACY_COLORS = {
-  '#5b8def': '#6f9be0', '#3fb98c': '#52b08d', '#e2a33d': '#e0c04e', '#ebc12e': '#e0c04e',
-  '#e2665f': '#e06a64', '#dc7570': '#e06a64', '#4d6fa3': '#5a77a3', '#7c8aa5': '#5f6b82',
-  '#d16fa8': '#d377ab', '#cc82ad': '#d377ab'
+  '#6f9be0': '#5b8def', '#52b08d': '#3fb98c', '#e0c04e': '#e2a33d', '#ebc12e': '#e2a33d',
+  '#e06a64': '#e2665f', '#dc7570': '#e2665f', '#9d6fe0': '#5f6b82', '#4d6fa3': '#5f6b82',
+  '#5a77a3': '#5f6b82', '#7c8aa5': '#5f6b82', '#d377ab': '#d16fa8', '#cc82ad': '#d16fa8'
 }
 
 // Rosa darf nur ein Mädchen haben (wer kein Mädchen ist, auch Gruppen, bekommt es nie)
@@ -94,7 +94,11 @@ function computedAvatarColor(id, gender) {
 
 // Die Farbe landet teils direkt in style="..." - deshalb nur ein echter Hex-Wert, nie beliebiger Text aus der Datenbank
 function avatarColor(id) {
-  const info = profileCache[id]
+  return avatarColorOf(id, profileCache[id])
+}
+
+// Dieselbe Farbe, aber aus bekannten Profildaten (info: color und gender) statt aus dem Zwischenspeicher
+function avatarColorOf(id, info) {
   const gender = info ? info.gender : null
   const stored = info && typeof info.color === 'string' ? (LEGACY_COLORS[info.color.toLowerCase()] || info.color) : null
   // Nur Farben aus der aktuellen Palette zählen (Rosa nur bei Mädchen); sonst gilt die berechnete Farbe
@@ -5989,6 +5993,7 @@ async function completePasswordReset() {
 function openUserManagement() {
   if (!isAdmin()) return
   if (!desktopQuery.matches) stopListening()
+  selectedUserId = null
   showScreen('users-bereich')
   if (desktopQuery.matches) closeSettingsPanels()
   loadUsers()
@@ -6026,6 +6031,15 @@ function setUserFilter(value) {
   renderUserList()
 }
 
+// Die gerade rechts geöffnete Person (in der Liste hervorgehoben)
+let selectedUserId = null
+
+function markActiveUserRow() {
+  document.querySelectorAll('#user-list .chat-list-item').forEach(li => {
+    li.classList.toggle('active', !!selectedUserId && li.dataset.userId === selectedUserId)
+  })
+}
+
 function renderUserList() {
   const list = document.getElementById('user-list')
   const query = (document.getElementById('user-search').value || '').trim().toLowerCase()
@@ -6035,22 +6049,37 @@ function renderUserList() {
     .filter(u => userFilterGender === 'all' || u.gender === userFilterGender)
     .filter(u => !query || (u.display_name || '').toLowerCase().includes(query))
     .forEach(u => {
+      // Aufgebaut wie eine Zeile der Chatliste: Profilbild in der Profilfarbe, Name, darunter eine kleine Angabe statt der Nachricht
       const row = document.createElement('li')
-      if (u.is_blocked) row.classList.add('blocked')
+      row.className = 'chat-list-item' + (u.is_blocked ? ' blocked' : '')
       row.dataset.userId = u.id
 
-      const name = document.createElement('span')
-      name.className = 'user-name'
-      name.textContent = (u.display_name || 'Ohne Namen') +
-        (!u.gender && u.role !== 'admin' ? ' (Geschlecht fehlt)' : '') +
-        (u.is_blocked ? ' (gesperrt)' : '') +
-        (u.active === false ? ' (Einladung offen)' : '')
-      row.appendChild(name)
+      const avatar = document.createElement('div')
+      avatar.className = 'chat-list-avatar'
+      avatar.style.background = avatarColorOf(u.id, u)
+      avatar.textContent = initialsOf(u.display_name || '')
+      row.appendChild(avatar)
 
-      const arrow = document.createElement('span')
-      arrow.className = 'settings-arrow'
-      arrow.textContent = '›'
-      row.appendChild(arrow)
+      const text = document.createElement('div')
+      text.className = 'chat-list-text'
+      const name = document.createElement('div')
+      name.className = 'chat-list-name'
+      name.textContent = u.display_name || 'Ohne Namen'
+      text.appendChild(name)
+
+      const info = []
+      if (u.gender === 'junge') info.push('Junge')
+      else if (u.gender === 'maedchen') info.push('Mädchen')
+      else if (u.role !== 'admin') info.push('Geschlecht fehlt')
+      if (u.is_blocked) info.push('gesperrt')
+      if (u.active === false) info.push('Einladung offen')
+      if (info.length > 0) {
+        const sub = document.createElement('div')
+        sub.className = 'chat-list-preview'
+        sub.textContent = info.join(' · ')
+        text.appendChild(sub)
+      }
+      row.appendChild(text)
 
       row.addEventListener('click', () => openUserDetail(u))
       list.appendChild(row)
@@ -6059,6 +6088,7 @@ function renderUserList() {
   if (list.children.length === 0) {
     list.textContent = allUsers.length === 0 ? 'Noch keine anderen Nutzer.' : 'Keine passenden Nutzer gefunden.'
   }
+  markActiveUserRow()
 }
 
 // <details> klappt von Haus aus ruckartig auf und zu. Hier gleitet der Inhalt stattdessen auf bzw. zu
@@ -6112,6 +6142,8 @@ let userDetailOpenSections = new Set()
 
 // Einstellungen einer einzelnen Person (Name, Geschlecht, Rechte, Sperren)
 function openUserDetail(u) {
+  selectedUserId = u.id
+  markActiveUserRow()
   showScreen('user-detail-bereich')
   renderUserDetail(u)
 }
@@ -6180,7 +6212,7 @@ function renderUserDetail(u) {
 
   // Profilfarbe: links die Vorschau mit den Initialen, daneben ein Kreis je Farbe - Antippen wählt die Farbe.
   // Rosa gibt es nur bei Mädchen.
-  const currentColor = avatarColor(u.id).toLowerCase()
+  const currentColor = avatarColorOf(u.id, u).toLowerCase()
   const swatches = AVATAR_COLORS.filter(col => colorAllowedFor(col, u.gender)).map(col => {
     const on = col.toLowerCase() === currentColor
     return `<button type="button" class="color-swatch${on ? ' active' : ''}" data-color="${col}" style="background:${col}" role="radio" aria-checked="${on}" aria-label="Farbe ${col}"></button>`
@@ -6188,7 +6220,7 @@ function renderUserDetail(u) {
   const colorBody = `
     <div class="input-group">
       <div class="color-picker">
-        <div class="reaction-avatar" id="user-color-preview" style="background:${avatarColor(u.id)}">${escapeHTML(initialsOf(u.display_name || ''))}</div>
+        <div class="reaction-avatar" id="user-color-preview" style="background:${avatarColorOf(u.id, u)}">${escapeHTML(initialsOf(u.display_name || ''))}</div>
         <div class="color-swatches" role="radiogroup" aria-label="Profilfarbe">${swatches}</div>
       </div>
     </div>`
@@ -6208,7 +6240,7 @@ function renderUserDetail(u) {
     section('identity', 'Name und E-Mail', '', identityBody) +
     section('gender', 'Geschlecht', genderText, genderBody) +
     section('rights', 'Rechte', rightsText, rightsBody) +
-    section('color', 'Profilfarbe', `<span class="admin-section-dot" style="background:${avatarColor(u.id)}"></span>`, colorBody) +
+    section('color', 'Profilfarbe', `<span class="admin-section-dot" style="background:${avatarColorOf(u.id, u)}"></span>`, colorBody) +
     section('birth', 'Geburtsdatum', '', birthBody) +
     `<div class="user-actions">
       <button type="button" class="${u.is_blocked ? 'unblock-btn' : 'block-btn'}" id="user-block-btn">${u.is_blocked ? 'Entsperren' : 'Sperren'}</button>
@@ -6378,7 +6410,7 @@ function setupAdminIdentity(user) {
 // Admin: der Person die angetippte Farbe aus der Palette geben (gespeichert in profiles.color)
 async function setUserColor(user, color) {
   if (!isAdmin() || !AVATAR_COLORS.includes(color) || !colorAllowedFor(color, user.gender)) return
-  if (avatarColor(user.id).toLowerCase() === color.toLowerCase()) return // schon die aktuelle Farbe
+  if (avatarColorOf(user.id, user).toLowerCase() === color.toLowerCase()) return // schon die aktuelle Farbe
 
   const swatches = document.querySelectorAll('#user-detail-content .color-swatch')
   swatches.forEach(b => { b.disabled = true })
@@ -6404,6 +6436,7 @@ async function setUserColor(user, color) {
   })
   const dot = document.querySelector('#user-detail-content .admin-section-dot')
   if (dot) dot.style.background = color
+  renderUserList()
   renderChatList()
 }
 
@@ -6798,6 +6831,8 @@ async function setBlocked(user, blocked) {
 // Neuen Nutzer per E-Mail einladen. Die eigentliche Arbeit macht eine Supabase Edge Function
 // ("invite-user"), weil das Anlegen von Konten nicht im Browser passieren darf.
 function openNewUser() {
+  selectedUserId = null
+  markActiveUserRow()
   showScreen('new-user-bereich')
   document.getElementById('new-user-email').value = ''
   document.querySelectorAll('#new-user-gender .gender-btn').forEach(b => b.classList.remove('active'))

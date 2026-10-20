@@ -3805,9 +3805,17 @@ input[type="date"]::-webkit-date-and-time-value {
   padding-right: 2px;
 }
 
-#user-list li {
-  padding: 7px 6px;
-  font-size: 14px;
+#user-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Zeilen der Nutzerliste sehen aus wie die der Chatliste (Profilbild in der Profilfarbe, Name, kleine Angabe darunter) */
+#user-list .chat-list-item.blocked .chat-list-name {
+  color: var(--text-secondary);
+  text-decoration: line-through;
 }
 
 .user-filter-bar {

@@ -46,7 +46,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261019-10">
+  <link rel="stylesheet" href="style.css?v=20261019-11">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -354,6 +354,10 @@
                 <span>Nutzer verwalten</span>
                 <span class="settings-arrow">›</span>
               </li>
+              <li id="menu-new-user" onclick="openNewUser()">
+                <span>Neuen Nutzer hinzufügen</span>
+                <span class="settings-arrow">›</span>
+              </li>
               <li id="menu-invite-requests" onclick="openInviteRequestsModal()">
                 <span>Einladungs-Anfragen</span>
                 <span class="settings-arrow"><span class="reports-badge" id="invite-requests-badge" style="display: none;"></span>›</span>
@@ -380,12 +384,6 @@
         </div>
       </header>
 
-      <ul class="settings-menu">
-        <li onclick="openNewUser()">
-          <span>＋ Neuen Nutzer hinzufügen</span>
-          <span class="settings-arrow">›</span>
-        </li>
-      </ul>
       <div class="user-filter-bar">
         <input type="search" id="user-search" placeholder="Nutzer suchen" autocomplete="off" oninput="renderUserList()">
         <div class="user-filter" id="user-filter">
@@ -394,7 +392,7 @@
           <button type="button" class="filter-btn" data-value="maedchen" onclick="setUserFilter('maedchen')">Mädchen</button>
         </div>
       </div>
-      <ul id="user-list" class="settings-menu"></ul>
+      <ul id="user-list"></ul>
 
     </div>
 
@@ -419,7 +417,7 @@
       <div class="form-card">
 
       <header class="chat-header">
-        <button class="back-btn" onclick="openUserManagement()" aria-label="Zurück zur Nutzerliste"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
         <div class="user-info">
           <span>Neuen Nutzer hinzufügen</span>
         </div>
@@ -852,6 +850,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261019-10"></script>
+  <script src="script.js?v=20261019-11"></script>
 </body>
 </html>
