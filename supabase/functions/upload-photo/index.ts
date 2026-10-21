@@ -1,5 +1,5 @@
 // Edge Function "upload-photo": nimmt entweder ein (schon im Browser verkleinertes) Foto + Vorschaubild
-// ODER eine Audio-Datei (.mp3, .m4a, .wav) entgegen und legt alles privat in Google Drive ab.
+// ODER eine Audio-Datei (.mp3, .m4a, .wav, höchstens 50 MB) entgegen und legt alles privat in Google Drive ab.
 // Antwort bei Fotos: { photo_id, thumb_id }, bei Audio: { audio_id, audio_mime } (Drive-Datei-IDs).
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
@@ -13,7 +13,7 @@ const json = (body: unknown, status = 200) =>
 
 const MAX_PHOTO = 10 * 1024 * 1024
 const MAX_THUMB = 400 * 1024
-const MAX_AUDIO = 10 * 1024 * 1024
+const MAX_AUDIO = 50 * 1024 * 1024
 
 let tokenCache: { token: string; exp: number } | null = null
 
@@ -37,7 +37,7 @@ async function driveToken(): Promise<string> {
   return data.access_token
 }
 
-async function uploadToDrive(bytes: Uint8Array, name: string, mimeType = 'image/jpeg'): Promise<string> {
+async function uploadToDrive(bytes: Blob, name: string, mimeType = 'image/jpeg'): Promise<string> {
   const token = await driveToken()
   const boundary = 'chat' + crypto.randomUUID()
   const enc = new TextEncoder()
@@ -46,10 +46,8 @@ async function uploadToDrive(bytes: Uint8Array, name: string, mimeType = 'image/
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`
   )
   const tail = enc.encode(`\r\n--${boundary}--`)
-  const body = new Uint8Array(head.length + bytes.length + tail.length)
-  body.set(head, 0)
-  body.set(bytes, head.length)
-  body.set(tail, head.length + bytes.length)
+  // Als Blob aus drei Teilen zusammengesetzt statt als eine große Kopie im Speicher (wichtig bei großen Audiodateien)
+  const body = new Blob([head, bytes, tail])
 
   const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
     method: 'POST',
@@ -112,12 +110,13 @@ Deno.serve(async (req) => {
     // ----- Audio -----
     const audio = form.get('audio')
     if (audio instanceof File) {
-      if (audio.size > MAX_AUDIO) return json({ error: 'Die Datei ist zu groß (höchstens 10 MB)' }, 413)
-      const audioBytes = new Uint8Array(await audio.arrayBuffer())
-      const kind = detectAudio(audioBytes)
+      if (audio.size > MAX_AUDIO) return json({ error: 'Die Datei ist zu groß (höchstens 50 MB)' }, 413)
+      // Erkannt wird am Dateianfang (die ersten Bytes reichen); die Datei selbst wird nicht komplett in den Speicher kopiert
+      const audioHead = new Uint8Array(await audio.slice(0, 16).arrayBuffer())
+      const kind = detectAudio(audioHead)
       if (!kind) return json({ error: 'Nur MP3-, M4A- und WAV-Dateien erlaubt' }, 400)
 
-      const audioId = await uploadToDrive(audioBytes, `${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${kind.ext}`, kind.mime)
+      const audioId = await uploadToDrive(audio, `${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${kind.ext}`, kind.mime)
       return json({ audio_id: audioId, audio_mime: kind.mime })
     }
 
@@ -135,8 +134,8 @@ Deno.serve(async (req) => {
     const base = `${Date.now()}_${crypto.randomUUID().slice(0, 8)}`
     // Beide gleichzeitig hochladen (spart ein paar Sekunden). Klappt einer nicht, räumt cleanup-photos den anderen später auf.
     const [photoId, thumbId] = await Promise.all([
-      uploadToDrive(photoBytes, `${base}.jpg`),
-      uploadToDrive(thumbBytes, `${base}_thumb.jpg`)
+      uploadToDrive(photo, `${base}.jpg`),
+      uploadToDrive(thumb, `${base}_thumb.jpg`)
     ])
 
     return json({ photo_id: photoId, thumb_id: thumbId })

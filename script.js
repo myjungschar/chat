@@ -2215,13 +2215,20 @@ function closeFormatHelp() {
 }
 
 // ===== Sprachnachricht =====
-// Plus -> "Sprachnachricht": aufnehmen (höchstens 2 Minuten), anhören, senden. Aufgenommen wird mit dem Browser (MediaRecorder),
-// zum Senden wird die Aufnahme in eine kleine WAV-Datei (mono, 16 kHz, ca. 2 MB pro Minute) umgewandelt. WAV nehmen die Edge
-// Functions "upload-photo" und "get-photo" schon an und jeder Browser spielt es ab - so musste an ihnen nichts geändert werden.
+// Plus -> "Sprachnachricht": aufnehmen (höchstens 2 Minuten), anhören, senden. Das Fenster sitzt unten wie ein Aufnahmefeld.
+// Beim Aufnehmen zeigt eine selbst gezeichnete Wellenform (Striche, die mit der Lautstärke größer und kleiner werden), was das
+// Mikrofon hört; danach gibt es einen eigenen Abspiel-Knopf mit derselben Wellenform (kein Browser-Player).
+// Aufgenommen wird mit dem Browser (MediaRecorder), zum Senden wird die Aufnahme in eine kleine WAV-Datei (mono, 16 kHz, ca. 2 MB
+// pro Minute) umgewandelt. WAV nehmen die Edge Functions "upload-photo" und "get-photo" schon an und jeder Browser spielt es ab.
 // Gesendet wird sie als ganz normale Audio-Nachricht (sendAudioMessage) und lebt so lange wie alle anderen Nachrichten.
 const VOICE_MAX_SECONDS = 120
 const VOICE_MIN_SECONDS = 1
 const VOICE_SAMPLE_RATE = 16000
+const VOICE_LEVEL_INTERVAL_MS = 80
+const VOICE_BAR_WIDTH = 3
+const VOICE_BAR_GAP = 3
+const VOICE_ICON_PLAY = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>'
+const VOICE_ICON_PAUSE = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>'
 
 let voiceState = 'idle' // idle | recording | recorded | sending
 let voiceRecorder = null
@@ -2232,6 +2239,12 @@ let voiceTimer = null
 let voiceStartedAt = 0
 let voiceCancelled = false
 let voicePreviewUrl = null
+let voiceAudioCtx = null
+let voiceAnalyser = null
+let voiceLevels = []   // Lautstärke (0 bis 1) alle 80 ms
+let voiceDuration = 0  // Länge der fertigen Aufnahme in Sekunden
+let voicePlayer = null
+let voicePlayRaf = 0
 
 function voiceSupported() {
   return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder &&
@@ -2246,8 +2259,8 @@ function startVoiceFlow() {
   if (audioSending) { showToast('Es wird gerade noch ein Audio gesendet.'); return }
   if (!voiceSupported()) { showToast('Dein Browser kann keine Sprachnachrichten aufnehmen.'); return }
   resetVoice()
-  setVoiceState('idle')
   document.getElementById('voice-modal').style.display = 'flex'
+  setVoiceState('idle')
 }
 
 function formatVoiceTime(seconds) {
@@ -2260,7 +2273,13 @@ function releaseVoiceStream() {
   voiceStream = null
 }
 
-// Alles zurücksetzen: Aufnahme abbrechen, Mikrofon freigeben, Vorschau wegräumen
+function closeVoiceAudioContext() {
+  voiceAnalyser = null
+  if (voiceAudioCtx) { try { voiceAudioCtx.close() } catch (e) { /* schon zu */ } }
+  voiceAudioCtx = null
+}
+
+// Alles zurücksetzen: Aufnahme abbrechen, Mikrofon freigeben, Wiedergabe stoppen, Vorschau wegräumen
 function resetVoice() {
   clearInterval(voiceTimer)
   voiceTimer = null
@@ -2270,12 +2289,15 @@ function resetVoice() {
   }
   voiceRecorder = null
   releaseVoiceStream()
+  closeVoiceAudioContext()
+  cancelAnimationFrame(voicePlayRaf)
+  if (voicePlayer) { voicePlayer.pause(); voicePlayer = null }
   voiceChunks = []
   voiceBlob = null
+  voiceLevels = []
+  voiceDuration = 0
   if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl)
   voicePreviewUrl = null
-  const preview = document.getElementById('voice-preview')
-  if (preview) { preview.pause(); preview.removeAttribute('src') }
 }
 
 function closeVoiceModal() {
@@ -2284,44 +2306,128 @@ function closeVoiceModal() {
   document.getElementById('voice-modal').style.display = 'none'
 }
 
+// ----- Wellenform (selbst gezeichnet auf einer Zeichenfläche) -----
+function voiceColor(name, fallback) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
+}
+
+function voiceBarCount() {
+  const width = document.getElementById('voice-wave').clientWidth || 240
+  return Math.max(8, Math.floor((width + VOICE_BAR_GAP) / (VOICE_BAR_WIDTH + VOICE_BAR_GAP)))
+}
+
+// Beim Aufnehmen: die jüngsten Werte, der neueste ganz rechts (links wird mit leisen Strichen aufgefüllt)
+function voiceLiveBars(count) {
+  const recent = voiceLevels.slice(-count)
+  return new Array(count - recent.length).fill(0).concat(recent)
+}
+
+// Nach der Aufnahme: die ganze Aufnahme auf die Breite verteilt (je Strich der lauteste Wert), so laut wie nötig gestreckt
+function voiceStaticBars(count) {
+  if (voiceLevels.length === 0) return new Array(count).fill(0)
+  const bars = []
+  for (let i = 0; i < count; i++) {
+    const from = Math.floor((i * voiceLevels.length) / count)
+    const to = Math.max(from + 1, Math.floor(((i + 1) * voiceLevels.length) / count))
+    let peak = 0
+    for (let j = from; j < to && j < voiceLevels.length; j++) peak = Math.max(peak, voiceLevels[j])
+    bars.push(peak)
+  }
+  const loudest = Math.max(...bars, 0.25)
+  return bars.map(v => v / loudest)
+}
+
+// progress: 0 bis 1 = beim Abspielen der schon gespielte Teil in Akzentfarbe, der Rest grau; ohne Angabe: laute Striche in Akzentfarbe
+function drawVoiceWave(bars, progress) {
+  const canvas = document.getElementById('voice-wave')
+  const width = canvas.clientWidth
+  const height = canvas.clientHeight
+  if (!width || !height) return
+  const dpr = window.devicePixelRatio || 1
+  if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+    canvas.width = Math.round(width * dpr)
+    canvas.height = Math.round(height * dpr)
+  }
+  const ctx = canvas.getContext('2d')
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.clearRect(0, 0, width, height)
+  ctx.lineCap = 'round'
+  ctx.lineWidth = VOICE_BAR_WIDTH
+  const accent = voiceColor('--accent', '#4ea3e0')
+  const quiet = voiceColor('--text-secondary', '#7d8b99')
+  const step = VOICE_BAR_WIDTH + VOICE_BAR_GAP
+  const total = bars.length * step - VOICE_BAR_GAP
+  const startX = Math.max(0, width - total) + VOICE_BAR_WIDTH / 2
+  for (let i = 0; i < bars.length; i++) {
+    const level = Math.max(0, Math.min(1, bars[i]))
+    const barHeight = Math.max(VOICE_BAR_WIDTH, level * (height - 4))
+    const x = startX + i * step
+    const top = (height - barHeight) / 2 + VOICE_BAR_WIDTH / 2
+    const bottom = (height + barHeight) / 2 - VOICE_BAR_WIDTH / 2
+    ctx.strokeStyle = typeof progress === 'number' ? (i / bars.length < progress ? accent : quiet) : (level > 0.02 ? accent : quiet)
+    ctx.beginPath()
+    ctx.moveTo(x, top)
+    ctx.lineTo(x, Math.max(top, bottom))
+    ctx.stroke()
+  }
+}
+
+function setVoiceTimeText(text, recording) {
+  const el = document.getElementById('voice-time')
+  el.textContent = text
+  el.classList.toggle('recording', !!recording)
+}
+
+function redrawVoice() {
+  if (document.getElementById('voice-modal').style.display === 'none') return
+  const count = voiceBarCount()
+  if (voiceState === 'recording') drawVoiceWave(voiceLiveBars(count))
+  else if (voiceState === 'recorded' || voiceState === 'sending') {
+    const progress = voicePlayer && !voicePlayer.paused && voiceDuration > 0 ? voicePlayer.currentTime / voiceDuration : undefined
+    drawVoiceWave(voiceStaticBars(count), progress)
+  } else drawVoiceWave(new Array(count).fill(0))
+}
+window.addEventListener('resize', redrawVoice)
+
+// ----- Knöpfe und Zustände -----
 function voiceButton(label, className, onClick, disabled) {
   const btn = document.createElement('button')
   btn.type = 'button'
   btn.className = className
   btn.textContent = label
   btn.disabled = !!disabled
-  btn.addEventListener('click', onClick)
+  if (onClick) btn.addEventListener('click', onClick)
   return btn
 }
 
 function setVoiceState(state) {
   voiceState = state
   const status = document.getElementById('voice-status')
-  const time = document.getElementById('voice-time')
-  const preview = document.getElementById('voice-preview')
+  const play = document.getElementById('voice-play')
   const actions = document.getElementById('voice-actions')
   actions.textContent = ''
-  time.classList.toggle('recording', state === 'recording')
-  preview.style.display = state === 'recorded' ? 'block' : 'none'
-  time.style.display = state === 'recording' ? 'block' : 'none'
+  play.style.display = state === 'recorded' || state === 'sending' ? 'flex' : 'none'
+  play.innerHTML = VOICE_ICON_PLAY
+  play.disabled = state === 'sending'
 
   if (state === 'idle') {
     status.textContent = 'Tippe auf „Aufnehmen“ und sprich. Du kannst bis zu ' + formatVoiceTime(VOICE_MAX_SECONDS) + ' Minuten aufnehmen.'
+    setVoiceTimeText('0:00 / ' + formatVoiceTime(VOICE_MAX_SECONDS))
     actions.append(
       voiceButton('Abbrechen', 'modal-cancel', closeVoiceModal),
       voiceButton('Aufnehmen', 'modal-confirm', startVoiceRecording)
     )
   } else if (state === 'recording') {
     status.textContent = 'Aufnahme läuft …'
-    time.textContent = '0:00 / ' + formatVoiceTime(VOICE_MAX_SECONDS)
     actions.append(
       voiceButton('Abbrechen', 'modal-cancel', closeVoiceModal),
       voiceButton('Stopp', 'modal-confirm', stopVoiceRecording)
     )
   } else if (state === 'recorded') {
     status.textContent = 'Hör sie dir an. Dann senden oder neu aufnehmen.'
+    setVoiceTimeText(formatVoiceTime(voiceDuration))
     actions.append(
-      voiceButton('Verwerfen', 'modal-cancel', closeVoiceModal),
+      voiceButton('Abbrechen', 'modal-cancel', closeVoiceModal),
       voiceButton('Neu aufnehmen', 'modal-cancel', () => { resetVoice(); setVoiceState('idle') }),
       voiceButton('Senden', 'modal-confirm', sendVoiceMessage)
     )
@@ -2332,16 +2438,53 @@ function setVoiceState(state) {
       voiceButton('Senden', 'modal-confirm', null, true)
     )
   }
+  redrawVoice()
+}
+
+// ----- Aufnehmen -----
+function voiceTick() {
+  const elapsed = (Date.now() - voiceStartedAt) / 1000
+  let level = 0
+  if (voiceAnalyser) {
+    const samples = new Uint8Array(voiceAnalyser.fftSize)
+    voiceAnalyser.getByteTimeDomainData(samples)
+    let sum = 0
+    for (let i = 0; i < samples.length; i++) {
+      const x = (samples[i] - 128) / 128
+      sum += x * x
+    }
+    // Wurzel zweimal: leises Sprechen soll schon sichtbar ausschlagen, Rauschen kaum
+    level = Math.min(1, Math.sqrt(Math.sqrt(sum / samples.length)) * 1.15)
+  }
+  voiceLevels.push(level)
+  drawVoiceWave(voiceLiveBars(voiceBarCount()))
+  setVoiceTimeText(formatVoiceTime(elapsed) + ' / ' + formatVoiceTime(VOICE_MAX_SECONDS), true)
+  if (elapsed >= VOICE_MAX_SECONDS) stopVoiceRecording()
 }
 
 async function startVoiceRecording() {
+  // Der Audio-Kontext wird gleich beim Tippen angelegt (manche Browser erlauben das nur direkt nach einer Berührung)
+  const AudioCtx = window.AudioContext || window.webkitAudioContext
+  const audioCtx = new AudioCtx()
   try {
     voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true })
   } catch (e) {
+    try { audioCtx.close() } catch (err) { /* egal */ }
     showToast('Kein Zugriff auf das Mikrofon. Bitte in den Einstellungen des Browsers erlauben.')
     return
   }
+  try {
+    if (audioCtx.state === 'suspended') await audioCtx.resume()
+    voiceAnalyser = audioCtx.createAnalyser()
+    voiceAnalyser.fftSize = 1024
+    audioCtx.createMediaStreamSource(voiceStream).connect(voiceAnalyser)
+    voiceAudioCtx = audioCtx
+  } catch (e) {
+    voiceAnalyser = null // ohne Wellenform geht es trotzdem
+    voiceAudioCtx = audioCtx
+  }
   voiceChunks = []
+  voiceLevels = []
   voiceCancelled = false
   const recorder = new MediaRecorder(voiceStream)
   voiceRecorder = recorder
@@ -2349,26 +2492,24 @@ async function startVoiceRecording() {
   recorder.onstop = () => {
     const seconds = (Date.now() - voiceStartedAt) / 1000
     releaseVoiceStream()
+    closeVoiceAudioContext()
     if (voiceCancelled || recorder !== voiceRecorder) return
     const blob = new Blob(voiceChunks, { type: recorder.mimeType || 'audio/webm' })
     if (seconds < VOICE_MIN_SECONDS || blob.size < 500) {
       showToast('Die Aufnahme war zu kurz.')
+      voiceLevels = []
       setVoiceState('idle')
       return
     }
     voiceBlob = blob
+    voiceDuration = seconds
     voicePreviewUrl = URL.createObjectURL(blob)
-    document.getElementById('voice-preview').src = voicePreviewUrl
     setVoiceState('recorded')
   }
   voiceStartedAt = Date.now()
   recorder.start()
   setVoiceState('recording')
-  voiceTimer = setInterval(() => {
-    const elapsed = (Date.now() - voiceStartedAt) / 1000
-    document.getElementById('voice-time').textContent = formatVoiceTime(elapsed) + ' / ' + formatVoiceTime(VOICE_MAX_SECONDS)
-    if (elapsed >= VOICE_MAX_SECONDS) stopVoiceRecording()
-  }, 200)
+  voiceTimer = setInterval(voiceTick, VOICE_LEVEL_INTERVAL_MS)
 }
 
 function stopVoiceRecording() {
@@ -2377,6 +2518,40 @@ function stopVoiceRecording() {
   if (voiceRecorder && voiceRecorder.state !== 'inactive') voiceRecorder.stop()
 }
 
+// ----- Anhören (eigener Knopf, keine Browser-Leiste) -----
+function voicePlayLoop() {
+  if (!voicePlayer || voicePlayer.paused) return
+  const progress = voiceDuration > 0 ? Math.min(1, voicePlayer.currentTime / voiceDuration) : 0
+  drawVoiceWave(voiceStaticBars(voiceBarCount()), progress)
+  setVoiceTimeText(formatVoiceTime(voicePlayer.currentTime) + ' / ' + formatVoiceTime(voiceDuration))
+  voicePlayRaf = requestAnimationFrame(voicePlayLoop)
+}
+
+function toggleVoicePlayback() {
+  if (!voiceBlob || !voicePreviewUrl || voiceState !== 'recorded') return
+  if (!voicePlayer) {
+    const player = new Audio(voicePreviewUrl)
+    voicePlayer = player
+    const playButton = document.getElementById('voice-play')
+    player.addEventListener('play', () => { playButton.innerHTML = VOICE_ICON_PAUSE; voicePlayLoop() })
+    player.addEventListener('pause', () => { playButton.innerHTML = VOICE_ICON_PLAY; cancelAnimationFrame(voicePlayRaf) })
+    player.addEventListener('ended', () => {
+      playButton.innerHTML = VOICE_ICON_PLAY
+      cancelAnimationFrame(voicePlayRaf)
+      player.currentTime = 0
+      setVoiceTimeText(formatVoiceTime(voiceDuration))
+      drawVoiceWave(voiceStaticBars(voiceBarCount()))
+    })
+  }
+  if (voicePlayer.paused) {
+    const started = voicePlayer.play()
+    if (started && started.catch) started.catch(() => showToast('Das Abspielen klappt hier nicht.'))
+  } else {
+    voicePlayer.pause()
+  }
+}
+
+// ----- Umwandeln und Senden -----
 // Aufnahme (beliebiges Format des Browsers) -> WAV, mono, 16 kHz
 async function voiceBlobToWav(blob) {
   const AudioCtx = window.AudioContext || window.webkitAudioContext
@@ -2425,6 +2600,7 @@ function encodeWav(samples, sampleRate) {
 
 async function sendVoiceMessage() {
   if (voiceState !== 'recorded' || !voiceBlob) return
+  if (voicePlayer) voicePlayer.pause()
   setVoiceState('sending')
   let file
   try {

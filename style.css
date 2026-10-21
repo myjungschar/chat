@@ -5443,23 +5443,83 @@ body.light-theme .birthday-age-pill {
   font-size: 13px;
 }
 
-/* ===== Sprachnachricht (Plus-Menü -> Sprachnachricht) ===== */
+/* ===== Sprachnachricht (Plus-Menü -> Sprachnachricht): Fenster unten, Wellenform, eigener Abspiel-Knopf ===== */
+.voice-sheet {
+  align-items: flex-end;
+  padding: 0;
+}
+
+.voice-sheet .modal-box {
+  max-width: 520px;
+  border-radius: 20px 20px 0 0;
+  border-bottom: none;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  animation: voice-sheet-in 0.22s ease-out;
+}
+
+@keyframes voice-sheet-in {
+  from { transform: translateY(28px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-sheet .modal-box { animation: none; }
+}
+
+.voice-status {
+  margin-bottom: 10px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.voice-visual {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 18px;
+}
+
+.voice-wave {
+  flex: 1;
+  min-width: 0;
+  height: 56px;
+  display: block;
+}
+
 .voice-time {
-  margin: 12px 0;
-  text-align: center;
-  font-size: 32px;
+  flex: none;
+  min-width: 82px;
+  text-align: right;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
+  color: var(--text-secondary);
 }
 
 .voice-time.recording {
   color: var(--danger);
 }
 
-#voice-preview {
-  display: block;
-  width: 100%;
-  margin: 12px 0;
+.voice-play {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.voice-play:hover {
+  background: var(--accent-hover);
+}
+
+.voice-play:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 #voice-modal .modal-actions {
