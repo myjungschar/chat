@@ -1500,6 +1500,11 @@ function showUnreadDivider(messageId, messages) {
   setTimeout(() => { if (divider.isConnected && chatBox.clientHeight && chatBox.scrollTop === 0) placeDivider() }, 350) // falls der Chat erst beim Einblenden Höhe bekommt
 }
 
+// Hat man selbst etwas geschrieben (Text, Foto, Audio, Umfrage, Einladung), ist die Linie "neue Nachrichten" erledigt
+function removeUnreadDivider() {
+  document.querySelectorAll('#chat-box .unread-divider').forEach(d => d.remove())
+}
+
 // ===== Umfragen =====
 // Umfragen liegen in einer eigenen Tabelle (nicht bei den Nachrichten) und werden beim Laden
 // und live per Realtime dazwischengemischt - einsortiert nach ihrem Erstellungszeitpunkt.
@@ -2065,6 +2070,7 @@ async function submitPoll() {
   }
 
   closePollModal()
+  removeUnreadDivider()
   pollsMap[inserted.id] = { ...inserted, votesByOption: {} }
   insertPollRow(pollsMap[inserted.id])
   document.getElementById('chat-box').scrollTop = document.getElementById('chat-box').scrollHeight
@@ -2098,6 +2104,12 @@ function toggleAttachMenu(anchorBtn, evt) {
     audioItem.textContent = 'Audio'
     audioItem.addEventListener('click', () => { closeAttachMenu(); startAudioFlow() })
     menu.appendChild(audioItem)
+
+    const voiceItem = document.createElement('button')
+    voiceItem.className = 'msg-menu-item'
+    voiceItem.textContent = 'Sprachnachricht'
+    voiceItem.addEventListener('click', () => { closeAttachMenu(); startVoiceFlow() })
+    menu.appendChild(voiceItem)
   }
 
   const pollItem = document.createElement('button')
@@ -2200,6 +2212,232 @@ function openFormatHelp() {
 function closeFormatHelp() {
   document.getElementById('format-modal').style.display = 'none'
   document.removeEventListener('keydown', onFormatHelpKey)
+}
+
+// ===== Sprachnachricht =====
+// Plus -> "Sprachnachricht": aufnehmen (höchstens 2 Minuten), anhören, senden. Aufgenommen wird mit dem Browser (MediaRecorder),
+// zum Senden wird die Aufnahme in eine kleine WAV-Datei (mono, 16 kHz, ca. 2 MB pro Minute) umgewandelt. WAV nehmen die Edge
+// Functions "upload-photo" und "get-photo" schon an und jeder Browser spielt es ab - so musste an ihnen nichts geändert werden.
+// Gesendet wird sie als ganz normale Audio-Nachricht (sendAudioMessage) und lebt so lange wie alle anderen Nachrichten.
+const VOICE_MAX_SECONDS = 120
+const VOICE_MIN_SECONDS = 1
+const VOICE_SAMPLE_RATE = 16000
+
+let voiceState = 'idle' // idle | recording | recorded | sending
+let voiceRecorder = null
+let voiceStream = null
+let voiceChunks = []
+let voiceBlob = null
+let voiceTimer = null
+let voiceStartedAt = 0
+let voiceCancelled = false
+let voicePreviewUrl = null
+
+function voiceSupported() {
+  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder &&
+    (window.AudioContext || window.webkitAudioContext))
+}
+
+function startVoiceFlow() {
+  if (!currentUser || isAdmin() || currentRoom.type === 'dm-view') return
+  if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos und Audios senden.'); return }
+  if (editingMessageId) { showToast('Schließe zuerst das Bearbeiten ab.'); return }
+  if (!navigator.onLine) { showToast('Keine Internetverbindung.'); return }
+  if (audioSending) { showToast('Es wird gerade noch ein Audio gesendet.'); return }
+  if (!voiceSupported()) { showToast('Dein Browser kann keine Sprachnachrichten aufnehmen.'); return }
+  resetVoice()
+  setVoiceState('idle')
+  document.getElementById('voice-modal').style.display = 'flex'
+}
+
+function formatVoiceTime(seconds) {
+  const whole = Math.max(0, Math.floor(seconds))
+  return Math.floor(whole / 60) + ':' + String(whole % 60).padStart(2, '0')
+}
+
+function releaseVoiceStream() {
+  if (voiceStream) voiceStream.getTracks().forEach(t => t.stop())
+  voiceStream = null
+}
+
+// Alles zurücksetzen: Aufnahme abbrechen, Mikrofon freigeben, Vorschau wegräumen
+function resetVoice() {
+  clearInterval(voiceTimer)
+  voiceTimer = null
+  if (voiceRecorder && voiceRecorder.state !== 'inactive') {
+    voiceCancelled = true
+    try { voiceRecorder.stop() } catch (e) { /* schon gestoppt */ }
+  }
+  voiceRecorder = null
+  releaseVoiceStream()
+  voiceChunks = []
+  voiceBlob = null
+  if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl)
+  voicePreviewUrl = null
+  const preview = document.getElementById('voice-preview')
+  if (preview) { preview.pause(); preview.removeAttribute('src') }
+}
+
+function closeVoiceModal() {
+  resetVoice()
+  voiceState = 'idle'
+  document.getElementById('voice-modal').style.display = 'none'
+}
+
+function voiceButton(label, className, onClick, disabled) {
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = className
+  btn.textContent = label
+  btn.disabled = !!disabled
+  btn.addEventListener('click', onClick)
+  return btn
+}
+
+function setVoiceState(state) {
+  voiceState = state
+  const status = document.getElementById('voice-status')
+  const time = document.getElementById('voice-time')
+  const preview = document.getElementById('voice-preview')
+  const actions = document.getElementById('voice-actions')
+  actions.textContent = ''
+  time.classList.toggle('recording', state === 'recording')
+  preview.style.display = state === 'recorded' ? 'block' : 'none'
+  time.style.display = state === 'recording' ? 'block' : 'none'
+
+  if (state === 'idle') {
+    status.textContent = 'Tippe auf „Aufnehmen“ und sprich. Du kannst bis zu ' + formatVoiceTime(VOICE_MAX_SECONDS) + ' Minuten aufnehmen.'
+    actions.append(
+      voiceButton('Abbrechen', 'modal-cancel', closeVoiceModal),
+      voiceButton('Aufnehmen', 'modal-confirm', startVoiceRecording)
+    )
+  } else if (state === 'recording') {
+    status.textContent = 'Aufnahme läuft …'
+    time.textContent = '0:00 / ' + formatVoiceTime(VOICE_MAX_SECONDS)
+    actions.append(
+      voiceButton('Abbrechen', 'modal-cancel', closeVoiceModal),
+      voiceButton('Stopp', 'modal-confirm', stopVoiceRecording)
+    )
+  } else if (state === 'recorded') {
+    status.textContent = 'Hör sie dir an. Dann senden oder neu aufnehmen.'
+    actions.append(
+      voiceButton('Verwerfen', 'modal-cancel', closeVoiceModal),
+      voiceButton('Neu aufnehmen', 'modal-cancel', () => { resetVoice(); setVoiceState('idle') }),
+      voiceButton('Senden', 'modal-confirm', sendVoiceMessage)
+    )
+  } else if (state === 'sending') {
+    status.textContent = 'Wird vorbereitet …'
+    actions.append(
+      voiceButton('Abbrechen', 'modal-cancel', null, true),
+      voiceButton('Senden', 'modal-confirm', null, true)
+    )
+  }
+}
+
+async function startVoiceRecording() {
+  try {
+    voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  } catch (e) {
+    showToast('Kein Zugriff auf das Mikrofon. Bitte in den Einstellungen des Browsers erlauben.')
+    return
+  }
+  voiceChunks = []
+  voiceCancelled = false
+  const recorder = new MediaRecorder(voiceStream)
+  voiceRecorder = recorder
+  recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) voiceChunks.push(e.data) }
+  recorder.onstop = () => {
+    const seconds = (Date.now() - voiceStartedAt) / 1000
+    releaseVoiceStream()
+    if (voiceCancelled || recorder !== voiceRecorder) return
+    const blob = new Blob(voiceChunks, { type: recorder.mimeType || 'audio/webm' })
+    if (seconds < VOICE_MIN_SECONDS || blob.size < 500) {
+      showToast('Die Aufnahme war zu kurz.')
+      setVoiceState('idle')
+      return
+    }
+    voiceBlob = blob
+    voicePreviewUrl = URL.createObjectURL(blob)
+    document.getElementById('voice-preview').src = voicePreviewUrl
+    setVoiceState('recorded')
+  }
+  voiceStartedAt = Date.now()
+  recorder.start()
+  setVoiceState('recording')
+  voiceTimer = setInterval(() => {
+    const elapsed = (Date.now() - voiceStartedAt) / 1000
+    document.getElementById('voice-time').textContent = formatVoiceTime(elapsed) + ' / ' + formatVoiceTime(VOICE_MAX_SECONDS)
+    if (elapsed >= VOICE_MAX_SECONDS) stopVoiceRecording()
+  }, 200)
+}
+
+function stopVoiceRecording() {
+  clearInterval(voiceTimer)
+  voiceTimer = null
+  if (voiceRecorder && voiceRecorder.state !== 'inactive') voiceRecorder.stop()
+}
+
+// Aufnahme (beliebiges Format des Browsers) -> WAV, mono, 16 kHz
+async function voiceBlobToWav(blob) {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext
+  const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext
+  const ctx = new AudioCtx()
+  try {
+    const raw = await blob.arrayBuffer()
+    const decoded = await new Promise((resolve, reject) => ctx.decodeAudioData(raw, resolve, reject))
+    const length = Math.max(1, Math.ceil(decoded.duration * VOICE_SAMPLE_RATE))
+    const offline = new OfflineCtx(1, length, VOICE_SAMPLE_RATE)
+    const source = offline.createBufferSource()
+    source.buffer = decoded
+    source.connect(offline.destination)
+    source.start()
+    const rendered = await offline.startRendering()
+    return encodeWav(rendered.getChannelData(0), VOICE_SAMPLE_RATE)
+  } finally {
+    if (ctx.close) ctx.close()
+  }
+}
+
+// 16-Bit-PCM-WAV (mono) aus Fließkomma-Samples
+function encodeWav(samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2)
+  const view = new DataView(buffer)
+  const writeText = (offset, text) => { for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i)) }
+  writeText(0, 'RIFF')
+  view.setUint32(4, 36 + samples.length * 2, true)
+  writeText(8, 'WAVE')
+  writeText(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true) // PCM
+  view.setUint16(22, 1, true) // mono
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  writeText(36, 'data')
+  view.setUint32(40, samples.length * 2, true)
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]))
+    view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true)
+  }
+  return new Blob([buffer], { type: 'audio/wav' })
+}
+
+async function sendVoiceMessage() {
+  if (voiceState !== 'recorded' || !voiceBlob) return
+  setVoiceState('sending')
+  let file
+  try {
+    const wav = await voiceBlobToWav(voiceBlob)
+    file = new File([wav], 'Sprachnachricht.wav', { type: 'audio/wav' })
+  } catch (e) {
+    console.error('Sprachnachricht umwandeln:', e)
+    showToast('Die Sprachnachricht konnte nicht vorbereitet werden.')
+    setVoiceState('recorded')
+    return
+  }
+  closeVoiceModal()
+  await sendAudioMessage(file, 'Sprachnachricht')
 }
 
 // ===== Einladungs-Karte =====
@@ -2359,6 +2597,7 @@ async function submitInvitation() {
     return
   }
   closeInviteModal()
+  removeUnreadDivider()
   renderMessage(inserted)
 }
 
@@ -2723,7 +2962,7 @@ async function sendPhotoMessage(main, thumb, captionText) {
     }
 
     if (replyingToId === replyId) cancelReplyingTo()
-    if (currentRoom === room && belongsToCurrentRoom(inserted)) renderMessage(inserted)
+    if (currentRoom === room && belongsToCurrentRoom(inserted)) { removeUnreadDivider(); renderMessage(inserted) }
     return true
   } finally {
     photoSending = false
@@ -2924,7 +3163,7 @@ async function sendAudioMessage(file, displayName) {
     }
 
     if (replyingToId === replyId) cancelReplyingTo()
-    if (currentRoom === room && belongsToCurrentRoom(inserted)) renderMessage(inserted)
+    if (currentRoom === room && belongsToCurrentRoom(inserted)) { removeUnreadDivider(); renderMessage(inserted) }
   } catch (e) {
     pending.remove()
     console.error('Audio senden:', e)
@@ -4979,6 +5218,7 @@ async function sendMessage() {
     await handleSendError(error)
   } else {
     cancelReplyingTo()
+    removeUnreadDivider()
     renderMessage(inserted)
     clearMessageInput()
     saveDraftNow() // gesendet: der Entwurf ist erledigt (sofort, nicht erst nach der kurzen Wartezeit)

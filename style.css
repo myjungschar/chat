@@ -5442,3 +5442,26 @@ body.light-theme .birthday-age-pill {
   font-family: inherit;
   font-size: 13px;
 }
+
+/* ===== Sprachnachricht (Plus-Menü -> Sprachnachricht) ===== */
+.voice-time {
+  margin: 12px 0;
+  text-align: center;
+  font-size: 32px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.voice-time.recording {
+  color: var(--danger);
+}
+
+#voice-preview {
+  display: block;
+  width: 100%;
+  margin: 12px 0;
+}
+
+#voice-modal .modal-actions {
+  flex-wrap: wrap;
+}
