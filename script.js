@@ -2603,9 +2603,14 @@ async function sendVoiceMessage() {
   if (voicePlayer) voicePlayer.pause()
   setVoiceState('sending')
   let file
+  // Name wie eine Datei, mit Datum und Uhrzeit: "Sprachnachricht 2026-10-21 14-32.wav"
+  const now = new Date()
+  const two = (n) => String(n).padStart(2, '0')
+  const fileName = 'Sprachnachricht ' + now.getFullYear() + '-' + two(now.getMonth() + 1) + '-' + two(now.getDate()) +
+    ' ' + two(now.getHours()) + '-' + two(now.getMinutes()) + '.wav'
   try {
     const wav = await voiceBlobToWav(voiceBlob)
-    file = new File([wav], 'Sprachnachricht.wav', { type: 'audio/wav' })
+    file = new File([wav], fileName, { type: 'audio/wav' })
   } catch (e) {
     console.error('Sprachnachricht umwandeln:', e)
     showToast('Die Sprachnachricht konnte nicht vorbereitet werden.')
@@ -2613,7 +2618,7 @@ async function sendVoiceMessage() {
     return
   }
   closeVoiceModal()
-  await sendAudioMessage(file, 'Sprachnachricht')
+  await sendAudioMessage(file, fileName)
 }
 
 // ===== Einladungs-Karte =====

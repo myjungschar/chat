@@ -5443,54 +5443,33 @@ body.light-theme .birthday-age-pill {
   font-size: 13px;
 }
 
-/* ===== Sprachnachricht (Plus-Menü -> Sprachnachricht): Fenster unten, Wellenform, eigener Abspiel-Knopf ===== */
-.voice-sheet {
-  align-items: flex-end;
-  padding: 0;
-}
-
-.voice-sheet .modal-box {
-  max-width: 520px;
-  border-radius: 20px 20px 0 0;
-  border-bottom: none;
-  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-  animation: voice-sheet-in 0.22s ease-out;
-}
-
-@keyframes voice-sheet-in {
-  from { transform: translateY(28px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .voice-sheet .modal-box { animation: none; }
-}
-
+/* ===== Sprachnachricht (Plus-Menü -> Sprachnachricht): Pop-up in der Mitte, Wellenform, eigener Abspiel-Knopf ===== */
 .voice-status {
-  margin-bottom: 10px;
-  font-size: 14px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 1.35;
   color: var(--text-secondary);
 }
 
 .voice-visual {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin: 4px 0 18px;
+  gap: 10px;
+  margin: 2px 0 16px;
 }
 
 .voice-wave {
   flex: 1;
   min-width: 0;
-  height: 56px;
+  height: 44px;
   display: block;
 }
 
 .voice-time {
   flex: none;
-  min-width: 82px;
+  min-width: 70px;
   text-align: right;
-  font-size: 14px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
 }
@@ -5501,8 +5480,8 @@ body.light-theme .birthday-age-pill {
 
 .voice-play {
   flex: none;
-  width: 44px;
-  height: 44px;
+  width: 38px;
+  height: 38px;
   align-items: center;
   justify-content: center;
   border: none;
