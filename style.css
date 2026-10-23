@@ -5504,3 +5504,60 @@ body.light-theme .birthday-age-pill {
 #voice-modal .modal-actions {
   flex-wrap: wrap;
 }
+
+/* ===== Handy: Seite so hoch wie der sichtbare Bereich, Chat über die ganze Breite (wie bei WhatsApp), unten Platz ===== */
+@media (max-width: 899.98px) {
+  /* Manche Handys und Browser haben unten eine Leiste, die in die Seite hineinragt, ohne dass die Seite es merkt. Damit
+     die Eingabezeile und das Ende der Listen nicht dahinter verschwinden, bleibt unten so viel Platz frei (nach Bedarf ändern). */
+  :root {
+    --bottom-lift: 28px;
+  }
+
+  body {
+    height: var(--app-height, 100dvh);
+  }
+
+  /* Alle scrollbaren Seiten (Formulare, Nutzerdaten, ...): unten Platz, damit man das Letzte ganz hochscrollen kann */
+  .card {
+    padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px) + var(--bottom-lift));
+  }
+
+  /* Chat: kein Kartenrand mehr, die Sprechblasen reichen fast bis an den Bildschirmrand */
+  #conversation-bereich {
+    padding: 0;
+  }
+
+  #conversation-bereich .chat-header {
+    padding: 6px 8px;
+    margin-bottom: 0;
+  }
+
+  #conversation-bereich #chat-box {
+    border: none;
+    border-radius: 0;
+    padding: 8px 3px;
+    margin-bottom: 0;
+  }
+
+  #conversation-bereich #edit-bar,
+  #conversation-bereich #reply-bar {
+    margin: 6px 8px 0;
+  }
+
+  /* Eingabezeile: höher, damit sie nicht an der unteren Leiste klebt oder dahinter verschwindet */
+  #conversation-bereich .chat-input-area {
+    padding: 8px 8px calc(12px + env(safe-area-inset-bottom, 0px) + var(--bottom-lift));
+  }
+
+  /* Ist die Tastatur offen (man tippt gerade), braucht es den Platz nicht: die Eingabezeile sitzt direkt über der Tastatur */
+  body:has(#message-input:focus) #conversation-bereich .chat-input-area {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Listen und Einstellungen: unten Luft, damit das Letzte nicht hinter der Leiste hängt */
+  #list-bereich #chat-list,
+  #user-list,
+  #settings-bereich .settings-groups {
+    padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px) + var(--bottom-lift));
+  }
+}
