@@ -416,6 +416,7 @@ window.addEventListener('popstate', () => {
   if (desktopQuery.matches || !currentUser) return
 
   // Zuerst zumachen, was gerade "oben drauf" liegt
+  if (pdfViewerEl) { closePdfViewer(); rearmBackHistory(); return }
   if (typeof photoViewerEl !== 'undefined' && photoViewerEl) { closePhotoViewer(); rearmBackHistory(); return }
   if (typeof selectMode !== 'undefined' && selectMode) { exitSelectMode(); rearmBackHistory(); return }
 
@@ -974,7 +975,7 @@ const MUTE_ICON_HTML = '<svg class="mute-icon" viewBox="0 0 24 24" width="13" he
 
 // Baut den Inhalt eines Listeneintrags: Avatar, Name, Vorschau-Text, Uhrzeit, Ungelesen-Zähler
 function chatListItemHTML(avatarHTML, name, preview, unreadCount, muted, birthday, chatKey) {
-  const previewText = preview ? truncate(messageSnippet(preview), preview.reaction ? 48 : 34) : 'Noch keine Nachrichten'
+  const previewText = preview ? truncate(messageSnippet(preview), preview.reaction ? 60 : 34) : 'Noch keine Nachrichten'
   const draftHTML = chatKey ? draftPreviewHTML(readDrafts()[chatKey], chatKey) : ''
   const timeText = preview ? formatChatListTime(preview.created_at) : 'Keine Nachrichten'
   const badge = unreadCount > 0
@@ -2911,7 +2912,7 @@ function messageSnippet(msg) {
     const { reaction, ...original } = msg
     const mine = currentUser && reaction.user_id === currentUser.id
     const first = ((profileCache[reaction.user_id] && profileCache[reaction.user_id].name) || 'Jemand').trim().split(/\s+/)[0]
-    return (mine ? 'Du hast' : first + ' hat') + ' mit ' + reaction.emoji + ' reagiert: „' + messageSnippet(original) + '“'
+    return (mine ? 'Du hast' : first + ' hat') + ' mit ' + reaction.emoji + ' reagiert auf: „' + messageSnippet(original) + '“'
   }
   const inv = msg && msg.text ? parseInvitation(msg.text) : null
   if (inv) return '🎉 Einladung: ' + inv.title
@@ -3740,6 +3741,185 @@ async function openPdf(msg, setMeta) {
   }
 }
 
+// ----- PDF-Viewer in der App -----
+// Zeigt das PDF in einer Vollbild-Ansicht (wie bei WhatsApp): oben Zurück, Seitenzahl, Zoom und Herunterladen, darunter alle Seiten
+// zum Runterscrollen. Die Seiten werden erst gezeichnet, wenn man in ihre Nähe kommt, und weit weg wieder freigegeben (spart Speicher).
+// Rückgabe: true = geöffnet, 'gone' = PDF gibt es nicht mehr, false = hat nicht geklappt (dann gibt es den Weg über neuen Tab / Download).
+let pdfViewerEl = null
+let pdfViewerState = null
+
+function closePdfViewer() {
+  const state = pdfViewerState
+  if (state) {
+    state.closed = true
+    try { if (state.observer) state.observer.disconnect() } catch (e) { /* egal */ }
+    try { if (state.pdf) state.pdf.destroy() } catch (e) { /* egal */ }
+  }
+  if (pdfViewerEl) { pdfViewerEl.remove(); pdfViewerEl = null }
+  pdfViewerState = null
+  document.removeEventListener('keydown', onPdfViewerKey)
+}
+
+function onPdfViewerKey(e) {
+  if (e.key === 'Escape') closePdfViewer()
+}
+
+async function openPdfViewer(msg) {
+  closePdfViewer()
+  const state = { closed: false, pdf: null, observer: null, zoom: 1, entries: [] }
+  pdfViewerState = state
+
+  const iconBack = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>'
+  const iconMinus = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg>'
+  const iconPlus = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/><path d="M12 6v12"/></svg>'
+  const iconDownload = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>'
+  const makeBtn = (label, html, onClick) => {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'photo-viewer-btn'
+    btn.setAttribute('aria-label', label)
+    btn.title = label
+    btn.innerHTML = html
+    btn.addEventListener('click', onClick)
+    return btn
+  }
+
+  const overlay = document.createElement('div')
+  overlay.className = 'pdf-viewer'
+
+  const bar = document.createElement('div')
+  bar.className = 'pdf-viewer-bar'
+  const titleWrap = document.createElement('div')
+  titleWrap.className = 'pdf-viewer-title'
+  const titleName = document.createElement('div')
+  titleName.className = 'pdf-viewer-title-name'
+  titleName.textContent = audioDisplayTitle(msg)
+  const titlePage = document.createElement('div')
+  titlePage.className = 'pdf-viewer-title-page'
+  titlePage.textContent = 'Wird geladen …'
+  titleWrap.append(titleName, titlePage)
+
+  const backBtn = makeBtn('Schließen', iconBack, closePdfViewer)
+  const zoomOutBtn = makeBtn('Verkleinern', iconMinus, () => setZoom(state.zoom - 0.5))
+  const zoomInBtn = makeBtn('Vergrößern', iconPlus, () => setZoom(state.zoom + 0.5))
+  const downloadBtn = makeBtn('Herunterladen', iconDownload, () => downloadAudio(msg))
+  bar.append(backBtn, titleWrap, zoomOutBtn, zoomInBtn, downloadBtn)
+
+  const scroller = document.createElement('div')
+  scroller.className = 'pdf-viewer-scroll'
+  const pagesEl = document.createElement('div')
+  pagesEl.className = 'pdf-viewer-pages'
+  scroller.appendChild(pagesEl)
+
+  overlay.append(bar, scroller)
+  document.body.appendChild(overlay)
+  pdfViewerEl = overlay
+  document.addEventListener('keydown', onPdfViewerKey)
+
+  const dpr = Math.min(window.devicePixelRatio || 1, 3)
+
+  const release = (entry) => {
+    entry.token++
+    if (entry.rendered) { entry.el.replaceChildren(); entry.rendered = false }
+  }
+
+  const renderEntry = async (entry) => {
+    if (state.closed || entry.rendered || entry.rendering) return
+    entry.rendering = true
+    const token = ++entry.token
+    try {
+      const page = await state.pdf.getPage(entry.num)
+      const base = page.getViewport({ scale: 1 })
+      entry.el.style.aspectRatio = base.width + ' / ' + base.height
+      const cssWidth = entry.el.clientWidth || 360
+      const viewport = page.getViewport({ scale: (cssWidth / base.width) * dpr })
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.floor(viewport.width)
+      canvas.height = Math.floor(viewport.height)
+      const ctx = canvas.getContext('2d')
+      await page.render({ canvasContext: ctx, viewport }).promise
+      if (state.closed || entry.token !== token) return // inzwischen weggescrollt, gezoomt oder geschlossen
+      entry.el.replaceChildren(canvas)
+      entry.rendered = true
+    } catch (e) {
+      if (!state.closed) console.warn('PDF-Seite ' + entry.num + ':', e)
+    } finally {
+      entry.rendering = false
+    }
+  }
+
+  const updatePageLabel = () => {
+    if (state.closed || state.entries.length === 0) return
+    const line = scroller.scrollTop + scroller.clientHeight * 0.35
+    let current = 1
+    for (const entry of state.entries) {
+      if (entry.el.offsetTop <= line) current = entry.num
+      else break
+    }
+    titlePage.textContent = 'Seite ' + current + ' von ' + state.entries.length
+  }
+
+  function setZoom(value) {
+    if (state.entries.length === 0) return
+    const zoom = Math.max(1, Math.min(3, value))
+    if (zoom === state.zoom) return
+    const ratio = scroller.scrollHeight > 0 ? scroller.scrollTop / scroller.scrollHeight : 0
+    state.zoom = zoom
+    pagesEl.style.setProperty('--pdf-zoom', String(zoom))
+    state.entries.forEach(release)
+    scroller.scrollTop = ratio * scroller.scrollHeight
+    state.entries.forEach(entry => { state.observer.unobserve(entry.el); state.observer.observe(entry.el) }) // zeichnet die sichtbaren neu
+    zoomOutBtn.disabled = zoom <= 1
+    zoomInBtn.disabled = zoom >= 3
+    updatePageLabel()
+  }
+
+  try {
+    const [lib, blob] = await Promise.all([loadPdfJs(), fetchPhotoBlob(msg.audio_id)])
+    if (state.closed) return true
+    const data = new Uint8Array(await blob.arrayBuffer())
+    const pdf = await lib.getDocument({ data }).promise
+    if (state.closed) { try { pdf.destroy() } catch (e) { /* egal */ } return true }
+    state.pdf = pdf
+
+    // Platzhalter in der Größe der ersten Seite, damit die Scrollleiste von Anfang an stimmt
+    const first = await pdf.getPage(1)
+    const firstView = first.getViewport({ scale: 1 })
+    for (let n = 1; n <= pdf.numPages; n++) {
+      const el = document.createElement('div')
+      el.className = 'pdf-viewer-page'
+      el.style.aspectRatio = firstView.width + ' / ' + firstView.height
+      pagesEl.appendChild(el)
+      state.entries.push({ num: n, el, rendered: false, rendering: false, token: 0 })
+    }
+    state.observer = new IntersectionObserver((observed) => {
+      observed.forEach(o => {
+        const entry = state.entries.find(en => en.el === o.target)
+        if (!entry) return
+        if (o.isIntersecting) renderEntry(entry)
+        else release(entry)
+      })
+    }, { root: scroller, rootMargin: '1200px 0px' })
+    state.entries.forEach(entry => state.observer.observe(entry.el))
+
+    let ticking = false
+    scroller.addEventListener('scroll', () => {
+      if (ticking) return
+      ticking = true
+      requestAnimationFrame(() => { ticking = false; updatePageLabel() })
+    }, { passive: true })
+    zoomOutBtn.disabled = true
+    updatePageLabel()
+    return true
+  } catch (e) {
+    const gone = e && e.status === 404
+    if (pdfViewerState === state) closePdfViewer()
+    if (gone) { showToast('Das PDF gibt es nicht mehr.'); return 'gone' }
+    console.warn('PDF-Viewer:', e)
+    return false
+  }
+}
+
 function buildFileElement(msg) {
   const ext = fileMessageExt(msg)
   const color = fileIconColor(ext)
@@ -3802,7 +3982,9 @@ function buildFileElement(msg) {
     metaEl.textContent = 'Lädt …'
     let result
     if (isPdf) {
-      result = await openPdf(msg, (text) => { metaEl.textContent = text })
+      result = await openPdfViewer(msg)
+      if (result === false) result = await openPdf(msg, (text) => { metaEl.textContent = text }) // Viewer nicht möglich (z. B. pdf.js lädt nicht): neuer Tab / Download
+      else if (result === 'gone') metaEl.textContent = 'Nicht mehr vorhanden'
     } else {
       await downloadAudio(msg) // zeigt bei Fehlern selbst eine Meldung
       result = true
@@ -9434,7 +9616,7 @@ document.addEventListener('visibilitychange', () => {
 // Eine Gruppe steht in chat_groups, ihre Mitglieder in chat_group_members. Nachrichten liegen wie bei Jungs/Mädels in
 // "messages", mit group_key = "grp_<Gruppen-ID>". Erstellen, Ändern und Löschen laufen über Datenbankfunktionen
 // (create_chat_group, update_chat_group, delete_chat_group, leave_chat_group), die die Rechte auf dem Server prüfen.
-let chatGroups = {}              // Gruppen-ID -> { id, name, created_by, created_at, members: [Nutzer-IDs] }
+let chatGroups = {}              // Gruppen-ID -> { id, name, created_by, created_at, color, members: [Nutzer-IDs], admins: [Nutzer-IDs der Gruppen-Admins] }
 let chatGroupsAvailable = false  // false, solange die Tabellen in der Datenbank noch fehlen
 let chatGroupsDirty = true
 let chatGroupsLoadedAt = 0
@@ -9443,6 +9625,10 @@ let groupChannel = null
 let groupEditorId = null         // null = neue Gruppe, sonst die Gruppe, die gerade bearbeitet wird
 let groupPicked = new Set()
 let groupSaving = false
+let groupAdminPicked = new Set() // beim Bearbeiten: wer Gruppen-Admin sein soll
+let groupColorPicked = null      // gewählte Gruppenfarbe als #rrggbb (null = automatisch)
+let groupOriginal = { admins: new Set(), color: null } // Stand beim Öffnen, damit nur Änderungen an den Server gehen
+const GROUP_COLORS = ['#5b8def', '#4ea3e0', '#3fb98c', '#e0a93c', '#e2665f', '#e07ca8', '#b07cd8', '#7c8aa5']
 
 function customGroupKey(id) {
   return 'grp_' + id
@@ -9452,10 +9638,13 @@ async function loadChatGroups(force) {
   if (!currentUser) return
   if (!force && !chatGroupsDirty && Date.now() - chatGroupsLoadedAt < 60000) return
 
-  const [groupsRes, membersRes] = await Promise.all([
-    supabaseClient.from('chat_groups').select('id, name, created_by, created_at'),
-    supabaseClient.from('chat_group_members').select('group_id, user_id')
+  const fetchGroups = (groupColumns, memberColumns) => Promise.all([
+    supabaseClient.from('chat_groups').select(groupColumns),
+    supabaseClient.from('chat_group_members').select(memberColumns)
   ])
+  let [groupsRes, membersRes] = await fetchGroups('id, name, created_by, created_at, color', 'group_id, user_id, is_admin')
+  // Fehlen die neuen Spalten noch (SQL für Gruppen-Admins nicht ausgeführt), mit den alten Feldern nochmal fragen, damit die Gruppen nicht verschwinden
+  if (groupsRes.error || membersRes.error) [groupsRes, membersRes] = await fetchGroups('id, name, created_by, created_at', 'group_id, user_id')
   if (!currentUser) return
   if (groupsRes.error || membersRes.error) {
     // Tabellen gibt es noch nicht (SQL noch nicht ausgeführt): dann einfach keine eigenen Gruppen anzeigen
@@ -9467,8 +9656,16 @@ async function loadChatGroups(force) {
   }
 
   const next = {}
-  ;(groupsRes.data || []).forEach(g => { next[g.id] = { ...g, members: [] } })
-  ;(membersRes.data || []).forEach(m => { if (next[m.group_id]) next[m.group_id].members.push(m.user_id) })
+  const hasAdminColumn = (membersRes.data || []).some(m => 'is_admin' in m)
+  ;(groupsRes.data || []).forEach(g => { next[g.id] = { ...g, members: [], admins: [] } })
+  ;(membersRes.data || []).forEach(m => {
+    const group = next[m.group_id]
+    if (!group) return
+    group.members.push(m.user_id)
+    if (m.is_admin) group.admins.push(m.user_id)
+  })
+  // Ohne die Spalte is_admin gilt wie früher der Ersteller als Admin
+  if (!hasAdminColumn) Object.values(next).forEach(group => { group.admins = group.created_by ? [group.created_by] : [] })
   chatGroups = next
   chatGroupsAvailable = true
   chatGroupsDirty = false
@@ -9538,6 +9735,16 @@ function openGroupCreatorFromSettings() {
   openGroupCreator()
 }
 
+// Gruppen-Admin ist, wer in der Gruppe als Admin eingetragen ist (mehrere möglich), und der Admin der ganzen App
+function isGroupAdmin(group) {
+  return !!group && !!currentUser && (isAdmin() || (group.admins || []).includes(currentUser.id))
+}
+
+// Farbe einer eigenen Gruppe: die gewählte, sonst automatisch aus der Gruppen-ID
+function groupColor(group) {
+  return /^#[0-9a-f]{6}$/i.test(group.color || '') ? group.color : computedAvatarColor(group.id)
+}
+
 function customGroupMemberIds(groupId) {
   const group = chatGroups[groupId]
   if (!group) return []
@@ -9579,7 +9786,7 @@ function customGroupRows() {
     const item = document.createElement('li')
     item.className = 'chat-list-item' + (isChatMuted(key) ? ' muted' : '')
     item.innerHTML = chatListItemHTML(
-      `<div class="chat-list-avatar" style="background:${computedAvatarColor(group.id)}">${escapeHTML(groupInitials(group.name))}</div>`,
+      `<div class="chat-list-avatar" style="background:${groupColor(group)}">${escapeHTML(groupInitials(group.name))}</div>`,
       group.name,
       groupPreviews[key],
       unreadFor(key),
@@ -9608,14 +9815,20 @@ function openGroupCreator() {
   if (!canCreateGroups()) return
   groupEditorId = null
   groupPicked = new Set()
+  groupAdminPicked = new Set()
+  groupColorPicked = null
+  groupOriginal = { admins: new Set(), color: null }
   showGroupModal('Neue Gruppe', '')
 }
 
 function openGroupEditor() {
   const group = currentRoom && currentRoom.groupId ? chatGroups[currentRoom.groupId] : null
-  if (!group) return
+  if (!group || !isGroupAdmin(group)) return
   groupEditorId = group.id
   groupPicked = new Set(group.members.filter(id => profileCache[id] && profileCache[id].role !== 'admin' && id !== currentUser.id))
+  groupAdminPicked = new Set((group.admins || []).filter(id => groupPicked.has(id)))
+  groupColorPicked = /^#[0-9a-f]{6}$/i.test(group.color || '') ? group.color.toLowerCase() : null
+  groupOriginal = { admins: new Set(groupAdminPicked), color: groupColorPicked }
   showGroupModal('Gruppe bearbeiten', group.name)
 }
 
@@ -9624,6 +9837,7 @@ function showGroupModal(title, name) {
   document.getElementById('group-name-input').value = name
   document.getElementById('group-save-btn').textContent = groupEditorId ? 'Speichern' : 'Erstellen'
   document.getElementById('group-delete-btn').style.display = groupEditorId ? '' : 'none'
+  renderGroupColors()
   renderGroupPicker()
   document.getElementById('group-modal').style.display = 'flex'
   if (desktopQuery.matches) document.getElementById('group-name-input').focus()
@@ -9631,6 +9845,27 @@ function showGroupModal(title, name) {
 
 function closeGroupModal() {
   document.getElementById('group-modal').style.display = 'none'
+}
+
+// Farbauswahl für die Gruppe (nur Gruppen-Admins kommen überhaupt in dieses Pop-up)
+function renderGroupColors() {
+  const row = document.getElementById('group-color-row')
+  if (!row) return
+  row.innerHTML = ''
+  const add = (color, label) => {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    const selected = (groupColorPicked || null) === color
+    btn.className = 'group-color-swatch' + (color ? '' : ' auto') + (selected ? ' selected' : '')
+    btn.setAttribute('aria-label', color ? 'Farbe ' + color : 'Farbe automatisch')
+    btn.setAttribute('aria-pressed', selected ? 'true' : 'false')
+    if (color) btn.style.background = color
+    else btn.textContent = label
+    btn.addEventListener('click', () => { groupColorPicked = color; renderGroupColors() })
+    row.appendChild(btn)
+  }
+  add(null, 'Auto')
+  GROUP_COLORS.forEach(color => add(color, ''))
 }
 
 function renderGroupPicker() {
@@ -9677,11 +9912,31 @@ function addGroupPickItem(list, id) {
   name.textContent = info.name || 'Ohne Namen'
 
   li.append(check, avatar, name)
+
+  // Beim Bearbeiten: kleiner Schalter "Admin" bei jedem ausgewählten Mitglied (es dürfen mehrere Admins sein)
+  if (groupEditorId) {
+    const adminBtn = document.createElement('button')
+    adminBtn.type = 'button'
+    adminBtn.className = 'group-pick-admin' + (groupAdminPicked.has(id) ? ' on' : '')
+    adminBtn.textContent = 'Admin'
+    adminBtn.setAttribute('aria-pressed', groupAdminPicked.has(id) ? 'true' : 'false')
+    adminBtn.addEventListener('click', e => {
+      e.stopPropagation()
+      if (groupAdminPicked.has(id)) groupAdminPicked.delete(id)
+      else groupAdminPicked.add(id)
+      adminBtn.classList.toggle('on', groupAdminPicked.has(id))
+      adminBtn.setAttribute('aria-pressed', groupAdminPicked.has(id) ? 'true' : 'false')
+    })
+    li.appendChild(adminBtn)
+  }
+
   li.addEventListener('click', () => {
-    if (groupPicked.has(id)) groupPicked.delete(id)
+    if (groupPicked.has(id)) { groupPicked.delete(id); groupAdminPicked.delete(id) }
     else groupPicked.add(id)
     li.classList.toggle('on', groupPicked.has(id))
     li.setAttribute('aria-checked', groupPicked.has(id) ? 'true' : 'false')
+    const adminBtn = li.querySelector('.group-pick-admin')
+    if (adminBtn) { adminBtn.classList.toggle('on', groupAdminPicked.has(id)); adminBtn.setAttribute('aria-pressed', groupAdminPicked.has(id) ? 'true' : 'false') }
     updateGroupModalButton()
   })
   list.appendChild(li)
@@ -9714,6 +9969,23 @@ async function saveGroup() {
   }
 
   const editedId = groupEditorId
+  const groupId = editedId || (typeof data === 'string' ? data : null) // create_chat_group gibt die neue Gruppen-ID zurück
+
+  // Admins (erst ernennen, dann entfernen, damit immer mindestens einer bleibt) und Farbe: eigene Datenbankfunktionen
+  const extraErrors = []
+  if (groupId && editedId) {
+    const added = [...groupAdminPicked].filter(id => !groupOriginal.admins.has(id))
+    const removed = [...groupOriginal.admins].filter(id => !groupAdminPicked.has(id) && groupPicked.has(id))
+    for (const [id, makeAdmin] of [...added.map(id => [id, true]), ...removed.map(id => [id, false])]) {
+      const res = await supabaseClient.rpc('set_chat_group_admin', { p_group_id: groupId, p_user_id: id, p_make_admin: makeAdmin })
+      if (res.error) extraErrors.push(res.error.message)
+    }
+  }
+  if (groupId && (groupColorPicked || null) !== (groupOriginal.color || null)) {
+    const res = await supabaseClient.rpc('set_chat_group_color', { p_group_id: groupId, p_color: groupColorPicked })
+    if (res.error) extraErrors.push(res.error.message)
+  }
+
   closeGroupModal()
   await loadChatGroups(true)
   if (editedId && currentRoom && currentRoom.groupId === editedId && chatGroups[editedId]) {
@@ -9722,7 +9994,8 @@ async function saveGroup() {
   }
   if (!editedId && !isListVisible() && document.getElementById('settings-bereich').style.display !== 'none') showList()
   else renderChatList()
-  showToast(editedId ? 'Gruppe gespeichert.' : 'Gruppe erstellt.', 'success')
+  if (extraErrors.length > 0) showToast(extraErrors[0] || 'Admins oder Farbe konnten nicht gespeichert werden.')
+  else showToast(editedId ? 'Gruppe gespeichert.' : 'Gruppe erstellt.', 'success')
 }
 
 // Fragt nach und löscht die Gruppe auf dem Server (die Rechte prüft die Datenbankfunktion). true = gelöscht
@@ -9759,11 +10032,105 @@ async function deleteGroupFromList(groupId) {
   showToast('Gruppe gelöscht.', 'success')
 }
 
+// Pop-up: der letzte Gruppen-Admin muss erst bestimmen, wer ab jetzt Admin ist. Gibt die gewählte Person (ID) oder null zurück.
+function askPickNewAdmin(group, candidateIds) {
+  return new Promise(resolve => {
+    let picked = null
+    const overlay = document.createElement('div')
+    overlay.className = 'confirm-overlay'
+    const dialog = document.createElement('div')
+    dialog.className = 'confirm-dialog'
+    dialog.setAttribute('role', 'alertdialog')
+    dialog.setAttribute('aria-modal', 'true')
+
+    const text = document.createElement('p')
+    text.textContent = 'Du bist der einzige Admin der Gruppe "' + group.name + '". Wähle zuerst, wer ab jetzt Admin ist, dann kannst du die Gruppe verlassen.'
+
+    const nameOf = id => (profileCache[id] && profileCache[id].name) || 'Ohne Namen'
+    const list = document.createElement('ul')
+    list.className = 'group-pick-list group-handover-list'
+    candidateIds.slice().sort((x, y) => nameOf(x).localeCompare(nameOf(y), 'de', { sensitivity: 'base' })).forEach(id => {
+      const li = document.createElement('li')
+      li.className = 'group-pick-item'
+      li.setAttribute('role', 'radio')
+      li.setAttribute('aria-checked', 'false')
+      const check = document.createElement('span')
+      check.className = 'group-pick-check'
+      check.textContent = '✓'
+      const avatar = document.createElement('div')
+      avatar.className = 'reaction-avatar'
+      avatar.style.background = avatarColor(id)
+      avatar.textContent = initialsOf(nameOf(id))
+      const name = document.createElement('span')
+      name.className = 'reactions-item-name'
+      name.textContent = nameOf(id)
+      li.append(check, avatar, name)
+      li.addEventListener('click', () => {
+        picked = id
+        list.querySelectorAll('.group-pick-item').forEach(item => {
+          item.classList.toggle('on', item === li)
+          item.setAttribute('aria-checked', item === li ? 'true' : 'false')
+        })
+        okBtn.disabled = false
+      })
+      list.appendChild(li)
+    })
+
+    const buttons = document.createElement('div')
+    buttons.className = 'confirm-buttons'
+    const cancelBtn = document.createElement('button')
+    cancelBtn.type = 'button'
+    cancelBtn.className = 'confirm-cancel'
+    cancelBtn.textContent = 'Abbrechen'
+    const okBtn = document.createElement('button')
+    okBtn.type = 'button'
+    okBtn.className = 'confirm-ok danger'
+    okBtn.textContent = 'Admin ernennen und verlassen'
+    okBtn.disabled = true
+    buttons.append(cancelBtn, okBtn)
+
+    dialog.append(text, list, buttons)
+    overlay.appendChild(dialog)
+    document.body.appendChild(overlay)
+
+    const finish = result => {
+      document.removeEventListener('keydown', onKey)
+      overlay.remove()
+      resolve(result)
+    }
+    const onKey = e => { if (e.key === 'Escape') finish(null) }
+    document.addEventListener('keydown', onKey)
+    cancelBtn.addEventListener('click', () => finish(null))
+    okBtn.addEventListener('click', () => finish(picked))
+    overlay.addEventListener('click', e => { if (e.target === overlay) finish(null) })
+  })
+}
+
+// Jedes Mitglied darf gehen. Ist man der einzige Gruppen-Admin und gibt es noch andere Mitglieder, muss man vorher einen neuen
+// Admin bestimmen. Geht das letzte Mitglied, wird die Gruppe gelöscht (das macht die Datenbankfunktion).
 async function leaveCurrentGroup() {
   const group = currentRoom && currentRoom.groupId ? chatGroups[currentRoom.groupId] : null
-  if (!group) return
-  const ok = await askConfirm('Die Gruppe "' + group.name + '" verlassen? Du siehst die Nachrichten dann nicht mehr.', { okText: 'Verlassen', danger: true })
-  if (!ok) return
+  if (!group || !currentUser) return
+  const me = currentUser.id
+  const others = customGroupMemberIds(group.id).filter(id => id !== me)
+  const iAmAdmin = (group.admins || []).includes(me)
+  const otherAdmins = (group.admins || []).filter(id => id !== me && group.members.includes(id))
+
+  if (others.length === 0) {
+    const ok = await askConfirm('Du bist die letzte Person in der Gruppe "' + group.name + '". Wenn du gehst, wird sie mit allen Nachrichten gelöscht.', { okText: 'Verlassen und löschen', danger: true })
+    if (!ok) return
+  } else if (iAmAdmin && otherAdmins.length === 0) {
+    const newAdminId = await askPickNewAdmin(group, others)
+    if (!newAdminId) return
+    const promote = await supabaseClient.rpc('set_chat_group_admin', { p_group_id: group.id, p_user_id: newAdminId, p_make_admin: true })
+    if (promote.error) {
+      showToast(promote.error.message || 'Der neue Admin konnte nicht festgelegt werden.')
+      return
+    }
+  } else {
+    const ok = await askConfirm('Die Gruppe "' + group.name + '" verlassen? Du siehst die Nachrichten dann nicht mehr.', { okText: 'Verlassen', danger: true })
+    if (!ok) return
+  }
 
   const { error } = await supabaseClient.rpc('leave_chat_group', { p_group_id: group.id })
   if (error) {
@@ -9776,12 +10143,11 @@ async function leaveCurrentGroup() {
   showToast('Du hast die Gruppe verlassen.', 'success')
 }
 
-// Knöpfe in der Mitgliederliste: bearbeiten (Ersteller und Admin) bzw. verlassen (alle anderen Mitglieder)
+// Knöpfe in der Mitgliederliste: bearbeiten (Gruppen-Admins) und verlassen (alle Mitglieder; der App-Admin ist in keiner Gruppe Mitglied)
 function updateMembersModalButtons() {
   const group = currentRoom && currentRoom.groupId ? chatGroups[currentRoom.groupId] : null
-  const mine = !!group && !!currentUser && group.created_by === currentUser.id
-  document.getElementById('members-edit-btn').style.display = group && (isAdmin() || mine) ? '' : 'none'
-  document.getElementById('members-leave-btn').style.display = group && !isAdmin() && !mine ? '' : 'none'
+  document.getElementById('members-edit-btn').style.display = group && isGroupAdmin(group) ? '' : 'none'
+  document.getElementById('members-leave-btn').style.display = group && !isAdmin() ? '' : 'none'
 }
 
 // ===== Weiterleiten =====
@@ -10731,7 +11097,7 @@ function chatMenuItemsFor(key) {
   if (key.startsWith('grp_')) {
     const groupId = key.slice(4)
     const group = chatGroups[groupId]
-    if (group && (isAdmin() || group.created_by === currentUser.id)) {
+    if (group && isGroupAdmin(group)) {
       items.push({ label: 'Gruppe löschen', danger: true, run: () => deleteGroupFromList(groupId) })
     }
   }
@@ -11191,10 +11557,14 @@ function renderMembersList() {
     nameEl.className = 'reactions-item-name'
     nameEl.textContent = name + birthdayMark(id)
     text.appendChild(nameEl)
-    if (currentUser && id === currentUser.id) {
+    const labels = []
+    if (currentUser && id === currentUser.id) labels.push('Du')
+    const customGroup = currentRoom && currentRoom.groupId ? chatGroups[currentRoom.groupId] : null
+    if (customGroup && (customGroup.admins || []).includes(id)) labels.push('Admin')
+    if (labels.length > 0) {
       const hint = document.createElement('span')
       hint.className = 'reactions-item-hint'
-      hint.textContent = 'Du'
+      hint.textContent = labels.join(' · ')
       text.appendChild(hint)
     }
 

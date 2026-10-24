@@ -5618,3 +5618,149 @@ body.light-theme .birthday-age-pill {
     padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* Uhrzeit bei Nachrichten, die nur aus 1 bis 3 Emojis bestehen: ganz unten rechts neben dem Emoji statt oben */
+.msg-text.emoji-big {
+  display: flex;
+  align-items: flex-end;
+}
+
+.msg-text.emoji-big .msg-footer {
+  float: none;
+  margin: 0 0 3px auto;
+  padding-left: 8px;
+}
+
+/* PDF-Viewer in der App */
+.pdf-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  background: #1d2127;
+  color: #fff;
+}
+
+.pdf-viewer-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px)) 8px calc(10px + env(safe-area-inset-left, 0px));
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.pdf-viewer-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.pdf-viewer-title-name {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pdf-viewer-title-page {
+  margin-top: 1px;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.pdf-viewer-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px 0 calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.pdf-viewer-pages {
+  --pdf-zoom: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+  width: calc(100% * var(--pdf-zoom));
+  max-width: calc(900px * var(--pdf-zoom));
+  margin: 0 auto;
+  padding: 0 8px;
+}
+
+.pdf-viewer-page {
+  width: 100%;
+  background: #ffffff;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+
+.pdf-viewer-page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Gruppen: Farbauswahl, Admin-Schalter bei den Mitgliedern, Admin-Übergabe beim Verlassen */
+.group-color-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.group-color-swatch {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.group-color-swatch.selected {
+  border-color: var(--text-primary);
+}
+
+.group-color-swatch.auto {
+  width: auto;
+  padding: 0 12px;
+  border-radius: 15px;
+  border-color: var(--border-subtle);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.group-color-swatch.auto.selected {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+}
+
+.group-pick-admin {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.group-pick-admin.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.group-pick-item:not(.on) .group-pick-admin {
+  display: none;
+}
+
+.group-handover-list {
+  max-height: 40vh;
+  margin: 10px 0 14px;
+  overflow-y: auto;
+}

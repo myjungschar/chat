@@ -11,7 +11,7 @@ Ein privater, webbasierter Gruppen-Chat für unsere Jungschar mit Login-System u
 * 🔐 **Benutzer-Authentifizierung:** Sicherer Login für Gruppenmitglieder via Supabase Auth, Einladung per E-Mail.
 * ⚡ **Echtzeit-Chat:** Nachrichten werden ohne Neuladen der Seite sofort empfangen (Supabase Realtime).
 * 💬 **Chats:** Hauptgruppe, Jungs, Mädels, eigene Gruppen und Einzelchats.
-* 👥 **Eigene Gruppen:** Jedes Mitglied kann Gruppen erstellen (Einstellungen → "Neue Gruppe erstellen"). Der Admin kann das pro Person abschalten.
+* 👥 **Eigene Gruppen:** Jedes Mitglied kann Gruppen erstellen (Einstellungen → "Neue Gruppe erstellen"). Der Admin kann das pro Person abschalten. Jede Gruppe hat einen oder mehrere Gruppen-Admins (zuerst der Ersteller): Nur sie ändern Name, Mitglieder und Farbe, ernennen weitere Admins und löschen die Gruppe für alle. Jedes Mitglied kann die Gruppe verlassen; der letzte Gruppen-Admin bestimmt vorher einen Nachfolger. Als Bild der Gruppe stehen ihre Kürzel (z. B. KH für "Kleine Helden").
 * 🔕 **Stummschalten:** Rechtsklick oder langes Drücken auf eine Gruppe oder einen Einzelchat in der Chatliste. Stummgeschaltete Gruppen machen keinen Ton und schicken keine Push-Meldung. Eigene Gruppen können dort auch gelöscht werden (Ersteller und Admin).
 * 😀 **Nachrichten:** Reaktionen (in der Chatliste steht dann "Max hat mit 👍 reagiert: …", ohne Push-Meldung), Antworten, Umfragen, Anpinnen, Fotos und Audio, "tippt …"-Anzeige, Lesehäkchen.
 * 🎵 **Audio:** MP3, M4A und WAV bis 50 MB mit eigenem Player (Spulen, Geschwindigkeit, Herunterladen per Rechtsklick oder langem Drücken). Der Dateiname lässt sich vor dem Senden ändern.
