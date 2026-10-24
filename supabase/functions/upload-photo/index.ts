@@ -1,6 +1,6 @@
 // Edge Function "upload-photo": nimmt entweder ein (schon im Browser verkleinertes) Foto + Vorschaubild
 // ODER eine Audio-Datei (.mp3, .m4a, .wav) bzw. ein Dokument (PDF, Word, Excel, PowerPoint, Text, CSV; höchstens 50 MB) entgegen und legt alles privat in Google Drive ab.
-// Antwort bei Fotos: { photo_id, thumb_id }, bei Audio und Dokumenten: { audio_id, audio_mime } (Drive-Datei-IDs).
+// Antwort bei Fotos: { photo_id, thumb_id }, bei Audio und Dokumenten: { audio_id, audio_mime } (Drive-Datei-IDs), bei PDFs mit Vorschau zusätzlich thumb_id.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const cors = {
@@ -133,13 +133,13 @@ Deno.serve(async (req) => {
     if (!profile || profile.is_blocked) return json({ error: 'Zugang gesperrt' }, 403)
     if (profile.role === 'admin') return json({ error: 'Der Admin schreibt nicht' }, 403)
 
-    // Hat der Admin dieser Person das Foto-Senden weggenommen? (Tabelle photo_blocked_users) Gilt auch für Audio.
+    // Hat der Admin dieser Person das Foto-Senden weggenommen? (Tabelle photo_blocked_users) Gilt auch für Audio und Dateien.
     const { data: photoBlock } = await admin
       .from('photo_blocked_users')
       .select('user_id')
       .eq('user_id', userData.user.id)
       .maybeSingle()
-    if (photoBlock) return json({ error: 'Du darfst im Moment keine Fotos und Audios senden' }, 403)
+    if (photoBlock) return json({ error: 'Du darfst im Moment keine Fotos, Audios und Dateien senden' }, 403)
 
     const form = await req.formData()
 
@@ -152,7 +152,21 @@ Deno.serve(async (req) => {
       const kind = detectAudio(audioHead) ?? detectDocument(audioHead, audio.name)
       if (!kind) return json({ error: 'Nur MP3-, M4A-, WAV-Dateien und Dokumente (PDF, Word, Excel, PowerPoint, Text, CSV) erlaubt' }, 400)
 
-      const audioId = await uploadToDrive(audio, `${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${kind.ext}`, kind.mime)
+      const base = `${Date.now()}_${crypto.randomUUID().slice(0, 8)}`
+      // Bei PDFs darf ein Vorschaubild (erste Seite als JPEG) mitkommen; ist es ungültig, geht das PDF ohne Vorschau hoch
+      const thumb = form.get('thumb')
+      let thumbOk = false
+      if (kind.ext === 'pdf' && thumb instanceof File && thumb.size > 0 && thumb.size <= MAX_THUMB) {
+        thumbOk = isJpeg(new Uint8Array(await thumb.slice(0, 4).arrayBuffer()))
+      }
+      if (thumbOk && thumb instanceof File) {
+        const [audioId, thumbId] = await Promise.all([
+          uploadToDrive(audio, `${base}.${kind.ext}`, kind.mime),
+          uploadToDrive(thumb, `${base}_thumb.jpg`)
+        ])
+        return json({ audio_id: audioId, audio_mime: kind.mime, thumb_id: thumbId })
+      }
+      const audioId = await uploadToDrive(audio, `${base}.${kind.ext}`, kind.mime)
       return json({ audio_id: audioId, audio_mime: kind.mime })
     }
 

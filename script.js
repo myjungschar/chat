@@ -710,6 +710,7 @@ async function loadChatPreviews() {
       if (!isAdmin() && Number(r.unread_count) > 0) newUnread[key] = Number(r.unread_count)
       if (r.newest_from_others) newestFromOthers[key] = r.newest_from_others
     })
+    await markFilePreviews(newDmPreviews, newGroupPreviews)
   }
 
   if (!usedPreviewRpc) {
@@ -2249,10 +2250,10 @@ function voiceSupported() {
 
 function startVoiceFlow() {
   if (!currentUser || isAdmin() || currentRoom.type === 'dm-view') return
-  if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos und Audios senden.'); return }
+  if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos, Audios und Dateien senden.'); return }
   if (editingMessageId) { showToast('Schließe zuerst das Bearbeiten ab.'); return }
   if (!navigator.onLine) { showToast('Keine Internetverbindung.'); return }
-  if (audioSending) { showToast('Es wird gerade noch ein Audio gesendet.'); return }
+  if (audioSending) { showToast('Es wird gerade noch etwas gesendet.'); return }
   if (!voiceSupported()) { showToast('Dein Browser kann keine Sprachnachrichten aufnehmen.'); return }
   resetVoice()
   document.getElementById('voice-modal').style.display = 'flex'
@@ -3173,7 +3174,7 @@ function getAudioInput() {
 
 function startAudioFlow() {
   if (!currentUser || isAdmin() || currentRoom.type === 'dm-view') return
-  if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos und Audios senden.'); return }
+  if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos, Audios und Dateien senden.'); return }
   if (editingMessageId) { showToast('Schließe zuerst das Bearbeiten ab.'); return }
   if (!navigator.onLine) { showToast('Keine Internetverbindung.'); return }
   getAudioInput().click()
@@ -3307,9 +3308,12 @@ async function sendAudioMessage(file, displayName) {
   try {
     const isDoc = isDocumentFile(file)
     const kindLabel = isDoc ? 'Datei' : 'Audio'
+    // Bei PDFs: Bild der ersten Seite und Seitenzahl (im Browser mit pdf.js). Klappt das nicht, geht das PDF einfach ohne Vorschau raus.
+    const preview = isDoc && fileExtOf(file.name) === 'pdf' ? await makePdfPreview(file) : null
     const durationPromise = isDoc ? Promise.resolve(null) : readAudioDuration(file) // läuft nebenher, damit das Hochladen sofort startet
     const form = new FormData()
     form.append('audio', file, file.name)
+    if (preview && preview.thumb) form.append('thumb', preview.thumb, 'thumb.jpg')
 
     const { data: up, error: upError } = await supabaseClient.functions.invoke('upload-photo', { body: form })
     if (upError || !up || !up.audio_id) {
@@ -3325,15 +3329,26 @@ async function sendAudioMessage(file, displayName) {
       audio_name: audioTitleFromFile(title), audio_size: file.size
     }
     if (duration) row.audio_duration = duration
+    // PDF-Vorschau: das Bild der ersten Seite liegt in photo_thumb_id, die Seitenzahl in audio_duration (bei Dateien ist das die Seitenzahl)
+    if (up.thumb_id) row.photo_thumb_id = up.thumb_id
+    if (preview && preview.pages) row.audio_duration = preview.pages
     if (room.type === 'dm') row.recipient_id = room.userId
     else row.group_key = room.groupKey || null
     if (replyId) row.reply_to_id = replyId
 
-    const { data: inserted, error } = await supabaseClient
+    const insertRow = () => supabaseClient
       .from(table)
       .insert([row])
       .select('*, profiles!sender_id(display_name)')
       .single()
+    let { data: inserted, error } = await insertRow()
+    // Lehnt eine Regel der Datenbank die Vorschau-Felder ab, wird das PDF ohne Vorschau gesendet statt gar nicht
+    if (error && error.code === '23514' && (row.photo_thumb_id || preview)) {
+      console.warn('Vorschau-Felder abgelehnt, sende ohne Vorschau:', error.message)
+      delete row.photo_thumb_id
+      if (preview) delete row.audio_duration
+      ;({ data: inserted, error } = await insertRow())
+    }
 
     pending.remove()
     if (error) {
@@ -3365,6 +3380,7 @@ function audioTitleFromFile(fileName) {
 function audioDisplayTitle(msg) {
   if (msg.audio_name) return msg.audio_name
   const d = msg.created_at ? new Date(msg.created_at) : null
+  if (isFileMessage(msg)) return 'Datei'
   return d && !isNaN(d) ? 'Audio vom ' + d.toLocaleDateString('de-DE') : 'Audio'
 }
 
@@ -3524,6 +3540,71 @@ function fileIconHTML(ext, color) {
     '<text x="12.4" y="17.6" text-anchor="middle" font-size="' + (label.length > 3 ? '5.2' : '6.4') + '" font-weight="700" font-family="Arial, sans-serif" fill="' + color + '">' + label + '</text></svg>'
 }
 
+// ----- PDF-Vorschau erzeugen (beim Senden, im Browser) -----
+// pdf.js wird erst beim ersten PDF nachgeladen (nicht beim Start der App). Das Bild zeigt den oberen Teil der ersten Seite,
+// ist höchstens 480 Pixel breit und unter 400 KB (so viel nimmt der Server für Vorschaubilder an).
+const PDFJS_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/'
+const PDF_THUMB_WIDTH = 480
+const PDF_THUMB_MAX_HEIGHT = 576
+const PDF_THUMB_MAX_BYTES = 380 * 1024
+let pdfJsPromise = null
+
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib)
+  if (!pdfJsPromise) {
+    pdfJsPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = PDFJS_BASE + 'pdf.min.js'
+      script.crossOrigin = 'anonymous'
+      script.onload = () => {
+        try {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_BASE + 'pdf.worker.min.js'
+          resolve(window.pdfjsLib)
+        } catch (e) { pdfJsPromise = null; reject(e) }
+      }
+      script.onerror = () => { pdfJsPromise = null; reject(new Error('pdf.js konnte nicht geladen werden')) }
+      document.head.appendChild(script)
+    })
+  }
+  return pdfJsPromise
+}
+
+// Gibt { thumb: Blob oder null, pages: Zahl oder null } zurück und wirft nie einen Fehler; nach 12 Sekunden wird aufgegeben
+async function makePdfPreview(file) {
+  const empty = { thumb: null, pages: null }
+  const work = (async () => {
+    const lib = await loadPdfJs()
+    const data = new Uint8Array(await file.arrayBuffer())
+    const pdf = await lib.getDocument({ data }).promise
+    try {
+      const pages = pdf.numPages
+      const page = await pdf.getPage(1)
+      const base = page.getViewport({ scale: 1 })
+      const viewport = page.getViewport({ scale: PDF_THUMB_WIDTH / base.width })
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(viewport.width)
+      canvas.height = Math.round(Math.min(viewport.height, PDF_THUMB_MAX_HEIGHT))
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      await page.render({ canvasContext: ctx, viewport }).promise
+      const toBlob = (quality) => new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality))
+      let blob = await toBlob(0.8)
+      if (blob && blob.size > PDF_THUMB_MAX_BYTES) blob = await toBlob(0.55)
+      if (blob && blob.size > PDF_THUMB_MAX_BYTES) blob = null
+      return { thumb: blob, pages }
+    } finally {
+      try { pdf.destroy() } catch (e) { /* egal */ }
+    }
+  })()
+  try {
+    return await Promise.race([work, new Promise(resolve => setTimeout(() => resolve(empty), 12000))])
+  } catch (e) {
+    console.warn('PDF-Vorschau nicht möglich:', e)
+    return empty
+  }
+}
+
 // Öffnet das PDF in einem neuen Tab. Der Tab wird sofort beim Tippen geöffnet (sonst blockt ihn der Browser, weil das Laden
 // etwas dauert) und danach mit dem PDF gefüllt. Klappt das Öffnen nicht, wird das PDF stattdessen heruntergeladen.
 async function openPdf(msg, setMeta) {
@@ -3572,10 +3653,34 @@ function buildFileElement(msg) {
   title.textContent = audioDisplayTitle(msg)
   const metaEl = document.createElement('div')
   metaEl.className = 'msg-audio-meta'
-  const baseMeta = (ext ? ext.toUpperCase() : 'Datei') + (Number(msg.audio_size) > 0 ? ' · ' + formatBytes(Number(msg.audio_size)) : '')
+  const pages = isPdf && Number(msg.audio_duration) > 0 ? Number(msg.audio_duration) : 0 // bei PDFs steht hier die Seitenzahl
+  const baseMeta = (pages ? pages + (pages === 1 ? ' Seite · ' : ' Seiten · ') : '') + (ext ? ext.toUpperCase() : 'Datei') +
+    (Number(msg.audio_size) > 0 ? ' · ' + formatBytes(Number(msg.audio_size)) : '')
   metaEl.textContent = baseMeta
   body.append(title, metaEl)
   wrap.append(iconBtn, body)
+
+  // Vorschau: Bild der ersten Seite über der Zeile mit Icon und Name
+  if (isPdf && msg.photo_thumb_id) {
+    const previewEl = document.createElement('div')
+    previewEl.className = 'msg-pdf-preview loading'
+    const img = document.createElement('img')
+    img.alt = 'Vorschau'
+    img.draggable = false
+    previewEl.appendChild(img)
+    wrap.classList.add('with-preview')
+    wrap.prepend(previewEl)
+    photoPending.push(async () => {
+      try {
+        img.src = await getThumbUrl(msg.photo_thumb_id)
+        previewEl.classList.remove('loading')
+      } catch (e) {
+        previewEl.remove() // ohne Vorschau bleibt die normale Karte
+        wrap.classList.remove('with-preview')
+      }
+    })
+    pumpPhotoQueue()
+  }
 
   let busy = false
   let gone = false
@@ -4583,6 +4688,7 @@ function renderMessage(msg) {
   if (msg.audio_id) {
     msgElement.classList.add('has-audio')
     if (isFileMessage(msg)) msgElement.classList.add('has-pdf') // "pdf" im Klassennamen gilt für alle Dateikarten
+    if (isPdfMessage(msg) && msg.photo_thumb_id) msgElement.classList.add('has-preview')
     msgElement.appendChild(isFileMessage(msg) ? buildFileElement(msg) : buildAudioElement(msg))
   }
   msgElement.appendChild(textEl)
@@ -6884,7 +6990,7 @@ function renderUserDetail(u) {
 
   const rightsBody =
     rightsRow('Besondere Rechte', isVipUser, 'user-rights-switch') +
-    rightsRow('Darf Fotos und Audio senden', canPhoto, 'user-photo-switch') +
+    rightsRow('Darf Fotos, Audio und Dateien senden', canPhoto, 'user-photo-switch') +
     rightsRow('Darf Gruppen erstellen', canGroup, 'user-group-switch')
 
   // Profilfarbe: links die Vorschau mit den Initialen, daneben ein Kreis je Farbe - Antippen wählt die Farbe.
@@ -9974,11 +10080,36 @@ function reportChatLabel(report) {
   return key
 }
 
+// chat_previews meldet nur "letzte Nachricht hat Audio" - ob das eigentlich eine Datei (PDF, Word ...) ist, steht dort nicht.
+// Deshalb werden die zuletzt gesendeten Dateien nachgeladen und mit den Vorschauen abgeglichen (gleicher Absender, gleiche Zeit),
+// damit in der Chatliste "📄 PDF" oder "📎 Datei" statt "🎵 Audio" steht. Schlägt das fehl, bleibt es bei "Audio".
+async function markFilePreviews(...previewMaps) {
+  const rows = previewMaps.flatMap(map => Object.values(map)).filter(row => row.audio_id === true)
+  if (rows.length === 0) return
+  try {
+    const results = await Promise.all(['messages', 'direct_messages'].map(table => supabaseClient
+      .from(table)
+      .select('audio_mime, created_at, sender_id')
+      .not('audio_id', 'is', null)
+      .not('audio_mime', 'like', 'audio/%')
+      .order('created_at', { ascending: false })
+      .limit(50)))
+    const files = results.flatMap(res => res.data || [])
+    rows.forEach(row => {
+      const time = new Date(row.created_at).getTime()
+      const hit = files.find(f => f.sender_id === row.sender_id && new Date(f.created_at).getTime() === time)
+      if (hit) row.audio_mime = hit.audio_mime
+    })
+  } catch (e) {
+    console.warn('Datei-Vorschauen nachladen:', e)
+  }
+}
+
 function reportContentText(report) {
   const parts = []
   if (report.message_text) parts.push(report.message_text)
   if (report.has_photo) parts.push('[Foto]')
-  if (report.has_audio) parts.push('[Audio]')
+  if (report.has_audio) parts.push('[Audio oder Datei]')
   return parts.join(' ') || '(ohne Text)'
 }
 
