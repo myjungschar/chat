@@ -3371,29 +3371,39 @@ function askAudioName(file, label = 'Audio') {
 
 // Sofort nach dem Senden erscheint diese Blase im Chat: Dateiname, ein drehender Kreis statt Play und "wird hochgeladen".
 // Sobald die echte Nachricht da ist, wird sie ersetzt.
-function addPendingAudioBubble(name, size) {
+function addPendingAudioBubble(name, size, file) {
   const chatBox = document.getElementById('chat-box')
   const emptyHint = chatBox.querySelector('.chat-empty')
   if (emptyHint) emptyHint.remove()
 
+  const isDoc = !!file && isDocumentFile(file)
+  const ext = isDoc ? fileExtOf(file.name) : ''
+
   const row = document.createElement('div')
   row.className = 'msg-row own pending-audio'
   const msgEl = document.createElement('div')
-  msgEl.className = 'msg own has-audio'
+  msgEl.className = 'msg own has-audio' + (isDoc ? ' has-pdf' : '')
 
   const wrap = document.createElement('div')
-  wrap.className = 'msg-audio'
+  wrap.className = 'msg-audio' + (isDoc ? ' msg-pdf' : '')
   const btn = document.createElement('div')
   btn.className = 'msg-audio-play'
-  btn.innerHTML = AUDIO_SPINNER
+  if (isDoc) {
+    // Dateien: gleich die Form der fertigen Karte (Icon statt drehendem Kreis)
+    const color = fileIconColor(ext)
+    btn.style.background = color
+    btn.innerHTML = fileIconHTML(ext, color)
+  } else {
+    btn.innerHTML = AUDIO_SPINNER
+  }
   const body = document.createElement('div')
   body.className = 'msg-audio-body'
   const title = document.createElement('div')
   title.className = 'msg-audio-title'
-  title.textContent = name
+  title.textContent = isVoiceName(name) ? 'Sprachnachricht' : name
   const meta = document.createElement('div')
   meta.className = 'msg-audio-meta'
-  meta.textContent = formatBytes(size) + ' · wird hochgeladen …'
+  meta.textContent = (isDoc ? ext.toUpperCase() + ' · ' : '') + formatBytes(size) + ' · wird hochgeladen …'
   body.append(title, meta)
   wrap.append(btn, body)
   msgEl.appendChild(wrap)
@@ -3402,6 +3412,32 @@ function addPendingAudioBubble(name, size) {
   chatBox.appendChild(row)
   chatBox.scrollTop = chatBox.scrollHeight
   return row
+}
+
+// Sobald bei einem PDF das Bild der ersten Seite fertig ist, erscheint es schon in der Blase beim Hochladen (wie später in der fertigen Karte)
+function setPendingPdfPreview(row, preview) {
+  if (!row || !preview || !preview.thumb) return
+  const wrap = row.querySelector('.msg-audio')
+  const msgEl = row.querySelector('.msg')
+  if (!wrap || !msgEl || wrap.querySelector('.msg-pdf-preview')) return
+
+  const previewEl = document.createElement('div')
+  previewEl.className = 'msg-pdf-preview'
+  const img = document.createElement('img')
+  img.alt = 'Vorschau'
+  img.draggable = false
+  const url = URL.createObjectURL(preview.thumb)
+  img.onload = () => URL.revokeObjectURL(url)
+  img.src = url
+  previewEl.appendChild(img)
+  wrap.classList.add('with-preview')
+  msgEl.classList.add('has-preview')
+  wrap.prepend(previewEl)
+
+  const meta = wrap.querySelector('.msg-audio-meta')
+  if (meta && preview.pages) meta.textContent = preview.pages + (preview.pages === 1 ? ' Seite · ' : ' Seiten · ') + meta.textContent
+  const chatBox = document.getElementById('chat-box')
+  if (chatBox) chatBox.scrollTop = chatBox.scrollHeight
 }
 
 // Lädt die Audio-Datei hoch und legt danach die Nachricht an
@@ -3414,13 +3450,14 @@ async function sendAudioMessage(file, displayName) {
   const table = currentTable()
   const replyId = replyingToId
   const title = displayName || file.name
-  const pending = addPendingAudioBubble(title, file.size)
+  const pending = addPendingAudioBubble(title, file.size, file)
 
   try {
     const isDoc = isDocumentFile(file)
     const kindLabel = isDoc ? 'Datei' : 'Audio'
     // Bei PDFs: Bild der ersten Seite und Seitenzahl (im Browser mit pdf.js). Klappt das nicht, geht das PDF einfach ohne Vorschau raus.
     const preview = isDoc && fileExtOf(file.name) === 'pdf' ? await makePdfPreview(file) : null
+    if (preview) setPendingPdfPreview(pending, preview)
     const durationPromise = isDoc ? Promise.resolve(null) : readAudioDuration(file) // läuft nebenher, damit das Hochladen sofort startet
     const form = new FormData()
     form.append('audio', file, file.name)
@@ -3488,8 +3525,14 @@ function audioTitleFromFile(fileName) {
 }
 
 // Titel für die Anzeige. Ältere Audios haben keinen gespeicherten Namen: dann steht das Datum dabei statt nur "Audio".
+// Aufgenommene Sprachnachrichten heißen intern "Sprachnachricht 2026-10-21 14-32.wav"; angezeigt wird nur "Sprachnachricht".
+// Normale Audios behalten ihren Namen.
+function isVoiceName(name) {
+  return /^Sprachnachricht \d{4}-\d{2}-\d{2} \d{2}-\d{2}(\.[a-z0-9]+)?$/i.test(String(name || ''))
+}
+
 function audioDisplayTitle(msg) {
-  if (msg.audio_name) return msg.audio_name
+  if (msg.audio_name) return isVoiceName(msg.audio_name) ? 'Sprachnachricht' : msg.audio_name
   const d = msg.created_at ? new Date(msg.created_at) : null
   if (isFileMessage(msg)) return 'Datei'
   return d && !isNaN(d) ? 'Audio vom ' + d.toLocaleDateString('de-DE') : 'Audio'
@@ -3539,7 +3582,7 @@ async function downloadAudio(msg) {
     const blob = await fetchPhotoBlob(msg.audio_id)
     const mime = msg.audio_mime || 'audio/mpeg'
     const file = blob.type === mime ? blob : new Blob([blob], { type: mime })
-    let name = audioDisplayTitle(msg).replace(/[\\/:*?"<>|]+/g, '_')
+    let name = (msg.audio_name || audioDisplayTitle(msg)).replace(/[\\/:*?"<>|]+/g, '_')
     if (!/\.[a-z0-9]{2,5}$/i.test(name)) name += '.' + audioExtension(msg)
     const url = URL.createObjectURL(file)
     const link = document.createElement('a')
