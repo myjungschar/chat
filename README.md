@@ -13,7 +13,7 @@ Ein privater, webbasierter Gruppen-Chat für unsere Jungschar mit Login-System u
 * 💬 **Chats:** Hauptgruppe, Jungs, Mädels, eigene Gruppen und Einzelchats.
 * 👥 **Eigene Gruppen:** Jedes Mitglied kann Gruppen erstellen (Einstellungen → "Neue Gruppe erstellen"). Der Admin kann das pro Person abschalten.
 * 🔕 **Stummschalten:** Rechtsklick oder langes Drücken auf eine Gruppe oder einen Einzelchat in der Chatliste. Stummgeschaltete Gruppen machen keinen Ton und schicken keine Push-Meldung. Eigene Gruppen können dort auch gelöscht werden (Ersteller und Admin).
-* 😀 **Nachrichten:** Reaktionen, Antworten, Umfragen, Anpinnen, Fotos und Audio, "tippt …"-Anzeige, Lesehäkchen.
+* 😀 **Nachrichten:** Reaktionen (in der Chatliste steht dann "Max hat mit 👍 reagiert: …", ohne Push-Meldung), Antworten, Umfragen, Anpinnen, Fotos und Audio, "tippt …"-Anzeige, Lesehäkchen.
 * 🎵 **Audio:** MP3, M4A und WAV bis 50 MB mit eigenem Player (Spulen, Geschwindigkeit, Herunterladen per Rechtsklick oder langem Drücken). Der Dateiname lässt sich vor dem Senden ändern.
 * 📄 **Dateien:** PDF, Word, Excel, PowerPoint, Text und CSV bis 50 MB über Plus → Datei hinzufügen, als Karte mit Name und Größe in der Nachricht. Bei PDFs gibt es eine Vorschau mit der ersten Seite und der Seitenzahl. Ein Tipp öffnet PDFs in einem neuen Tab, alle anderen Dateien werden heruntergeladen. Der Dateiname lässt sich vor dem Senden ändern. Ausführbare Dateien und Archive sind nicht erlaubt.
 * 🌗 **Dunkel/Hell:** Die App folgt dem Modus des Geräts, man kann ihn in den Einstellungen aber auch selbst wählen.

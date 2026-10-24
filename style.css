@@ -5610,3 +5610,11 @@ body.light-theme .birthday-age-pill {
 .msg-pdf-preview img:not([src]) {
   visibility: hidden;
 }
+
+/* Chatliste am Handy: unten genau so viel Luft wie zwischen zwei Chats (4 px Abstand + 10 px Innenabstand des nächsten Eintrags),
+   plus die Sicherheitszone des Geräts. Der Scrollbalken endet damit am letzten Chat. */
+@media (max-width: 899.98px) {
+  #list-bereich #chat-list {
+    padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  }
+}

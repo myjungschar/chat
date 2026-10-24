@@ -379,7 +379,53 @@ function showScreen(id) {
   // Immer flex-Spalte (auch am Handy) - das lässt Liste bzw. Nachrichtenverlauf über die volle Höhe scrollen
   document.getElementById(id).style.display = 'flex'
   document.body.classList.toggle('chat-open', isRightVisible())
+  syncBackHistory(id)
 }
+
+// ===== Zurück-Taste des Handys =====
+// Am Handy ist die Chatliste die Startseite. Alles andere (ein Chat, Einstellungen, Unterseiten der Einstellungen) liegt
+// "darüber": Sobald man die Liste verlässt, legt die App einen zusätzlichen Eintrag in den Browser-Verlauf. Drückt man die
+// Zurück-Taste (oder wischt zurück), verschwindet dieser Eintrag und die App geht denselben Weg wie der Pfeil oben links.
+// Auf der Chatliste selbst bleibt die Taste unberührt (dann verlässt man die App wie sonst auch). Am PC gibt es das nicht.
+let backSentinel = false // liegt gerade der zusätzliche Verlaufs-Eintrag?
+let ignorePops = 0 // so viele popstate-Ereignisse stammen von der App selbst und sind keine Zurück-Taste
+
+function syncBackHistory(id) {
+  if (desktopQuery.matches) return
+  const leavesList = id !== 'list-bereich' && !AUTH_SCREENS.includes(id)
+  if (leavesList && !backSentinel) {
+    history.pushState({ jungscharBack: true }, '')
+    backSentinel = true
+  } else if (!leavesList && backSentinel) {
+    // Zurück auf der Liste (per Pfeil oben links) oder ausgeloggt: den Eintrag wieder entfernen
+    backSentinel = false
+    ignorePops++
+    history.back()
+  }
+}
+
+function rearmBackHistory() {
+  if (desktopQuery.matches || !currentUser || isListVisible() || backSentinel) return
+  history.pushState({ jungscharBack: true }, '')
+  backSentinel = true
+}
+
+window.addEventListener('popstate', () => {
+  if (ignorePops > 0) { ignorePops--; return }
+  backSentinel = false // den Eintrag hat der Browser gerade selbst entfernt
+  if (desktopQuery.matches || !currentUser) return
+
+  // Zuerst zumachen, was gerade "oben drauf" liegt
+  if (typeof photoViewerEl !== 'undefined' && photoViewerEl) { closePhotoViewer(); rearmBackHistory(); return }
+  if (typeof selectMode !== 'undefined' && selectMode) { exitSelectMode(); rearmBackHistory(); return }
+
+  if (isListVisible()) return
+  const openId = [...RIGHT_SCREENS, ...LEFT_SCREENS].find(sid => sid !== 'list-bereich' && document.getElementById(sid).style.display !== 'none')
+  const backBtn = openId ? document.querySelector('#' + openId + ' .back-btn') : null
+  if (backBtn) backBtn.click()
+  else showList()
+  rearmBackHistory() // geht es nur eine Ebene zurück (z. B. von einer Unterseite zu den Einstellungen), liegt der Eintrag wieder bereit
+})
 
 // Fenster wird über/unter die 900px-Grenze gezogen: Ansicht passend neu aufbauen
 function onLayoutChange() {
@@ -751,11 +797,68 @@ async function loadChatPreviews() {
   // Alles, was hier angekommen ist, gilt als zugestellt (die Absender sehen dann die grauen Doppel-Häkchen)
   Object.entries(newestFromOthers).forEach(([key, createdAt]) => queueDelivered(key, createdAt))
 
+  await applyReactionPreviews(newGroupPreviews, newDmPreviews)
+
   groupPreviews = newGroupPreviews
   dmPreviews = newDmPreviews
   unreadCounts = newUnread
   readMarks = newMarks
   updateAppBadge(Object.entries(unreadCounts).reduce((sum, [key, n]) => sum + (isChatMuted(key) ? 0 : n), 0))
+}
+
+// Reaktionen in der Chatliste: Ist die neueste Reaktion eines Chats jünger als seine letzte Nachricht, steht in der Vorschau
+// "Max hat mit 👍 reagiert: „Text“" und der Chat rutscht nach oben (wie bei WhatsApp). Reaktionen zählen nicht als ungelesen und
+// lösen keine Push-Meldung aus. Braucht die Spalte created_at in message_reactions und dm_reactions; fehlt sie (SQL noch nicht
+// ausgeführt), bleibt alles wie vorher. Der Admin sieht fremde Chats nur zum Mitlesen, für ihn gibt es das nicht.
+async function applyReactionPreviews(groupMap, dmMap) {
+  if (!currentUser || isAdmin()) return
+  const me = currentUser.id
+  const configs = [
+    { reactions: 'message_reactions', messages: 'messages', dm: false, columns: 'id, text, photo_id, audio_id, audio_mime, group_key, sender_id' },
+    { reactions: 'dm_reactions', messages: 'direct_messages', dm: true, columns: 'id, text, photo_id, audio_id, audio_mime, sender_id, recipient_id' }
+  ]
+  for (const cfg of configs) {
+    try {
+      const { data: reactions, error } = await supabaseClient
+        .from(cfg.reactions)
+        .select('message_id, user_id, emoji, created_at')
+        .order('created_at', { ascending: false })
+        .limit(40)
+      if (error || !reactions || reactions.length === 0) continue
+
+      const ids = [...new Set(reactions.map(r => r.message_id))]
+      const { data: msgs } = await supabaseClient.from(cfg.messages).select(cfg.columns).in('id', ids)
+      const byId = {}
+      ;(msgs || []).forEach(m => { byId[m.id] = m })
+
+      const done = new Set() // je Chat zählt nur die neueste Reaktion (die Liste ist nach Zeit absteigend sortiert)
+      reactions.forEach(r => {
+        const msg = byId[r.message_id]
+        if (!msg) return // Nachricht ist inzwischen weg
+        const mapKey = cfg.dm ? (msg.sender_id === me ? msg.recipient_id : msg.sender_id) : (msg.group_key || 'main')
+        const doneKey = (cfg.dm ? 'dm:' : '') + mapKey
+        if (done.has(doneKey)) return
+        done.add(doneKey)
+
+        const map = cfg.dm ? dmMap : groupMap
+        const current = map[mapKey]
+        if (current && new Date(r.created_at).getTime() <= new Date(current.created_at).getTime()) return
+
+        map[mapKey] = {
+          text: msg.text,
+          photo_id: msg.photo_id || null,
+          audio_id: msg.audio_id || null,
+          audio_mime: msg.audio_mime || null,
+          created_at: r.created_at,
+          sender_id: current ? current.sender_id : msg.sender_id,
+          recipient_id: current ? current.recipient_id : msg.recipient_id,
+          reaction: { emoji: r.emoji, user_id: r.user_id }
+        }
+      })
+    } catch (e) {
+      console.warn('Reaktions-Vorschau:', e)
+    }
+  }
 }
 
 // ===== Zustellung: "diese Nachricht ist auf dem Gerät des Empfängers angekommen" =====
@@ -871,7 +974,7 @@ const MUTE_ICON_HTML = '<svg class="mute-icon" viewBox="0 0 24 24" width="13" he
 
 // Baut den Inhalt eines Listeneintrags: Avatar, Name, Vorschau-Text, Uhrzeit, Ungelesen-Zähler
 function chatListItemHTML(avatarHTML, name, preview, unreadCount, muted, birthday, chatKey) {
-  const previewText = preview ? truncate(messageSnippet(preview), 34) : 'Noch keine Nachrichten'
+  const previewText = preview ? truncate(messageSnippet(preview), preview.reaction ? 48 : 34) : 'Noch keine Nachrichten'
   const draftHTML = chatKey ? draftPreviewHTML(readDrafts()[chatKey], chatKey) : ''
   const timeText = preview ? formatChatListTime(preview.created_at) : 'Keine Nachrichten'
   const badge = unreadCount > 0
@@ -2803,6 +2906,13 @@ let photoInputEl = null
 let photoSending = false
 
 function messageSnippet(msg) {
+  // Reaktion als Chatlisten-Vorschau (siehe applyReactionPreviews): "Max hat mit 👍 reagiert: „Text“"
+  if (msg && msg.reaction) {
+    const { reaction, ...original } = msg
+    const mine = currentUser && reaction.user_id === currentUser.id
+    const first = ((profileCache[reaction.user_id] && profileCache[reaction.user_id].name) || 'Jemand').trim().split(/\s+/)[0]
+    return (mine ? 'Du hast' : first + ' hat') + ' mit ' + reaction.emoji + ' reagiert: „' + messageSnippet(original) + '“'
+  }
   const inv = msg && msg.text ? parseInvitation(msg.text) : null
   if (inv) return '🎉 Einladung: ' + inv.title
   const plain = msg && msg.text ? stripFormatting(msg.text) : ''
@@ -5780,6 +5890,8 @@ function listenForListUpdates() {
     .channel('list-updates')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, scheduleListRefresh)
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages' }, scheduleListRefresh)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, scheduleListRefresh)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'dm_reactions' }, scheduleListRefresh)
     .subscribe()
 }
 
@@ -9451,13 +9563,23 @@ function customGroupsForList() {
   return Object.values(chatGroups).sort((a, b) => activity(b) - activity(a))
 }
 
+// Kürzel einer eigenen Gruppe fürs Avatar-Bild: mehrere Wörter = erster Buchstabe vom 1. und vom 2. Wort ("Kleine Helden Team" = KH),
+// ein Wort = die ersten zwei Buchstaben ("Gruppe" = GR)
+function groupInitials(name) {
+  const parts = String(name || '?').trim().split(/[\s._-]+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  const letters = Array.from(parts[0])
+  if (parts.length === 1) return letters.slice(0, 2).join('').toUpperCase()
+  return (letters[0] + Array.from(parts[1])[0]).toUpperCase()
+}
+
 function customGroupRows() {
   return customGroupsForList().map(group => {
     const key = customGroupKey(group.id)
     const item = document.createElement('li')
     item.className = 'chat-list-item' + (isChatMuted(key) ? ' muted' : '')
     item.innerHTML = chatListItemHTML(
-      `<div class="chat-list-avatar group-avatar" style="background:${computedAvatarColor(group.id)}">👥</div>`,
+      `<div class="chat-list-avatar" style="background:${computedAvatarColor(group.id)}">${escapeHTML(groupInitials(group.name))}</div>`,
       group.name,
       groupPreviews[key],
       unreadFor(key),
