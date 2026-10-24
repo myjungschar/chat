@@ -1,6 +1,6 @@
 // Edge Function "upload-photo": nimmt entweder ein (schon im Browser verkleinertes) Foto + Vorschaubild
-// ODER eine Audio-Datei (.mp3, .m4a, .wav) bzw. ein PDF (höchstens 50 MB) entgegen und legt alles privat in Google Drive ab.
-// Antwort bei Fotos: { photo_id, thumb_id }, bei Audio und PDF: { audio_id, audio_mime } (Drive-Datei-IDs).
+// ODER eine Audio-Datei (.mp3, .m4a, .wav) bzw. ein Dokument (PDF, Word, Excel, PowerPoint, Text, CSV; höchstens 50 MB) entgegen und legt alles privat in Google Drive ab.
+// Antwort bei Fotos: { photo_id, thumb_id }, bei Audio und Dokumenten: { audio_id, audio_mime } (Drive-Datei-IDs).
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const cors = {
@@ -63,7 +63,7 @@ const isJpeg = (b: Uint8Array) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8
 
 const ascii = (b: Uint8Array, from: number, to: number) => String.fromCharCode(...b.slice(from, to))
 
-// Erkennt am Dateiinhalt (nicht am Namen), ob es wirklich MP3, M4A, WAV oder PDF ist. null = nicht erlaubt.
+// Erkennt am Dateiinhalt (nicht am Namen), ob es wirklich MP3, M4A oder WAV ist. null = nicht erlaubt.
 function detectAudio(b: Uint8Array): { ext: string; mime: string } | null {
   if (b.length < 16) return null
   // MP3: entweder ID3-Kennung vorn oder direkt ein MPEG-Frame (0xFF 0xE?/0xF?)
@@ -74,9 +74,43 @@ function detectAudio(b: Uint8Array): { ext: string; mime: string } | null {
   }
   // WAV: "RIFF" .... "WAVE"
   if (ascii(b, 0, 4) === 'RIFF' && ascii(b, 8, 12) === 'WAVE') return { ext: 'wav', mime: 'audio/wav' }
-  // PDF: beginnt mit "%PDF"
-  if (ascii(b, 0, 4) === '%PDF') return { ext: 'pdf', mime: 'application/pdf' }
   return null
+}
+
+// Dokumente: erlaubt ist nur, was eine bekannte Endung hat UND dessen Dateianfang zur Endung passt (so kommt keine
+// umbenannte .exe als .txt durch). Archive (.zip, .rar ...) und Programme sind absichtlich nicht dabei.
+const DOC_TYPES: Record<string, { mime: string; kind: 'pdf' | 'zip' | 'ole' | 'rtf' | 'text' }> = {
+  pdf: { mime: 'application/pdf', kind: 'pdf' },
+  docx: { mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', kind: 'zip' },
+  xlsx: { mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', kind: 'zip' },
+  pptx: { mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', kind: 'zip' },
+  odt: { mime: 'application/vnd.oasis.opendocument.text', kind: 'zip' },
+  ods: { mime: 'application/vnd.oasis.opendocument.spreadsheet', kind: 'zip' },
+  odp: { mime: 'application/vnd.oasis.opendocument.presentation', kind: 'zip' },
+  doc: { mime: 'application/msword', kind: 'ole' },
+  xls: { mime: 'application/vnd.ms-excel', kind: 'ole' },
+  ppt: { mime: 'application/vnd.ms-powerpoint', kind: 'ole' },
+  rtf: { mime: 'application/rtf', kind: 'rtf' },
+  txt: { mime: 'text/plain', kind: 'text' },
+  csv: { mime: 'text/csv', kind: 'text' }
+}
+
+function detectDocument(b: Uint8Array, fileName: string): { ext: string; mime: string } | null {
+  const ext = (fileName.split('.').pop() ?? '').toLowerCase()
+  const type = DOC_TYPES[ext]
+  if (!type || b.length < 1) return null
+  let ok = false
+  if (type.kind === 'pdf') ok = ascii(b, 0, 4) === '%PDF'
+  else if (type.kind === 'zip') ok = b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04 // "PK" + 03 04
+  else if (type.kind === 'ole') ok = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1].every((v, i) => b[i] === v)
+  else if (type.kind === 'rtf') ok = ascii(b, 0, 5) === '{\\rtf'
+  else {
+    // Text: keine Steuerzeichen am Anfang und kein Programm-Kopf ("MZ" = Windows-Programm, "#!" = Skript, "\x7fELF" = Linux-Programm)
+    const head = ascii(b, 0, 4)
+    ok = !head.startsWith('MZ') && !head.startsWith('#!') && !head.startsWith('\x7fELF') &&
+      Array.from(b).every((c) => !(c < 9 || c === 11 || c === 12 || (c > 13 && c < 32) || c === 127))
+  }
+  return ok ? { ext, mime: type.mime } : null
 }
 
 Deno.serve(async (req) => {
@@ -115,8 +149,8 @@ Deno.serve(async (req) => {
       if (audio.size > MAX_AUDIO) return json({ error: 'Die Datei ist zu groß (höchstens 50 MB)' }, 413)
       // Erkannt wird am Dateianfang (die ersten Bytes reichen); die Datei selbst wird nicht komplett in den Speicher kopiert
       const audioHead = new Uint8Array(await audio.slice(0, 16).arrayBuffer())
-      const kind = detectAudio(audioHead)
-      if (!kind) return json({ error: 'Nur MP3-, M4A-, WAV- und PDF-Dateien erlaubt' }, 400)
+      const kind = detectAudio(audioHead) ?? detectDocument(audioHead, audio.name)
+      if (!kind) return json({ error: 'Nur MP3-, M4A-, WAV-Dateien und Dokumente (PDF, Word, Excel, PowerPoint, Text, CSV) erlaubt' }, 400)
 
       const audioId = await uploadToDrive(audio, `${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${kind.ext}`, kind.mime)
       return json({ audio_id: audioId, audio_mime: kind.mime })

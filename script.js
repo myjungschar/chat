@@ -2109,7 +2109,8 @@ function toggleAttachMenu(anchorBtn, evt) {
     menu.innerHTML = ''
     addItem('Foto', () => { closeAttachMenu(); startPhotoFlow() })
     addItem('Audio', () => { closeAttachMenu(); startAudioFlow() })
-    addItem('PDF', () => { closeAttachMenu(); startPdfFlow() })
+    addItem('PDF', () => { closeAttachMenu(); startFileFlow(true) })
+    addItem('Andere Datei', () => { closeAttachMenu(); startFileFlow(false) })
     addItem('‹ Zurück', showMainOptions)
   }
 
@@ -2804,7 +2805,7 @@ function messageSnippet(msg) {
   const inv = msg && msg.text ? parseInvitation(msg.text) : null
   if (inv) return '🎉 Einladung: ' + inv.title
   const plain = msg && msg.text ? stripFormatting(msg.text) : ''
-  return plain || (msg && msg.photo_id ? '📷 Foto' : '') || (msg && msg.audio_id ? (isPdfMessage(msg) ? '📄 PDF' : '🎵 Audio') : '')
+  return plain || (msg && msg.photo_id ? '📷 Foto' : '') || (msg && msg.audio_id ? (isFileMessage(msg) ? (isPdfMessage(msg) ? '📄 PDF' : '📎 Datei') : '🎵 Audio') : '')
 }
 
 function formatBytes(bytes) {
@@ -3304,9 +3305,9 @@ async function sendAudioMessage(file, displayName) {
   const pending = addPendingAudioBubble(title, file.size)
 
   try {
-    const isPdf = isPdfFile(file)
-    const kindLabel = isPdf ? 'PDF' : 'Audio'
-    const durationPromise = isPdf ? Promise.resolve(null) : readAudioDuration(file) // läuft nebenher, damit das Hochladen sofort startet
+    const isDoc = isDocumentFile(file)
+    const kindLabel = isDoc ? 'Datei' : 'Audio'
+    const durationPromise = isDoc ? Promise.resolve(null) : readAudioDuration(file) // läuft nebenher, damit das Hochladen sofort startet
     const form = new FormData()
     form.append('audio', file, file.name)
 
@@ -3345,7 +3346,7 @@ async function sendAudioMessage(file, displayName) {
   } catch (e) {
     pending.remove()
     console.error('Audio senden:', e)
-    showToast((isPdfFile(file) ? 'PDF' : 'Audio') + ' senden hat nicht geklappt.')
+    showToast((isDocumentFile(file) ? 'Datei' : 'Audio') + ' senden hat nicht geklappt.')
   } finally {
     audioSending = false
   }
@@ -3399,7 +3400,7 @@ function formatAudioTime(seconds) {
 // Dateiendung nach dem gespeicherten Typ (Standard: mp3)
 function audioExtension(msg) {
   const mime = String((msg && msg.audio_mime) || '').toLowerCase()
-  if (mime.includes('pdf')) return 'pdf'
+  if (FILE_MIME_EXT[mime]) return FILE_MIME_EXT[mime]
   if (mime.includes('wav')) return 'wav'
   if (mime.includes('mp4') || mime.includes('m4a') || mime.includes('aac')) return 'm4a'
   return 'mp3'
@@ -3407,12 +3408,12 @@ function audioExtension(msg) {
 
 async function downloadAudio(msg) {
   try {
-    showToast(isPdfMessage(msg) ? 'PDF wird geladen …' : 'Audio wird geladen …')
+    showToast(isFileMessage(msg) ? 'Datei wird geladen …' : 'Audio wird geladen …')
     const blob = await fetchPhotoBlob(msg.audio_id)
     const mime = msg.audio_mime || 'audio/mpeg'
     const file = blob.type === mime ? blob : new Blob([blob], { type: mime })
     let name = audioDisplayTitle(msg).replace(/[\\/:*?"<>|]+/g, '_')
-    if (!/\.(mp3|m4a|wav|pdf)$/i.test(name)) name += '.' + audioExtension(msg)
+    if (!/\.[a-z0-9]{2,5}$/i.test(name)) name += '.' + audioExtension(msg)
     const url = URL.createObjectURL(file)
     const link = document.createElement('a')
     link.href = url
@@ -3423,59 +3424,105 @@ async function downloadAudio(msg) {
     setTimeout(() => URL.revokeObjectURL(url), 15000)
   } catch (e) {
     console.error('Audio herunterladen:', e)
-    showToast(e && e.status === 404 ? (isPdfMessage(msg) ? 'Das PDF gibt es nicht mehr.' : 'Das Audio gibt es nicht mehr.') : 'Herunterladen hat nicht geklappt.')
+    showToast(e && e.status === 404 ? (isFileMessage(msg) ? 'Die Datei gibt es nicht mehr.' : 'Das Audio gibt es nicht mehr.') : 'Herunterladen hat nicht geklappt.')
   }
 }
 
-// ===== PDF =====
-// PDFs laufen über denselben Weg wie Audio (Edge Function "upload-photo" -> privat in Google Drive, in der Nachricht stehen
-// audio_id, audio_mime = 'application/pdf', audio_name und audio_size). Erkannt wird ein PDF am gespeicherten Typ.
-// Angezeigt wird eine Karte (Icon, Name, Größe); ein Tipp öffnet das PDF in einem neuen Tab, "Herunterladen" im Menü speichert es.
-const PDF_MAX_BYTES = 50 * 1024 * 1024
-let pdfInputEl = null
+// ===== Dateien (PDF, Word, Excel, PowerPoint, Text, CSV) =====
+// Dateien laufen über denselben Weg wie Audio (Edge Function "upload-photo" -> privat in Google Drive, in der Nachricht stehen
+// audio_id, audio_mime (z. B. 'application/pdf'), audio_name und audio_size). Eine Datei erkennt man daran, dass der gespeicherte
+// Typ nicht mit "audio/" beginnt. Angezeigt wird eine Karte (Icon, Name, Größe): ein Tipp öffnet PDFs in einem neuen Tab, alle anderen
+// Dateien werden heruntergeladen. Der Server prüft Endung UND Dateikopf, ausführbare Dateien kommen nicht durch.
+const FILE_MAX_BYTES = 50 * 1024 * 1024
+const FILE_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp', 'rtf', 'txt', 'csv']
+const FILE_MIME_EXT = {
+  'application/pdf': 'pdf',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.ms-excel': 'xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.ms-powerpoint': 'ppt',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+  'application/vnd.oasis.opendocument.text': 'odt',
+  'application/vnd.oasis.opendocument.spreadsheet': 'ods',
+  'application/vnd.oasis.opendocument.presentation': 'odp',
+  'application/rtf': 'rtf',
+  'text/plain': 'txt',
+  'text/csv': 'csv'
+}
+let fileInputEl = null
+
+function isFileMessage(msg) {
+  return !!(msg && msg.audio_id && msg.audio_mime && !String(msg.audio_mime).toLowerCase().startsWith('audio/'))
+}
 
 function isPdfMessage(msg) {
-  return !!(msg && msg.audio_id && String(msg.audio_mime || '').toLowerCase().includes('pdf'))
+  return isFileMessage(msg) && String(msg.audio_mime).toLowerCase().includes('pdf')
 }
 
-function isPdfFile(file) {
-  return !!file && (/\.pdf$/i.test(file.name || '') || file.type === 'application/pdf')
+function fileExtOf(name) {
+  const m = /\.([a-z0-9]{1,5})$/i.exec(String(name || ''))
+  return m ? m[1].toLowerCase() : ''
 }
 
-function getPdfInput() {
-  if (!pdfInputEl) {
-    pdfInputEl = document.createElement('input')
-    pdfInputEl.type = 'file'
-    pdfInputEl.accept = '.pdf,application/pdf'
-    pdfInputEl.style.display = 'none'
-    pdfInputEl.addEventListener('change', () => {
-      const file = pdfInputEl.files && pdfInputEl.files[0]
-      pdfInputEl.value = ''
-      if (file) confirmAndSendPdf(file)
+function isDocumentFile(file) {
+  return !!file && FILE_EXTENSIONS.includes(fileExtOf(file.name))
+}
+
+// Endung der Datei in einer Nachricht (aus dem Namen, sonst aus dem Typ)
+function fileMessageExt(msg) {
+  return fileExtOf(msg.audio_name) || FILE_MIME_EXT[String(msg.audio_mime || '').toLowerCase()] || ''
+}
+
+function getFileInput() {
+  if (!fileInputEl) {
+    fileInputEl = document.createElement('input')
+    fileInputEl.type = 'file'
+    fileInputEl.style.display = 'none'
+    fileInputEl.addEventListener('change', () => {
+      const file = fileInputEl.files && fileInputEl.files[0]
+      fileInputEl.value = ''
+      if (file) confirmAndSendFile(file)
     })
-    document.body.appendChild(pdfInputEl)
+    document.body.appendChild(fileInputEl)
   }
-  return pdfInputEl
+  return fileInputEl
 }
 
-function startPdfFlow() {
+// onlyPdf = true: der Auswahldialog zeigt nur PDFs, sonst die anderen erlaubten Dateien
+function startFileFlow(onlyPdf) {
   if (!currentUser || isAdmin() || currentRoom.type === 'dm-view') return
-  if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos, Audios und PDFs senden.'); return }
+  if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos, Audios und Dateien senden.'); return }
   if (editingMessageId) { showToast('Schließe zuerst das Bearbeiten ab.'); return }
   if (!navigator.onLine) { showToast('Keine Internetverbindung.'); return }
-  getPdfInput().click()
+  const input = getFileInput()
+  input.accept = onlyPdf ? '.pdf,application/pdf' : FILE_EXTENSIONS.filter(ext => ext !== 'pdf').map(ext => '.' + ext).join(',')
+  input.click()
 }
 
-async function confirmAndSendPdf(file) {
-  if (!/\.pdf$/i.test(file.name || '')) { showToast('Erlaubt sind nur PDF-Dateien.'); return }
+async function confirmAndSendFile(file) {
+  if (!isDocumentFile(file)) { showToast('Erlaubt sind PDF, Word, Excel, PowerPoint, Text und CSV.'); return }
   if (file.size === 0) { showToast('Die Datei ist leer.'); return }
-  if (file.size > PDF_MAX_BYTES) { showToast('Die Datei ist zu groß (höchstens ' + formatBytes(PDF_MAX_BYTES) + ').'); return }
+  if (file.size > FILE_MAX_BYTES) { showToast('Die Datei ist zu groß (höchstens ' + formatBytes(FILE_MAX_BYTES) + ').'); return }
 
-  const name = await askAudioName(file, 'PDF')
+  const name = await askAudioName(file, fileExtOf(file.name) === 'pdf' ? 'PDF' : 'Datei')
   if (name) await sendAudioMessage(file, name) // gleicher Sendeweg wie Audio (siehe oben)
 }
 
-const PDF_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2h7.6L20 7.4V20a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><text x="12.4" y="17.6" text-anchor="middle" font-size="6.4" font-weight="700" font-family="Arial, sans-serif" fill="#e2665f">PDF</text></svg>'
+// Farbe und Beschriftung des Icons je nach Dateityp (Farben aus der Profilfarben-Liste)
+function fileIconColor(ext) {
+  if (ext === 'pdf') return '#e2665f'
+  if (['doc', 'docx', 'odt', 'rtf'].includes(ext)) return '#5b8def'
+  if (['xls', 'xlsx', 'ods', 'csv'].includes(ext)) return '#3fb98c'
+  if (['ppt', 'pptx', 'odp'].includes(ext)) return '#4d6fa3'
+  return '#7c8aa5'
+}
+
+function fileIconHTML(ext, color) {
+  const label = (ext || 'DATEI').toUpperCase().slice(0, 4)
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2h7.6L20 7.4V20a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/>' +
+    '<text x="12.4" y="17.6" text-anchor="middle" font-size="' + (label.length > 3 ? '5.2' : '6.4') + '" font-weight="700" font-family="Arial, sans-serif" fill="' + color + '">' + label + '</text></svg>'
+}
 
 // Öffnet das PDF in einem neuen Tab. Der Tab wird sofort beim Tippen geöffnet (sonst blockt ihn der Browser, weil das Laden
 // etwas dauert) und danach mit dem PDF gefüllt. Klappt das Öffnen nicht, wird das PDF stattdessen heruntergeladen.
@@ -3502,15 +3549,21 @@ async function openPdf(msg, setMeta) {
   }
 }
 
-function buildPdfElement(msg) {
+function buildFileElement(msg) {
+  const ext = fileMessageExt(msg)
+  const color = fileIconColor(ext)
+  const iconHTML = fileIconHTML(ext, color)
+  const isPdf = isPdfMessage(msg)
+
   const wrap = document.createElement('div')
   wrap.className = 'msg-audio msg-pdf'
 
   const iconBtn = document.createElement('button')
   iconBtn.type = 'button'
   iconBtn.className = 'msg-audio-play'
-  iconBtn.setAttribute('aria-label', 'PDF öffnen')
-  iconBtn.innerHTML = PDF_ICON
+  iconBtn.style.background = color
+  iconBtn.setAttribute('aria-label', isPdf ? 'PDF öffnen' : 'Datei herunterladen')
+  iconBtn.innerHTML = iconHTML
 
   const body = document.createElement('div')
   body.className = 'msg-audio-body'
@@ -3519,7 +3572,7 @@ function buildPdfElement(msg) {
   title.textContent = audioDisplayTitle(msg)
   const metaEl = document.createElement('div')
   metaEl.className = 'msg-audio-meta'
-  const baseMeta = 'PDF' + (Number(msg.audio_size) > 0 ? ' · ' + formatBytes(Number(msg.audio_size)) : '')
+  const baseMeta = (ext ? ext.toUpperCase() : 'Datei') + (Number(msg.audio_size) > 0 ? ' · ' + formatBytes(Number(msg.audio_size)) : '')
   metaEl.textContent = baseMeta
   body.append(title, metaEl)
   wrap.append(iconBtn, body)
@@ -3532,9 +3585,15 @@ function buildPdfElement(msg) {
     busy = true
     iconBtn.innerHTML = AUDIO_SPINNER
     metaEl.textContent = 'Lädt …'
-    const result = await openPdf(msg, (text) => { metaEl.textContent = text })
+    let result
+    if (isPdf) {
+      result = await openPdf(msg, (text) => { metaEl.textContent = text })
+    } else {
+      await downloadAudio(msg) // zeigt bei Fehlern selbst eine Meldung
+      result = true
+    }
     busy = false
-    iconBtn.innerHTML = PDF_ICON
+    iconBtn.innerHTML = iconHTML
     if (result === true) metaEl.textContent = baseMeta
     else if (result === 'gone') gone = true
   }
@@ -4523,8 +4582,8 @@ function renderMessage(msg) {
   }
   if (msg.audio_id) {
     msgElement.classList.add('has-audio')
-    if (isPdfMessage(msg)) msgElement.classList.add('has-pdf')
-    msgElement.appendChild(isPdfMessage(msg) ? buildPdfElement(msg) : buildAudioElement(msg))
+    if (isFileMessage(msg)) msgElement.classList.add('has-pdf') // "pdf" im Klassennamen gilt für alle Dateikarten
+    msgElement.appendChild(isFileMessage(msg) ? buildFileElement(msg) : buildAudioElement(msg))
   }
   msgElement.appendChild(textEl)
 
@@ -5299,7 +5358,7 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
       menu.appendChild(downloadItem)
     }
 
-    if (options.canDownloadAudio && !isPdfMessage(msg)) {
+    if (options.canDownloadAudio && !isFileMessage(msg)) {
       const speedItem = document.createElement('button')
       speedItem.className = 'msg-menu-item'
       speedItem.textContent = 'Geschwindigkeit'
