@@ -1,6 +1,6 @@
 // Edge Function "upload-photo": nimmt entweder ein (schon im Browser verkleinertes) Foto + Vorschaubild
-// ODER eine Audio-Datei (.mp3, .m4a, .wav, höchstens 50 MB) entgegen und legt alles privat in Google Drive ab.
-// Antwort bei Fotos: { photo_id, thumb_id }, bei Audio: { audio_id, audio_mime } (Drive-Datei-IDs).
+// ODER eine Audio-Datei (.mp3, .m4a, .wav) bzw. ein PDF (höchstens 50 MB) entgegen und legt alles privat in Google Drive ab.
+// Antwort bei Fotos: { photo_id, thumb_id }, bei Audio und PDF: { audio_id, audio_mime } (Drive-Datei-IDs).
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const cors = {
@@ -63,7 +63,7 @@ const isJpeg = (b: Uint8Array) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8
 
 const ascii = (b: Uint8Array, from: number, to: number) => String.fromCharCode(...b.slice(from, to))
 
-// Erkennt am Dateiinhalt (nicht am Namen), ob es wirklich MP3, M4A oder WAV ist. null = nicht erlaubt.
+// Erkennt am Dateiinhalt (nicht am Namen), ob es wirklich MP3, M4A, WAV oder PDF ist. null = nicht erlaubt.
 function detectAudio(b: Uint8Array): { ext: string; mime: string } | null {
   if (b.length < 16) return null
   // MP3: entweder ID3-Kennung vorn oder direkt ein MPEG-Frame (0xFF 0xE?/0xF?)
@@ -74,6 +74,8 @@ function detectAudio(b: Uint8Array): { ext: string; mime: string } | null {
   }
   // WAV: "RIFF" .... "WAVE"
   if (ascii(b, 0, 4) === 'RIFF' && ascii(b, 8, 12) === 'WAVE') return { ext: 'wav', mime: 'audio/wav' }
+  // PDF: beginnt mit "%PDF"
+  if (ascii(b, 0, 4) === '%PDF') return { ext: 'pdf', mime: 'application/pdf' }
   return null
 }
 
@@ -114,7 +116,7 @@ Deno.serve(async (req) => {
       // Erkannt wird am Dateianfang (die ersten Bytes reichen); die Datei selbst wird nicht komplett in den Speicher kopiert
       const audioHead = new Uint8Array(await audio.slice(0, 16).arrayBuffer())
       const kind = detectAudio(audioHead)
-      if (!kind) return json({ error: 'Nur MP3-, M4A- und WAV-Dateien erlaubt' }, 400)
+      if (!kind) return json({ error: 'Nur MP3-, M4A-, WAV- und PDF-Dateien erlaubt' }, 400)
 
       const audioId = await uploadToDrive(audio, `${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${kind.ext}`, kind.mime)
       return json({ audio_id: audioId, audio_mime: kind.mime })

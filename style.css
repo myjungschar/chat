@@ -5561,3 +5561,19 @@ body.light-theme .birthday-age-pill {
     padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px) + var(--bottom-lift));
   }
 }
+
+/* PDF-Karte in der Nachricht: gleicher Aufbau wie Audio, aber eckiges rotes Icon statt rundem Play-Knopf; ganze Karte antippbar */
+.msg-pdf {
+  cursor: pointer;
+}
+
+.msg-pdf .msg-audio-play {
+  border-radius: 10px;
+  background: #e2665f;
+}
+
+.msg-pdf .msg-audio-play svg {
+  width: 28px;
+  height: 28px;
+  fill: #ffffff;
+}

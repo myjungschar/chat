@@ -715,7 +715,7 @@ async function loadChatPreviews() {
   if (!usedPreviewRpc) {
     const { data: groupRows } = await supabaseClient
       .from('messages')
-      .select('text, photo_id, audio_id, created_at, group_key, sender_id')
+      .select('text, photo_id, audio_id, audio_mime, created_at, group_key, sender_id')
       .order('created_at', { ascending: false })
       .limit(300)
 
@@ -730,7 +730,7 @@ async function loadChatPreviews() {
 
     const { data: dmRows } = await supabaseClient
       .from('direct_messages')
-      .select('text, photo_id, audio_id, created_at, sender_id, recipient_id')
+      .select('text, photo_id, audio_id, audio_mime, created_at, sender_id, recipient_id')
       .order('created_at', { ascending: false })
       .limit(400)
 
@@ -963,9 +963,6 @@ async function renderChatList() {
   groupItem.addEventListener('click', openGroupChat)
   list.appendChild(groupItem)
 
-  // Eigene Gruppen: direkt unter der Hauptgruppe
-  appendCustomGroupItems(list)
-
   if (isAdmin() || currentProfile.gender === 'junge') {
     const item = document.createElement('li')
     item.className = 'chat-list-item pinned' + (isChatMuted('junge') ? ' muted' : '')
@@ -1013,6 +1010,9 @@ async function renderChatList() {
       return (a[1].name || '').localeCompare(b[1].name || '')
     })
 
+  // Einzelchats und eigene Gruppen stehen gemischt, der Chat mit der neuesten Aktivität zuerst
+  const normalRows = []
+
   others.forEach(([id, info]) => {
     const name = info.name
     const item = document.createElement('li')
@@ -1038,8 +1038,12 @@ async function renderChatList() {
       if (isAdmin()) openAdminContactsFor(id, name)
       else openDirectChat(id, name)
     })
-    list.appendChild(item)
+    normalRows.push({ item, time: dmPreviews[id] ? new Date(dmPreviews[id].created_at).getTime() : 0 })
   })
+
+  customGroupRows().forEach(row => normalRows.push(row))
+  normalRows.sort((a, b) => b.time - a.time) // stabil: bei gleicher Zeit bleibt die Reihenfolge wie vorher
+  normalRows.forEach(row => list.appendChild(row.item))
 
   if (others.length === 0) {
     const hint = document.createElement('p')
@@ -1168,7 +1172,7 @@ async function openAdminContactsFor(userId, name) {
 
   const { data: rows, error } = await supabaseClient
     .from('direct_messages')
-    .select('sender_id, recipient_id, text, photo_id, audio_id, created_at')
+    .select('sender_id, recipient_id, text, photo_id, audio_id, audio_mime, created_at')
     .or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
     .order('created_at', { ascending: false })
 
@@ -2092,43 +2096,34 @@ function toggleAttachMenu(anchorBtn, evt) {
   menu.className = 'msg-menu attach-menu'
   menu.addEventListener('click', e => e.stopPropagation())
 
-  if (!isPhotoBlockedSelf()) { // wer keine Fotos senden darf, bekommt die Punkte "Foto" und "Audio" gar nicht erst
-    const photoItem = document.createElement('button')
-    photoItem.className = 'msg-menu-item'
-    photoItem.textContent = 'Foto'
-    photoItem.addEventListener('click', () => { closeAttachMenu(); startPhotoFlow() })
-    menu.appendChild(photoItem)
-
-    const audioItem = document.createElement('button')
-    audioItem.className = 'msg-menu-item'
-    audioItem.textContent = 'Audio'
-    audioItem.addEventListener('click', () => { closeAttachMenu(); startAudioFlow() })
-    menu.appendChild(audioItem)
-
-    const voiceItem = document.createElement('button')
-    voiceItem.className = 'msg-menu-item'
-    voiceItem.textContent = 'Sprachnachricht'
-    voiceItem.addEventListener('click', () => { closeAttachMenu(); startVoiceFlow() })
-    menu.appendChild(voiceItem)
+  const addItem = (label, onClick) => {
+    const item = document.createElement('button')
+    item.className = 'msg-menu-item'
+    item.textContent = label
+    item.addEventListener('click', onClick)
+    menu.appendChild(item)
   }
 
-  const pollItem = document.createElement('button')
-  pollItem.className = 'msg-menu-item'
-  pollItem.textContent = 'Umfrage'
-  pollItem.addEventListener('click', () => { closeAttachMenu(); openPollModal() })
-  menu.appendChild(pollItem)
+  // Zweite Ebene hinter "Datei hinzufügen": Foto, Audio oder PDF
+  const showFileOptions = () => {
+    menu.innerHTML = ''
+    addItem('Foto', () => { closeAttachMenu(); startPhotoFlow() })
+    addItem('Audio', () => { closeAttachMenu(); startAudioFlow() })
+    addItem('PDF', () => { closeAttachMenu(); startPdfFlow() })
+    addItem('‹ Zurück', showMainOptions)
+  }
 
-  const inviteItem = document.createElement('button')
-  inviteItem.className = 'msg-menu-item'
-  inviteItem.textContent = 'Einladung'
-  inviteItem.addEventListener('click', () => { closeAttachMenu(); openInviteModal() })
-  menu.appendChild(inviteItem)
-
-  const formatItem = document.createElement('button')
-  formatItem.className = 'msg-menu-item'
-  formatItem.textContent = 'Formatierung'
-  formatItem.addEventListener('click', () => { closeAttachMenu(); openFormatHelp() })
-  menu.appendChild(formatItem)
+  const showMainOptions = () => {
+    menu.innerHTML = ''
+    if (!isPhotoBlockedSelf()) { // wer keine Fotos senden darf, bekommt "Datei hinzufügen" und die Sprachnachricht gar nicht erst
+      addItem('Datei hinzufügen', showFileOptions)
+      addItem('Sprachnachricht', () => { closeAttachMenu(); startVoiceFlow() })
+    }
+    addItem('Umfrage', () => { closeAttachMenu(); openPollModal() })
+    addItem('Einladung', () => { closeAttachMenu(); openInviteModal() })
+    addItem('Formatierung', () => { closeAttachMenu(); openFormatHelp() })
+  }
+  showMainOptions()
 
   anchorBtn.parentElement.appendChild(menu)
   applyEmojiImages(menu)
@@ -2809,7 +2804,7 @@ function messageSnippet(msg) {
   const inv = msg && msg.text ? parseInvitation(msg.text) : null
   if (inv) return '🎉 Einladung: ' + inv.title
   const plain = msg && msg.text ? stripFormatting(msg.text) : ''
-  return plain || (msg && msg.photo_id ? '📷 Foto' : '') || (msg && msg.audio_id ? '🎵 Audio' : '')
+  return plain || (msg && msg.photo_id ? '📷 Foto' : '') || (msg && msg.audio_id ? (isPdfMessage(msg) ? '📄 PDF' : '🎵 Audio') : '')
 }
 
 function formatBytes(bytes) {
@@ -3195,7 +3190,7 @@ async function confirmAndSendAudio(file) {
 
 // Kleines Fenster vor dem Senden: den Dateinamen ändern. Die Endung (.mp3 ...) steht fest dahinter und bleibt.
 // Gibt den ganzen neuen Namen zurück, oder null bei "Abbrechen".
-function askAudioName(file) {
+function askAudioName(file, label = 'Audio') {
   return new Promise(resolve => {
     const dot = file.name.lastIndexOf('.')
     const ext = dot > 0 ? file.name.slice(dot) : '.' + (file.name.split('.').pop() || 'mp3')
@@ -3210,7 +3205,7 @@ function askAudioName(file) {
 
     const heading = document.createElement('p')
     heading.className = 'audio-name-heading'
-    heading.textContent = 'Audio senden (' + formatBytes(file.size) + ')'
+    heading.textContent = label + ' senden (' + formatBytes(file.size) + ')'
 
     const row = document.createElement('div')
     row.className = 'audio-name-row'
@@ -3309,7 +3304,9 @@ async function sendAudioMessage(file, displayName) {
   const pending = addPendingAudioBubble(title, file.size)
 
   try {
-    const durationPromise = readAudioDuration(file) // läuft nebenher, damit das Hochladen sofort startet
+    const isPdf = isPdfFile(file)
+    const kindLabel = isPdf ? 'PDF' : 'Audio'
+    const durationPromise = isPdf ? Promise.resolve(null) : readAudioDuration(file) // läuft nebenher, damit das Hochladen sofort startet
     const form = new FormData()
     form.append('audio', file, file.name)
 
@@ -3317,7 +3314,7 @@ async function sendAudioMessage(file, displayName) {
     if (upError || !up || !up.audio_id) {
       const detail = upError ? await readFunctionError(upError) : 'Unbekannter Fehler'
       pending.remove()
-      showToast('Audio konnte nicht hochgeladen werden: ' + detail)
+      showToast(kindLabel + ' konnte nicht hochgeladen werden: ' + detail)
       return
     }
     const duration = await durationPromise
@@ -3348,7 +3345,7 @@ async function sendAudioMessage(file, displayName) {
   } catch (e) {
     pending.remove()
     console.error('Audio senden:', e)
-    showToast('Audio senden hat nicht geklappt.')
+    showToast((isPdfFile(file) ? 'PDF' : 'Audio') + ' senden hat nicht geklappt.')
   } finally {
     audioSending = false
   }
@@ -3402,6 +3399,7 @@ function formatAudioTime(seconds) {
 // Dateiendung nach dem gespeicherten Typ (Standard: mp3)
 function audioExtension(msg) {
   const mime = String((msg && msg.audio_mime) || '').toLowerCase()
+  if (mime.includes('pdf')) return 'pdf'
   if (mime.includes('wav')) return 'wav'
   if (mime.includes('mp4') || mime.includes('m4a') || mime.includes('aac')) return 'm4a'
   return 'mp3'
@@ -3409,12 +3407,12 @@ function audioExtension(msg) {
 
 async function downloadAudio(msg) {
   try {
-    showToast('Audio wird geladen …')
+    showToast(isPdfMessage(msg) ? 'PDF wird geladen …' : 'Audio wird geladen …')
     const blob = await fetchPhotoBlob(msg.audio_id)
     const mime = msg.audio_mime || 'audio/mpeg'
-    const file = blob.type && blob.type.startsWith('audio/') ? blob : new Blob([blob], { type: mime })
+    const file = blob.type === mime ? blob : new Blob([blob], { type: mime })
     let name = audioDisplayTitle(msg).replace(/[\\/:*?"<>|]+/g, '_')
-    if (!/\.(mp3|m4a|wav)$/i.test(name)) name += '.' + audioExtension(msg)
+    if (!/\.(mp3|m4a|wav|pdf)$/i.test(name)) name += '.' + audioExtension(msg)
     const url = URL.createObjectURL(file)
     const link = document.createElement('a')
     link.href = url
@@ -3425,8 +3423,123 @@ async function downloadAudio(msg) {
     setTimeout(() => URL.revokeObjectURL(url), 15000)
   } catch (e) {
     console.error('Audio herunterladen:', e)
-    showToast(e && e.status === 404 ? 'Das Audio gibt es nicht mehr.' : 'Herunterladen hat nicht geklappt.')
+    showToast(e && e.status === 404 ? (isPdfMessage(msg) ? 'Das PDF gibt es nicht mehr.' : 'Das Audio gibt es nicht mehr.') : 'Herunterladen hat nicht geklappt.')
   }
+}
+
+// ===== PDF =====
+// PDFs laufen über denselben Weg wie Audio (Edge Function "upload-photo" -> privat in Google Drive, in der Nachricht stehen
+// audio_id, audio_mime = 'application/pdf', audio_name und audio_size). Erkannt wird ein PDF am gespeicherten Typ.
+// Angezeigt wird eine Karte (Icon, Name, Größe); ein Tipp öffnet das PDF in einem neuen Tab, "Herunterladen" im Menü speichert es.
+const PDF_MAX_BYTES = 50 * 1024 * 1024
+let pdfInputEl = null
+
+function isPdfMessage(msg) {
+  return !!(msg && msg.audio_id && String(msg.audio_mime || '').toLowerCase().includes('pdf'))
+}
+
+function isPdfFile(file) {
+  return !!file && (/\.pdf$/i.test(file.name || '') || file.type === 'application/pdf')
+}
+
+function getPdfInput() {
+  if (!pdfInputEl) {
+    pdfInputEl = document.createElement('input')
+    pdfInputEl.type = 'file'
+    pdfInputEl.accept = '.pdf,application/pdf'
+    pdfInputEl.style.display = 'none'
+    pdfInputEl.addEventListener('change', () => {
+      const file = pdfInputEl.files && pdfInputEl.files[0]
+      pdfInputEl.value = ''
+      if (file) confirmAndSendPdf(file)
+    })
+    document.body.appendChild(pdfInputEl)
+  }
+  return pdfInputEl
+}
+
+function startPdfFlow() {
+  if (!currentUser || isAdmin() || currentRoom.type === 'dm-view') return
+  if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos, Audios und PDFs senden.'); return }
+  if (editingMessageId) { showToast('Schließe zuerst das Bearbeiten ab.'); return }
+  if (!navigator.onLine) { showToast('Keine Internetverbindung.'); return }
+  getPdfInput().click()
+}
+
+async function confirmAndSendPdf(file) {
+  if (!/\.pdf$/i.test(file.name || '')) { showToast('Erlaubt sind nur PDF-Dateien.'); return }
+  if (file.size === 0) { showToast('Die Datei ist leer.'); return }
+  if (file.size > PDF_MAX_BYTES) { showToast('Die Datei ist zu groß (höchstens ' + formatBytes(PDF_MAX_BYTES) + ').'); return }
+
+  const name = await askAudioName(file, 'PDF')
+  if (name) await sendAudioMessage(file, name) // gleicher Sendeweg wie Audio (siehe oben)
+}
+
+const PDF_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2h7.6L20 7.4V20a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><text x="12.4" y="17.6" text-anchor="middle" font-size="6.4" font-weight="700" font-family="Arial, sans-serif" fill="#e2665f">PDF</text></svg>'
+
+// Öffnet das PDF in einem neuen Tab. Der Tab wird sofort beim Tippen geöffnet (sonst blockt ihn der Browser, weil das Laden
+// etwas dauert) und danach mit dem PDF gefüllt. Klappt das Öffnen nicht, wird das PDF stattdessen heruntergeladen.
+async function openPdf(msg, setMeta) {
+  const win = window.open('', '_blank')
+  try {
+    const blob = await fetchPhotoBlob(msg.audio_id)
+    const file = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' })
+    const url = URL.createObjectURL(file)
+    if (win && !win.closed) {
+      win.location.href = url
+      setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000)
+    } else {
+      URL.revokeObjectURL(url)
+      await downloadAudio(msg)
+    }
+    return true
+  } catch (e) {
+    if (win && !win.closed) win.close()
+    if (e && e.status === 404) { if (setMeta) setMeta('Nicht mehr vorhanden'); return 'gone' }
+    console.error('PDF öffnen:', e)
+    if (setMeta) setMeta('Laden fehlgeschlagen - nochmal tippen')
+    return false
+  }
+}
+
+function buildPdfElement(msg) {
+  const wrap = document.createElement('div')
+  wrap.className = 'msg-audio msg-pdf'
+
+  const iconBtn = document.createElement('button')
+  iconBtn.type = 'button'
+  iconBtn.className = 'msg-audio-play'
+  iconBtn.setAttribute('aria-label', 'PDF öffnen')
+  iconBtn.innerHTML = PDF_ICON
+
+  const body = document.createElement('div')
+  body.className = 'msg-audio-body'
+  const title = document.createElement('div')
+  title.className = 'msg-audio-title'
+  title.textContent = audioDisplayTitle(msg)
+  const metaEl = document.createElement('div')
+  metaEl.className = 'msg-audio-meta'
+  const baseMeta = 'PDF' + (Number(msg.audio_size) > 0 ? ' · ' + formatBytes(Number(msg.audio_size)) : '')
+  metaEl.textContent = baseMeta
+  body.append(title, metaEl)
+  wrap.append(iconBtn, body)
+
+  let busy = false
+  let gone = false
+  const open = async () => {
+    if (openMenuEl || selectMode) return // gerade wurde das Nachrichten-Menü per langem Drücken geöffnet
+    if (busy || gone) return
+    busy = true
+    iconBtn.innerHTML = AUDIO_SPINNER
+    metaEl.textContent = 'Lädt …'
+    const result = await openPdf(msg, (text) => { metaEl.textContent = text })
+    busy = false
+    iconBtn.innerHTML = PDF_ICON
+    if (result === true) metaEl.textContent = baseMeta
+    else if (result === 'gone') gone = true
+  }
+  wrap.addEventListener('click', open)
+  return wrap
 }
 
 const AUDIO_SPEEDS = [1, 1.25, 1.5, 2]
@@ -4410,7 +4523,8 @@ function renderMessage(msg) {
   }
   if (msg.audio_id) {
     msgElement.classList.add('has-audio')
-    msgElement.appendChild(buildAudioElement(msg))
+    if (isPdfMessage(msg)) msgElement.classList.add('has-pdf')
+    msgElement.appendChild(isPdfMessage(msg) ? buildPdfElement(msg) : buildAudioElement(msg))
   }
   msgElement.appendChild(textEl)
 
@@ -5185,7 +5299,7 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
       menu.appendChild(downloadItem)
     }
 
-    if (options.canDownloadAudio) {
+    if (options.canDownloadAudio && !isPdfMessage(msg)) {
       const speedItem = document.createElement('button')
       speedItem.className = 'msg-menu-item'
       speedItem.textContent = 'Geschwindigkeit'
@@ -9172,11 +9286,11 @@ function customGroupsForList() {
   return Object.values(chatGroups).sort((a, b) => activity(b) - activity(a))
 }
 
-function appendCustomGroupItems(list) {
-  customGroupsForList().forEach(group => {
+function customGroupRows() {
+  return customGroupsForList().map(group => {
     const key = customGroupKey(group.id)
     const item = document.createElement('li')
-    item.className = 'chat-list-item pinned' + (isChatMuted(key) ? ' muted' : '')
+    item.className = 'chat-list-item' + (isChatMuted(key) ? ' muted' : '')
     item.innerHTML = chatListItemHTML(
       `<div class="chat-list-avatar group-avatar" style="background:${computedAvatarColor(group.id)}">👥</div>`,
       group.name,
@@ -9190,7 +9304,8 @@ function appendCustomGroupItems(list) {
     item.dataset.tabs = 'alle gruppen'
     item.dataset.name = group.name
     item.addEventListener('click', () => openCustomGroup(group.id))
-    list.appendChild(item)
+    const preview = groupPreviews[key]
+    return { item, time: new Date(preview ? preview.created_at : group.created_at).getTime() }
   })
 }
 
