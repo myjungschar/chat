@@ -5764,3 +5764,47 @@ body.light-theme .birthday-age-pill {
   margin: 10px 0 14px;
   overflow-y: auto;
 }
+
+/* Plus-Menü: "Datei hinzufügen" klappt Foto / Audio / Dokument darunter auf */
+.attach-menu {
+  max-width: min(270px, 86vw);
+}
+
+.msg-menu-item .menu-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text-secondary);
+  white-space: normal;
+}
+
+.msg-menu-item.has-sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.msg-menu-item .menu-chevron {
+  color: var(--text-secondary);
+  transition: transform 0.15s;
+}
+
+.msg-menu-item.has-sub.open .menu-chevron {
+  transform: rotate(90deg);
+}
+
+.menu-sub {
+  display: none;
+  background: rgba(127, 127, 127, 0.1);
+  border-left: 3px solid var(--accent);
+}
+
+.menu-sub.open {
+  display: block;
+}
+
+.msg-menu-item.menu-sub-item {
+  padding-left: 14px;
+}

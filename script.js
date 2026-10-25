@@ -2201,35 +2201,60 @@ function toggleAttachMenu(anchorBtn, evt) {
   menu.className = 'msg-menu attach-menu'
   menu.addEventListener('click', e => e.stopPropagation())
 
-  const addItem = (label, onClick) => {
+  // Menüpunkt mit Beschriftung und (optional) einer kleinen grauen Zeile darunter
+  const addItem = (label, onClick, hint, parent = menu) => {
     const item = document.createElement('button')
+    item.type = 'button'
     item.className = 'msg-menu-item'
-    item.textContent = label
-    item.addEventListener('click', onClick)
-    menu.appendChild(item)
-  }
-
-  // Zweite Ebene hinter "Datei hinzufügen": Foto, Audio oder PDF
-  const showFileOptions = () => {
-    menu.innerHTML = ''
-    addItem('Foto', () => { closeAttachMenu(); startPhotoFlow() })
-    addItem('Audio', () => { closeAttachMenu(); startAudioFlow() })
-    addItem('PDF', () => { closeAttachMenu(); startFileFlow(true) })
-    addItem('Andere Datei', () => { closeAttachMenu(); startFileFlow(false) })
-    addItem('‹ Zurück', showMainOptions)
-  }
-
-  const showMainOptions = () => {
-    menu.innerHTML = ''
-    if (!isPhotoBlockedSelf()) { // wer keine Fotos senden darf, bekommt "Datei hinzufügen" und die Sprachnachricht gar nicht erst
-      addItem('Datei hinzufügen', showFileOptions)
-      addItem('Sprachnachricht', () => { closeAttachMenu(); startVoiceFlow() })
+    const labelEl = document.createElement('span')
+    labelEl.className = 'menu-label'
+    labelEl.textContent = label
+    item.appendChild(labelEl)
+    if (hint) {
+      const hintEl = document.createElement('span')
+      hintEl.className = 'menu-hint'
+      hintEl.textContent = hint
+      item.appendChild(hintEl)
     }
-    addItem('Umfrage', () => { closeAttachMenu(); openPollModal() })
-    addItem('Einladung', () => { closeAttachMenu(); openInviteModal() })
-    addItem('Formatierung', () => { closeAttachMenu(); openFormatHelp() })
+    item.addEventListener('click', onClick)
+    parent.appendChild(item)
+    return item
   }
-  showMainOptions()
+
+  // "Datei hinzufügen" klappt Foto, Audio und Dokument direkt darunter auf, das ganze Menü bleibt dabei offen.
+  // Am Handy per Tippen, am PC reicht die Maus über dem Punkt.
+  const addFileGroup = () => {
+    const sub = document.createElement('div')
+    sub.className = 'menu-sub'
+    const toggle = addItem('Datei hinzufügen', () => setOpen(!sub.classList.contains('open')))
+    toggle.classList.add('has-sub')
+    toggle.setAttribute('aria-expanded', 'false')
+    const chevron = document.createElement('span')
+    chevron.className = 'menu-chevron'
+    chevron.textContent = '›'
+    toggle.appendChild(chevron)
+    menu.appendChild(sub)
+
+    const setOpen = (open) => {
+      sub.classList.toggle('open', open)
+      toggle.classList.toggle('open', open)
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false')
+    }
+    if (window.matchMedia('(hover: hover)').matches) toggle.addEventListener('mouseenter', () => setOpen(true))
+
+    const addSub = (label, hint, run) => addItem(label, () => { closeAttachMenu(); run() }, hint, sub).classList.add('menu-sub-item')
+    addSub('Foto', 'Bilder aus Galerie oder Kamera', () => startPhotoFlow())
+    addSub('Audio', 'MP3, M4A, WAV · bis 50 MB', () => startAudioFlow())
+    addSub('Dokument', 'PDF, Word, Excel, PowerPoint, TXT, CSV · bis 50 MB', () => startFileFlow())
+  }
+
+  if (!isPhotoBlockedSelf()) { // wer keine Fotos senden darf, bekommt "Datei hinzufügen" und die Sprachnachricht gar nicht erst
+    addFileGroup()
+    addItem('Sprachnachricht', () => { closeAttachMenu(); startVoiceFlow() })
+  }
+  addItem('Umfrage', () => { closeAttachMenu(); openPollModal() })
+  addItem('Einladung', () => { closeAttachMenu(); openInviteModal() })
+  addItem('Formatierung', () => { closeAttachMenu(); openFormatHelp() })
 
   anchorBtn.parentElement.appendChild(menu)
   applyEmojiImages(menu)
@@ -3659,18 +3684,21 @@ function getFileInput() {
   return fileInputEl
 }
 
-// onlyPdf = true: der Auswahldialog zeigt nur PDFs, sonst die anderen erlaubten Dateien
-function startFileFlow(onlyPdf) {
+// Dokument senden: der Auswahldialog zeigt PDF, Word, Excel, PowerPoint, Text und CSV
+function startFileFlow() {
   if (!currentUser || isAdmin() || currentRoom.type === 'dm-view') return
   if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos, Audios und Dateien senden.'); return }
   if (editingMessageId) { showToast('Schließe zuerst das Bearbeiten ab.'); return }
   if (!navigator.onLine) { showToast('Keine Internetverbindung.'); return }
   const input = getFileInput()
-  input.accept = onlyPdf ? '.pdf,application/pdf' : FILE_EXTENSIONS.filter(ext => ext !== 'pdf').map(ext => '.' + ext).join(',')
+  input.accept = FILE_EXTENSIONS.map(ext => '.' + ext).join(',')
   input.click()
 }
 
 async function confirmAndSendFile(file) {
+  // Wurde (z. B. am PC über "Alle Dateien") ein Foto oder Audio gewählt, geht es einfach den passenden Weg
+  if (file.type && file.type.startsWith('image/')) { startPhotoFlow(file); return }
+  if (AUDIO_EXTENSIONS.includes(fileExtOf(file.name))) { confirmAndSendAudio(file); return }
   if (!isDocumentFile(file)) { showToast('Erlaubt sind PDF, Word, Excel, PowerPoint, Text und CSV.'); return }
   if (file.size === 0) { showToast('Die Datei ist leer.'); return }
   if (file.size > FILE_MAX_BYTES) { showToast('Die Datei ist zu groß (höchstens ' + formatBytes(FILE_MAX_BYTES) + ').'); return }
@@ -9985,17 +10013,18 @@ function addGroupPickItem(list, id) {
   list.appendChild(li)
 }
 
-// "Erstellen" ist ausgegraut, bis ein Name und mindestens eine Person gewählt sind
+// "Erstellen" ist ausgegraut, bis ein Name da ist. Eine Gruppe darf auch nur aus einem selbst bestehen; nur der Admin der App
+// (der in keiner Gruppe Mitglied ist) muss mindestens eine Person wählen.
 function updateGroupModalButton() {
   const name = document.getElementById('group-name-input').value.trim()
-  document.getElementById('group-members-count').textContent = groupPicked.size + ' ausgewählt'
-  document.getElementById('group-save-btn').disabled = groupSaving || name.length < 1 || groupPicked.size < 1
+  document.getElementById('group-members-count').textContent = groupPicked.size === 0 && !isAdmin() ? 'Nur du' : groupPicked.size + ' ausgewählt'
+  document.getElementById('group-save-btn').disabled = groupSaving || name.length < 1 || groupPicked.size < (isAdmin() ? 1 : 0)
 }
 
 async function saveGroup() {
   if (groupSaving) return
   const name = document.getElementById('group-name-input').value.trim()
-  if (!name || groupPicked.size < 1) return
+  if (!name || groupPicked.size < (isAdmin() ? 1 : 0)) return
   groupSaving = true
   updateGroupModalButton()
 
