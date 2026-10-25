@@ -5060,13 +5060,25 @@ function renderMessage(msg) {
   // Nur nach unten scrollen, wenn man schon unten war (oder selbst schreibt)
   const nearBottom = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 80
 
+  if (selectMode) makeRowSelectable(row)
+
+  // Normalfall: die Nachricht ist die neueste und kommt ans Ende. Kommt sie dagegen später an als eine neuere (zwei Nachrichten
+  // fast gleichzeitig, kurzes Funkloch, Laden des Verlaufs und Live-Nachricht überschneiden sich), wird sie an die zeitlich
+  // passende Stelle gesetzt und nicht oben oder unten angehängt.
+  const msgTime = new Date(msg.created_at).getTime()
+  const later = Array.from(chatBox.children).find(el => el.dataset.createdAt && new Date(el.dataset.createdAt).getTime() > msgTime)
+  if (later) {
+    chatBox.insertBefore(row, later)
+    rebuildDateSeparators()
+    applyEmojiImages(row)
+    return
+  }
+
   const key = dateKey(msg.created_at)
   if (key !== lastMessageDateKey) {
     insertDateSeparator(msg.created_at)
     lastMessageDateKey = key
   }
-
-  if (selectMode) makeRowSelectable(row)
 
   chatBox.appendChild(row)
   applyEmojiImages(row)
@@ -6063,6 +6075,7 @@ function listenForNewMessages() {
       if (!belongsToCurrentRoom(payload.new)) return
       const msg = payload.new
       if (!profileCache[msg.sender_id]) await fetchProfileName(msg.sender_id)
+      if (!belongsToCurrentRoom(msg)) return // währenddessen in einen anderen Chat gewechselt: nicht in den falschen Chat setzen
       renderMessage(msg)
       clearTyping(msg.sender_id) // die Nachricht ist da, "tippt" ist erledigt
       // Ton nur, wenn das Fenster gerade aktiv ist. Sonst kommt über den Service Worker das Banner - nicht beides.
@@ -6352,14 +6365,35 @@ function formatDateSeparator(iso) {
   return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-function insertDateSeparator(iso) {
+function buildDateSeparator(iso) {
   const el = document.createElement('div')
   el.className = 'date-separator'
   const pill = document.createElement('span')
   pill.className = 'date-separator-pill'
   pill.textContent = formatDateSeparator(iso)
   el.appendChild(pill)
-  document.getElementById('chat-box').appendChild(el)
+  return el
+}
+
+function insertDateSeparator(iso) {
+  document.getElementById('chat-box').appendChild(buildDateSeparator(iso))
+}
+
+// Setzt alle Datums-Trenner ("Heute", "Gestern" ...) nach der Reihenfolge der Nachrichten neu. Nötig, wenn eine Nachricht
+// mitten zwischen die anderen einsortiert wurde.
+function rebuildDateSeparators() {
+  const chatBox = document.getElementById('chat-box')
+  chatBox.querySelectorAll(':scope > .date-separator').forEach(el => el.remove())
+  let lastKey = null
+  Array.from(chatBox.children).forEach(el => {
+    if (!el.dataset.id || !el.dataset.createdAt) return // nur echte Nachrichten bestimmen die Tage
+    const key = dateKey(el.dataset.createdAt)
+    if (key !== lastKey) {
+      chatBox.insertBefore(buildDateSeparator(el.dataset.createdAt), el)
+      lastKey = key
+    }
+  })
+  lastMessageDateKey = lastKey
 }
 
 // Erkennt Links (http/https, www. oder eine .de-Adresse) in einem Nachrichtentext und baut daraus
@@ -7284,7 +7318,7 @@ function renderUserDetail(u) {
   // Kurzfassung für die zugeklappte Zeile "Rechte": welche Rechte die Person gerade hat
   const rightsList = []
   if (isVipUser) rightsList.push('Besondere Rechte')
-  if (canPhoto) rightsList.push('Fotos')
+  if (canPhoto) rightsList.push('Dateien')
   if (canGroup) rightsList.push('Gruppen')
   const rightsText = rightsList.length ? rightsList.join(', ') : 'keine'
   const genderText = u.gender === 'junge' ? 'Junge' : u.gender === 'maedchen' ? 'Mädchen' : 'fehlt'
@@ -7334,7 +7368,7 @@ function renderUserDetail(u) {
 
   const rightsBody =
     rightsRow('Besondere Rechte', isVipUser, 'user-rights-switch') +
-    rightsRow('Darf Fotos, Audio und Dateien senden', canPhoto, 'user-photo-switch') +
+    rightsRow('Darf Dateien senden', canPhoto, 'user-photo-switch') +
     rightsRow('Darf Gruppen erstellen', canGroup, 'user-group-switch')
 
   // Profilfarbe: links die Vorschau mit den Initialen, daneben ein Kreis je Farbe - Antippen wählt die Farbe.
@@ -9642,14 +9676,30 @@ function showBirthdayAnnouncement(force) {
     addTitle('Heute haben ', others.map(nameOf), ' Geburtstag')
     others.forEach(id => addAgeLine(' ist jetzt ', id, '', nameOf(id), true))
   }
-  document.getElementById('birthday-close-btn').textContent = mine ? 'Danke! 🎉' : 'Alles Gute! 🎉'
-
   const modal = document.getElementById('birthday-modal')
   modal.style.display = 'flex'
   startConfetti(modal)
+
+  // Das Kreuz oben rechts: Beim automatischen Pop-up (erstes Öffnen am Tag) erscheint es erst nach 3 Sekunden, damit man den
+  // Text und das Konfetti sieht. Öffnet man das Pop-up selbst (Tipp auf "Geburtstag"), ist es sofort da.
+  const closeX = document.getElementById('birthday-x-btn')
+  clearTimeout(birthdayXTimer)
+  birthdayCloseLocked = !force
+  closeX.classList.toggle('show', !!force)
+  if (!force) {
+    birthdayXTimer = setTimeout(() => {
+      birthdayCloseLocked = false
+      closeX.classList.add('show')
+    }, 3000)
+  }
 }
 
+let birthdayXTimer = null
+let birthdayCloseLocked = false // solange das Kreuz noch nicht da ist, schließt auch ein Tipp daneben das Pop-up nicht
+
 function closeBirthdayModal() {
+  if (birthdayCloseLocked) return
+  clearTimeout(birthdayXTimer)
   stopConfetti()
   document.getElementById('birthday-modal').style.display = 'none'
 }
@@ -11985,10 +12035,14 @@ async function fetchMissedMessages() {
     return
   }
 
+  const room = currentRoom
+  // Zwei Minuten vor der neuesten bekannten Nachricht anfangen: Eine Nachricht kann eine etwas frühere Zeit haben als die letzte
+  // angezeigte, aber erst später fertig gespeichert werden. Schon angezeigte werden unten übersprungen.
+  const since = new Date(new Date(newest).getTime() - 2 * 60 * 1000).toISOString()
   let query = supabaseClient
     .from(currentTable())
     .select('*, profiles!sender_id(display_name)')
-    .gte('created_at', newest)
+    .gte('created_at', since)
     .order('created_at', { ascending: true })
 
   if (currentRoom.type === 'dm') {
@@ -12006,12 +12060,13 @@ async function fetchMissedMessages() {
   }
 
   const { data, error } = await query
-  if (error || !data) return
+  if (error || !data || currentRoom !== room) return
 
   let added = 0
   for (const msg of data) {
     if (messagesById[msg.id]) continue // schon angezeigt
     if (!profileCache[msg.sender_id]) await fetchProfileName(msg.sender_id)
+    if (currentRoom !== room) return // währenddessen den Chat gewechselt
     renderMessage(msg)
     added++
   }

@@ -46,7 +46,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261019-33">
+  <link rel="stylesheet" href="style.css?v=20261019-34">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -865,10 +865,8 @@
   <!-- Pop-up: Heute hat jemand Geburtstag (einmal pro Tag und Gerät, mit Konfetti) -->
   <div id="birthday-modal" class="modal-overlay" style="display: none;" onclick="closeBirthdayModal()">
     <div class="modal-box birthday-box" onclick="event.stopPropagation()">
+      <button type="button" id="birthday-x-btn" class="birthday-x" onclick="closeBirthdayModal()" aria-label="Schließen" title="Schließen">×</button>
       <div id="birthday-body"></div>
-      <div class="modal-actions">
-        <button type="button" id="birthday-close-btn" onclick="closeBirthdayModal()">Alles Gute! 🎉</button>
-      </div>
     </div>
   </div>
 
@@ -891,6 +889,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261019-33"></script>
+  <script src="script.js?v=20261019-34"></script>
 </body>
 </html>

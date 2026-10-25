@@ -5773,3 +5773,34 @@ body.light-theme .birthday-age-pill {
   color: var(--text-secondary);
   white-space: normal;
 }
+
+/* Geburtstags-Pop-up: Kreuz oben rechts (grau, beim Darüberfahren rot); beim ersten automatischen Öffnen erscheint es nach 3 Sekunden */
+.birthday-x {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s, color 0.15s, background 0.15s;
+}
+
+.birthday-x.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+.birthday-x:hover,
+.birthday-x:focus-visible {
+  color: #e2665f;
+  background: rgba(226, 102, 95, 0.14);
+}
