@@ -5765,7 +5765,7 @@ body.light-theme .birthday-age-pill {
   overflow-y: auto;
 }
 
-/* Plus-Menü: "Datei hinzufügen" klappt Foto / Audio / Dokument darunter auf */
+/* Plus-Menü: "Datei hinzufügen" öffnet links daneben einen eigenen Kasten mit Foto / Audio / Dokument */
 .attach-menu {
   max-width: min(270px, 86vw);
 }
@@ -5782,29 +5782,19 @@ body.light-theme .birthday-age-pill {
 .msg-menu-item.has-sub {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
 }
 
 .msg-menu-item .menu-chevron {
   color: var(--text-secondary);
-  transition: transform 0.15s;
 }
 
-.msg-menu-item.has-sub.open .menu-chevron {
-  transform: rotate(90deg);
+.msg-menu-item.has-sub.open {
+  background: var(--bg-input);
 }
 
-.menu-sub {
-  display: none;
-  background: rgba(127, 127, 127, 0.1);
-  border-left: 3px solid var(--accent);
-}
-
-.menu-sub.open {
-  display: block;
-}
-
-.msg-menu-item.menu-sub-item {
-  padding-left: 14px;
+.attach-flyout {
+  position: absolute;
+  z-index: 21;
+  min-width: 0;
 }
