@@ -5804,3 +5804,80 @@ body.light-theme .birthday-age-pill {
   color: #e2665f;
   background: rgba(226, 102, 95, 0.14);
 }
+
+/* Rückmeldung an den Admin */
+.feedback-dialog {
+  max-width: 420px;
+}
+
+.feedback-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.feedback-chip {
+  padding: 7px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.feedback-chip.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.feedback-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 15px;
+}
+
+.feedback-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.feedback-textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+.feedback-kind-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.feedback-kind-person {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.feedback-kind-problem {
+  background: rgba(226, 102, 95, 0.16);
+  color: #e2665f;
+}
+
+.feedback-kind-idee {
+  background: rgba(63, 185, 140, 0.16);
+  color: #3fb98c;
+}

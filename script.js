@@ -6888,8 +6888,9 @@ function openSettings() {
   showScreen('settings-bereich')
   document.getElementById('admin-group').style.display = isAdmin() ? '' : 'none'
   document.getElementById('push-group').style.display = isAdmin() ? 'none' : ''
+  document.getElementById('feedback-settings-group').style.display = isAdmin() ? 'none' : ''
   updateNewGroupButton()
-  if (isAdmin()) { updateReportsBadge(); updateInviteRequestsBadge() }
+  if (isAdmin()) { updateReportsBadge(); updateInviteRequestsBadge(); updateFeedbackBadge() }
   refreshPushToggleUI()
   updateInstallMenu()
 }
@@ -10608,6 +10609,268 @@ async function openInviteRequestsModal() {
     closeBtn.textContent = 'Schließen'
     closeBtn.addEventListener('click', close)
     dialog.append(info, closeBtn)
+    return
+  }
+  render()
+}
+
+// ===== Rückmeldungen an den Admin =====
+// Mitglieder können dem Admin eine Person vorschlagen, ein Problem melden oder eine Idee schicken (Einstellungen > Rückmeldung).
+// Gespeichert wird über die Datenbankfunktion send_feedback (höchstens 3 pro Tag und Person). Der Admin sieht alles unter
+// Einstellungen > Verwaltung > Rückmeldungen. Braucht rueckmeldungen.sql.
+const FEEDBACK_KINDS = {
+  person: { label: 'Person vorschlagen', tag: 'Person' },
+  problem: { label: 'Problem melden', tag: 'Problem' },
+  idee: { label: 'Idee', tag: 'Idee' }
+}
+
+function openFeedbackModal() {
+  if (!currentUser || isAdmin()) return
+  let kind = 'person'
+
+  const overlay = document.createElement('div')
+  overlay.className = 'confirm-overlay'
+  const dialog = document.createElement('div')
+  dialog.className = 'confirm-dialog feedback-dialog'
+  dialog.setAttribute('role', 'dialog')
+  dialog.setAttribute('aria-modal', 'true')
+
+  const heading = document.createElement('p')
+  heading.className = 'audio-name-heading'
+  heading.textContent = 'Rückmeldung an den Admin'
+
+  const chips = document.createElement('div')
+  chips.className = 'feedback-kinds'
+  const chipEls = {}
+  Object.keys(FEEDBACK_KINDS).forEach(key => {
+    const chip = document.createElement('button')
+    chip.type = 'button'
+    chip.className = 'feedback-chip'
+    chip.textContent = FEEDBACK_KINDS[key].label
+    chip.addEventListener('click', () => { kind = key; refresh() })
+    chipEls[key] = chip
+    chips.appendChild(chip)
+  })
+
+  const nameInput = document.createElement('input')
+  nameInput.type = 'text'
+  nameInput.className = 'feedback-input'
+  nameInput.maxLength = 80
+  nameInput.placeholder = 'Wie heißt die Person?'
+  nameInput.autocomplete = 'off'
+
+  const emailInput = document.createElement('input')
+  emailInput.type = 'email'
+  emailInput.className = 'feedback-input'
+  emailInput.maxLength = 120
+  emailInput.placeholder = 'E-Mail-Adresse, falls du sie kennst (muss nicht)'
+  emailInput.autocomplete = 'off'
+
+  const textArea = document.createElement('textarea')
+  textArea.className = 'feedback-input feedback-textarea'
+  textArea.maxLength = 500
+  textArea.rows = 4
+
+  const buttons = document.createElement('div')
+  buttons.className = 'confirm-buttons'
+  const cancelBtn = document.createElement('button')
+  cancelBtn.type = 'button'
+  cancelBtn.className = 'confirm-cancel'
+  cancelBtn.textContent = 'Abbrechen'
+  const sendBtn = document.createElement('button')
+  sendBtn.type = 'button'
+  sendBtn.className = 'confirm-ok'
+  sendBtn.textContent = 'Senden'
+  buttons.append(cancelBtn, sendBtn)
+
+  dialog.append(heading, chips, nameInput, emailInput, textArea, buttons)
+  overlay.appendChild(dialog)
+  document.body.appendChild(overlay)
+
+  const isValid = () => kind === 'person' ? nameInput.value.trim().length >= 1 : textArea.value.trim().length >= 3
+  const refresh = () => {
+    Object.keys(chipEls).forEach(key => chipEls[key].classList.toggle('selected', key === kind))
+    const person = kind === 'person'
+    nameInput.style.display = person ? '' : 'none'
+    emailInput.style.display = person ? '' : 'none'
+    textArea.placeholder = person ? 'Warum soll die Person in den Chat? (muss nicht)'
+      : kind === 'problem' ? 'Was ist kaputt oder komisch?' : 'Was könnte besser werden?'
+    sendBtn.disabled = !isValid()
+  }
+  refresh()
+  ;[nameInput, textArea].forEach(el => el.addEventListener('input', refresh))
+
+  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove() }
+  const onKey = e => { if (e.key === 'Escape') close() }
+  document.addEventListener('keydown', onKey)
+  cancelBtn.addEventListener('click', close)
+  overlay.addEventListener('click', e => { if (e.target === overlay) close() })
+
+  sendBtn.addEventListener('click', async () => {
+    if (!isValid()) return
+    sendBtn.disabled = true
+    const { error } = await supabaseClient.rpc('send_feedback', {
+      p_kind: kind,
+      p_person_name: kind === 'person' ? nameInput.value : null,
+      p_person_email: kind === 'person' ? emailInput.value : null,
+      p_message: textArea.value
+    })
+    if (error) {
+      sendBtn.disabled = false
+      showToast(error.message || 'Das hat nicht geklappt. Bitte versuche es später nochmal.')
+      return
+    }
+    close()
+    showToast('Danke! Der Admin sieht deine Rückmeldung.', 'success')
+  })
+
+  setTimeout(() => (kind === 'person' ? nameInput : textArea).focus(), 50)
+}
+
+let feedbackItems = []
+
+async function loadFeedback() {
+  // Mit dem Namen der Person; klappt das nicht (Beziehung nicht gefunden), ohne
+  let res = await supabaseClient
+    .from('feedback')
+    .select('*, profiles!user_id(display_name)')
+    .eq('handled', false)
+    .order('created_at', { ascending: false })
+    .limit(100)
+  if (res.error) {
+    res = await supabaseClient.from('feedback').select('*').eq('handled', false).order('created_at', { ascending: false }).limit(100)
+  }
+  if (res.error) {
+    feedbackItems = []
+    return false
+  }
+  feedbackItems = res.data || []
+  return true
+}
+
+async function updateFeedbackBadge() {
+  const badge = document.getElementById('feedback-badge')
+  if (!badge || !isAdmin()) return
+  await loadFeedback()
+  badge.textContent = String(feedbackItems.length)
+  badge.style.display = feedbackItems.length > 0 ? '' : 'none'
+}
+
+async function openFeedbackListModal() {
+  if (!isAdmin()) return
+  const overlay = document.createElement('div')
+  overlay.className = 'confirm-overlay'
+  const dialog = document.createElement('div')
+  dialog.className = 'confirm-dialog reports-dialog'
+  dialog.setAttribute('role', 'dialog')
+  dialog.setAttribute('aria-modal', 'true')
+  overlay.appendChild(dialog)
+  document.body.appendChild(overlay)
+
+  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); updateFeedbackBadge() }
+  const onKey = e => { if (e.key === 'Escape') close() }
+  document.addEventListener('keydown', onKey)
+  overlay.addEventListener('click', e => { if (e.target === overlay) close() })
+
+  const markHandled = async (item) => {
+    const { error } = await supabaseClient.from('feedback').update({ handled: true }).eq('id', item.id)
+    if (error) { showToast('Speichern hat nicht geklappt: ' + error.message); return false }
+    feedbackItems = feedbackItems.filter(f => f.id !== item.id)
+    return true
+  }
+
+  const addCloseButton = () => {
+    const closeBtn = document.createElement('button')
+    closeBtn.type = 'button'
+    closeBtn.className = 'confirm-cancel'
+    closeBtn.textContent = 'Schließen'
+    closeBtn.addEventListener('click', close)
+    dialog.appendChild(closeBtn)
+  }
+
+  const render = () => {
+    dialog.innerHTML = ''
+    const heading = document.createElement('p')
+    heading.className = 'audio-name-heading'
+    heading.textContent = feedbackItems.length === 0 ? 'Keine offenen Rückmeldungen' : 'Rückmeldungen (' + feedbackItems.length + ')'
+    dialog.appendChild(heading)
+
+    const list = document.createElement('div')
+    list.className = 'reports-list'
+    feedbackItems.forEach(item => {
+      const kindInfo = FEEDBACK_KINDS[item.kind] || { tag: item.kind }
+      const box = document.createElement('div')
+      box.className = 'report-item'
+
+      const head = document.createElement('div')
+      head.className = 'report-head'
+      const tag = document.createElement('span')
+      tag.className = 'feedback-kind-tag feedback-kind-' + item.kind
+      tag.textContent = kindInfo.tag
+      head.appendChild(tag)
+      if (item.kind === 'person' && item.person_name) head.appendChild(document.createTextNode(' ' + item.person_name))
+
+      const sender = (item.profiles && item.profiles.display_name) || (profileCache[item.user_id] && profileCache[item.user_id].name) || 'Jemand'
+      const meta = document.createElement('div')
+      meta.className = 'report-meta'
+      meta.textContent = 'Von ' + sender + ' · ' + formatTime(item.created_at)
+      box.append(head, meta)
+
+      if (item.person_email) {
+        const mail = document.createElement('div')
+        mail.className = 'report-meta'
+        mail.textContent = 'E-Mail: ' + item.person_email
+        box.appendChild(mail)
+      }
+      if (item.message) {
+        const note = document.createElement('div')
+        note.className = 'invite-request-message'
+        note.textContent = item.message
+        box.appendChild(note)
+      }
+
+      const actions = document.createElement('div')
+      actions.className = 'report-actions'
+      const doneBtn = document.createElement('button')
+      doneBtn.type = 'button'
+      doneBtn.className = 'confirm-cancel'
+      doneBtn.textContent = 'Erledigt'
+      doneBtn.addEventListener('click', async () => { if (await markHandled(item)) render() })
+      actions.appendChild(doneBtn)
+
+      if (item.kind === 'person') {
+        const inviteBtn = document.createElement('button')
+        inviteBtn.type = 'button'
+        inviteBtn.className = 'confirm-ok'
+        inviteBtn.textContent = 'Einladen'
+        inviteBtn.addEventListener('click', async () => {
+          // Die Einladungsseite öffnet sich mit der E-Mail-Adresse schon eingetragen (falls angegeben)
+          close()
+          openNewUser()
+          if (item.person_email) {
+            document.getElementById('new-user-email').value = item.person_email
+            updateInviteButton()
+          } else {
+            showToast('Keine E-Mail-Adresse angegeben. Trag sie ein, wenn du sie hast.')
+          }
+          await markHandled(item)
+          updateFeedbackBadge()
+        })
+        actions.appendChild(inviteBtn)
+      }
+
+      box.appendChild(actions)
+      list.appendChild(box)
+    })
+    dialog.appendChild(list)
+    addCloseButton()
+  }
+
+  if (!(await loadFeedback())) {
+    const info = document.createElement('p')
+    info.textContent = 'Die Rückmeldungen konnten nicht geladen werden (ist rueckmeldungen.sql schon ausgeführt?).'
+    dialog.appendChild(info)
+    addCloseButton()
     return
   }
   render()

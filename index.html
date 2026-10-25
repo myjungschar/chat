@@ -46,7 +46,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261019-34">
+  <link rel="stylesheet" href="style.css?v=20261025-1">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -282,6 +282,18 @@
           </div>
         </section>
 
+        <section class="settings-group" id="feedback-settings-group" style="display: none;">
+          <h3 class="settings-group-title">Rückmeldung</h3>
+          <div class="settings-group-body">
+            <ul class="settings-menu">
+              <li id="menu-feedback" onclick="openFeedbackModal()">
+                <span>Person vorschlagen, Problem oder Idee melden</span>
+                <span class="settings-arrow">›</span>
+              </li>
+            </ul>
+          </div>
+        </section>
+
         <section class="settings-group" id="group-settings-group" style="display: none;">
           <h3 class="settings-group-title">Gruppen</h3>
           <div class="settings-group-body">
@@ -361,6 +373,10 @@
               <li id="menu-invite-requests" onclick="openInviteRequestsModal()">
                 <span>Einladungs-Anfragen</span>
                 <span class="settings-arrow"><span class="reports-badge" id="invite-requests-badge" style="display: none;"></span>›</span>
+              </li>
+              <li id="menu-feedback-admin" onclick="openFeedbackListModal()">
+                <span>Rückmeldungen</span>
+                <span class="settings-arrow"><span class="reports-badge" id="feedback-badge" style="display: none;"></span>›</span>
               </li>
               <li id="menu-reports" onclick="openReportsModal()">
                 <span>Meldungen</span>
@@ -889,6 +905,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261019-34"></script>
+  <script src="script.js?v=20261025-1"></script>
 </body>
 </html>
