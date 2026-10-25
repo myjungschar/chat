@@ -5760,7 +5760,7 @@ body.light-theme .birthday-age-pill {
   overflow-y: auto;
 }
 
-/* Plus-Menü: Menüpunkte mit kleiner grauer Zeile darunter (was geht) */
+/* Plus-Menü: "Datei" öffnet daneben ein eigenes Feld mit Foto / Audio / Dokument (jeweils mit kleiner grauer Zeile, was geht) */
 .attach-menu {
   max-width: min(270px, 86vw);
 }
@@ -5772,6 +5772,16 @@ body.light-theme .birthday-age-pill {
   line-height: 1.3;
   color: var(--text-secondary);
   white-space: normal;
+}
+
+.msg-menu-item.has-sub.open {
+  background: var(--bg-input);
+}
+
+.attach-flyout {
+  position: absolute;
+  z-index: 21;
+  min-width: 0;
 }
 
 /* Geburtstags-Pop-up: Kreuz oben rechts (grau, beim Darüberfahren rot); beim ersten automatischen Öffnen erscheint es nach 3 Sekunden */

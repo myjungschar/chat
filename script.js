@@ -2190,6 +2190,7 @@ let openAttachMenuEl = null
 
 function closeAttachMenu() {
   if (openAttachMenuEl) {
+    if (openAttachMenuEl._flyout) openAttachMenuEl._flyout.remove() // das Feld mit Foto / Audio / Dokument
     openAttachMenuEl.remove()
     openAttachMenuEl = null
   }
@@ -2224,16 +2225,87 @@ function toggleAttachMenu(anchorBtn, evt) {
     return item
   }
 
-  // Ganz normale Liste. Unter Foto, Audio und Dokument steht in kleiner Schrift, was jeweils geht.
-  if (!isPhotoBlockedSelf()) { // wer keine Fotos senden darf, bekommt Foto, Audio, Dokument und die Sprachnachricht gar nicht erst
-    addItem('Foto', () => { closeAttachMenu(); startPhotoFlow() }, 'Bilder aus Galerie oder Kamera')
-    addItem('Audio', () => { closeAttachMenu(); startAudioFlow() }, 'MP3, M4A, WAV · bis 50 MB')
-    addItem('Dokument', () => { closeAttachMenu(); startFileFlow() }, 'PDF, Word, Excel, PowerPoint, TXT, CSV · bis 50 MB')
+  // "Datei" ist ein ganz normaler Listeneintrag ohne Pfeil. Hält man darauf (am PC: Maus eine Sekunde darauf lassen) oder tippt man,
+  // geht links daneben ein eigenes kleines Feld mit Foto, Audio und Dokument auf; in der Liste verschiebt sich nichts.
+  // Ist links zu wenig Platz (schmales Handy), steht das Feld stattdessen direkt über dem Menü.
+  const HOVER_OPEN_MS = 1000
+  const addFileGroup = () => {
+    let flyout = null
+    let hoverTimer = null
+    let leaveTimer = null
+
+    const toggle = addItem('Datei', () => { if (flyout) closeFlyout(); else openFlyout() })
+    toggle.classList.add('has-sub')
+    toggle.setAttribute('aria-haspopup', 'true')
+    toggle.setAttribute('aria-expanded', 'false')
+
+    const closeFlyout = () => {
+      clearTimeout(hoverTimer)
+      clearTimeout(leaveTimer)
+      if (flyout) { flyout.remove(); flyout = null; menu._flyout = null }
+      toggle.classList.remove('open')
+      toggle.setAttribute('aria-expanded', 'false')
+    }
+    menu._closeFlyout = closeFlyout
+
+    const openFlyout = () => {
+      if (flyout) return
+      flyout = document.createElement('div')
+      flyout.className = 'msg-menu attach-flyout'
+      flyout.addEventListener('click', e => e.stopPropagation())
+      const addSub = (label, hint, run) => addItem(label, () => { closeAttachMenu(); run() }, hint, flyout)
+      addSub('Foto', 'Bilder aus Galerie oder Kamera', () => startPhotoFlow())
+      addSub('Audio', 'MP3, M4A, WAV · bis 50 MB', () => startAudioFlow())
+      addSub('Dokument', 'PDF, Word, Excel, PowerPoint, TXT, CSV · bis 50 MB', () => startFileFlow())
+
+      flyout.style.visibility = 'hidden'
+      menu.parentElement.appendChild(flyout)
+      menu._flyout = flyout
+
+      const container = flyout.offsetParent || menu.parentElement
+      const room = menu.getBoundingClientRect().left - 10
+      if (room >= 160) {
+        flyout.style.width = Math.min(230, room - 6) + 'px'
+        flyout.style.right = (container.clientWidth - menu.offsetLeft + 6) + 'px'
+        flyout.style.top = (menu.offsetTop + toggle.offsetTop) + 'px'
+        flyout.style.bottom = 'auto'
+      } else {
+        flyout.style.width = Math.min(230, menu.offsetWidth + 40) + 'px'
+        flyout.style.right = (container.clientWidth - menu.offsetLeft - menu.offsetWidth) + 'px'
+        flyout.style.bottom = (container.clientHeight - menu.offsetTop + 6) + 'px'
+        flyout.style.top = 'auto'
+      }
+      flyout.style.visibility = ''
+
+      flyout.addEventListener('mouseenter', () => clearTimeout(leaveTimer))
+      flyout.addEventListener('mouseleave', () => { leaveTimer = setTimeout(closeFlyout, 250) })
+      toggle.classList.add('open')
+      toggle.setAttribute('aria-expanded', 'true')
+    }
+
+    if (window.matchMedia('(hover: hover)').matches) {
+      toggle.addEventListener('mouseenter', () => {
+        clearTimeout(leaveTimer)
+        if (!flyout) hoverTimer = setTimeout(openFlyout, HOVER_OPEN_MS)
+      })
+      toggle.addEventListener('mouseleave', () => {
+        clearTimeout(hoverTimer)
+        if (flyout) leaveTimer = setTimeout(closeFlyout, 250)
+      })
+    }
+  }
+
+  if (!isPhotoBlockedSelf()) { // wer keine Fotos senden darf, bekommt "Datei" und die Sprachnachricht gar nicht erst
+    addFileGroup()
     addItem('Sprachnachricht', () => { closeAttachMenu(); startVoiceFlow() })
   }
   addItem('Umfrage', () => { closeAttachMenu(); openPollModal() })
   addItem('Einladung', () => { closeAttachMenu(); openInviteModal() })
   addItem('Formatierung', () => { closeAttachMenu(); openFormatHelp() })
+  // Geht die Maus auf einen anderen Menüpunkt, geht das Feld wieder zu
+  menu.querySelectorAll(':scope > .msg-menu-item').forEach(item => {
+    if (!item.classList.contains('has-sub')) item.addEventListener('mouseenter', () => { if (menu._closeFlyout) menu._closeFlyout() })
+  })
 
   anchorBtn.parentElement.appendChild(menu)
   applyEmojiImages(menu)
