@@ -5544,14 +5544,9 @@ body.light-theme .birthday-age-pill {
     margin: 6px 8px 0;
   }
 
-  /* Eingabezeile: höher, damit sie nicht an der unteren Leiste klebt oder dahinter verschwindet */
+  /* Eingabezeile: unten nur ein kleiner Abstand (plus Sicherheitszone des Geräts), egal ob die Tastatur offen ist oder nicht */
   #conversation-bereich .chat-input-area {
-    padding: 8px 8px calc(12px + env(safe-area-inset-bottom, 0px) + var(--bottom-lift));
-  }
-
-  /* Ist die Tastatur offen (man tippt gerade), braucht es den Platz nicht: die Eingabezeile sitzt direkt über der Tastatur */
-  body:has(#message-input:focus) #conversation-bereich .chat-input-area {
-    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    padding: 8px 8px calc(10px + env(safe-area-inset-bottom, 0px));
   }
 
   /* Listen und Einstellungen: unten Luft, damit das Letzte nicht hinter der Leiste hängt */
@@ -5765,7 +5760,7 @@ body.light-theme .birthday-age-pill {
   overflow-y: auto;
 }
 
-/* Plus-Menü: "Datei hinzufügen" öffnet links daneben einen eigenen Kasten mit Foto / Audio / Dokument */
+/* Plus-Menü: Menüpunkte mit kleiner grauer Zeile darunter (was geht) */
 .attach-menu {
   max-width: min(270px, 86vw);
 }
@@ -5777,24 +5772,4 @@ body.light-theme .birthday-age-pill {
   line-height: 1.3;
   color: var(--text-secondary);
   white-space: normal;
-}
-
-.msg-menu-item.has-sub {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.msg-menu-item .menu-chevron {
-  color: var(--text-secondary);
-}
-
-.msg-menu-item.has-sub.open {
-  background: var(--bg-input);
-}
-
-.attach-flyout {
-  position: absolute;
-  z-index: 21;
-  min-width: 0;
 }
