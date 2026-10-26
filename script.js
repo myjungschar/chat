@@ -10687,18 +10687,39 @@ async function openInviteRequestsModal() {
 }
 
 // ===== Rückmeldungen an den Admin =====
-// Mitglieder können dem Admin eine Person vorschlagen, ein Problem melden oder eine Idee schicken (Einstellungen > Rückmeldung).
+// Mitglieder können dem Admin sagen, wen sie vermissen (E-Mail-Adresse), ein Problem melden oder einen Verbesserungsvorschlag schicken
+// (Einstellungen > Rückmeldung, drei einzelne Einträge).
 // Gespeichert wird über die Datenbankfunktion send_feedback (höchstens 3 pro Tag und Person). Der Admin sieht alles unter
 // Einstellungen > Verwaltung > Rückmeldungen. Braucht rueckmeldungen.sql.
 const FEEDBACK_KINDS = {
-  person: { label: 'Person vorschlagen', tag: 'Person' },
-  problem: { label: 'Problem melden', tag: 'Problem' },
-  idee: { label: 'Idee', tag: 'Idee' }
+  person: { tag: 'Person' },
+  problem: { tag: 'Problem' },
+  idee: { tag: 'Idee' }
 }
 
-function openFeedbackModal() {
-  if (!currentUser || isAdmin()) return
-  let kind = 'person'
+// Die drei Formulare (je ein eigener Eintrag in den Einstellungen)
+const FEEDBACK_FORMS = {
+  person: {
+    title: 'Vermisst du jemanden?',
+    hint: 'Schreib die E-Mail-Adresse der Person. Alles Weitere erledigt der Admin.',
+    placeholder: 'Noch etwas dazu? (muss nicht)'
+  },
+  problem: {
+    title: 'Hast du ein Problem?',
+    hint: 'Was funktioniert bei dir nicht?',
+    placeholder: 'Beschreib kurz, was passiert …'
+  },
+  idee: {
+    title: 'Verbesserungsvorschlag',
+    hint: 'Was kann man hier noch ändern oder besser machen?',
+    placeholder: 'Deine Idee …'
+  }
+}
+
+function openFeedbackModal(kind = 'problem') {
+  if (!currentUser || isAdmin() || !FEEDBACK_FORMS[kind]) return
+  const form = FEEDBACK_FORMS[kind]
+  const person = kind === 'person'
 
   const overlay = document.createElement('div')
   overlay.className = 'confirm-overlay'
@@ -10709,39 +10730,25 @@ function openFeedbackModal() {
 
   const heading = document.createElement('p')
   heading.className = 'audio-name-heading'
-  heading.textContent = 'Rückmeldung an den Admin'
+  heading.textContent = form.title
 
-  const chips = document.createElement('div')
-  chips.className = 'feedback-kinds'
-  const chipEls = {}
-  Object.keys(FEEDBACK_KINDS).forEach(key => {
-    const chip = document.createElement('button')
-    chip.type = 'button'
-    chip.className = 'feedback-chip'
-    chip.textContent = FEEDBACK_KINDS[key].label
-    chip.addEventListener('click', () => { kind = key; refresh() })
-    chipEls[key] = chip
-    chips.appendChild(chip)
-  })
-
-  const nameInput = document.createElement('input')
-  nameInput.type = 'text'
-  nameInput.className = 'feedback-input'
-  nameInput.maxLength = 80
-  nameInput.placeholder = 'Wie heißt die Person?'
-  nameInput.autocomplete = 'off'
+  const hint = document.createElement('p')
+  hint.className = 'feedback-hint'
+  hint.textContent = form.hint
 
   const emailInput = document.createElement('input')
   emailInput.type = 'email'
   emailInput.className = 'feedback-input'
   emailInput.maxLength = 120
-  emailInput.placeholder = 'E-Mail-Adresse, falls du sie kennst (muss nicht)'
+  emailInput.placeholder = 'E-Mail-Adresse der Person'
   emailInput.autocomplete = 'off'
+  emailInput.inputMode = 'email'
 
   const textArea = document.createElement('textarea')
   textArea.className = 'feedback-input feedback-textarea'
   textArea.maxLength = 500
-  textArea.rows = 4
+  textArea.rows = person ? 3 : 5
+  textArea.placeholder = form.placeholder
 
   const buttons = document.createElement('div')
   buttons.className = 'confirm-buttons'
@@ -10755,22 +10762,18 @@ function openFeedbackModal() {
   sendBtn.textContent = 'Senden'
   buttons.append(cancelBtn, sendBtn)
 
-  dialog.append(heading, chips, nameInput, emailInput, textArea, buttons)
+  dialog.append(heading, hint)
+  if (person) dialog.appendChild(emailInput)
+  dialog.append(textArea, buttons)
   overlay.appendChild(dialog)
   document.body.appendChild(overlay)
 
-  const isValid = () => kind === 'person' ? nameInput.value.trim().length >= 1 : textArea.value.trim().length >= 3
-  const refresh = () => {
-    Object.keys(chipEls).forEach(key => chipEls[key].classList.toggle('selected', key === kind))
-    const person = kind === 'person'
-    nameInput.style.display = person ? '' : 'none'
-    emailInput.style.display = person ? '' : 'none'
-    textArea.placeholder = person ? 'Warum soll die Person in den Chat? (muss nicht)'
-      : kind === 'problem' ? 'Was ist kaputt oder komisch?' : 'Was könnte besser werden?'
-    sendBtn.disabled = !isValid()
-  }
+  const isValid = () => person
+    ? /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailInput.value.trim())
+    : textArea.value.trim().length >= 3
+  const refresh = () => { sendBtn.disabled = !isValid() }
   refresh()
-  ;[nameInput, textArea].forEach(el => el.addEventListener('input', refresh))
+  ;[emailInput, textArea].forEach(el => el.addEventListener('input', refresh))
 
   const close = () => { document.removeEventListener('keydown', onKey); overlay.remove() }
   const onKey = e => { if (e.key === 'Escape') close() }
@@ -10783,8 +10786,8 @@ function openFeedbackModal() {
     sendBtn.disabled = true
     const { error } = await supabaseClient.rpc('send_feedback', {
       p_kind: kind,
-      p_person_name: kind === 'person' ? nameInput.value : null,
-      p_person_email: kind === 'person' ? emailInput.value : null,
+      p_person_name: null,
+      p_person_email: person ? emailInput.value : null,
       p_message: textArea.value
     })
     if (error) {
@@ -10796,7 +10799,7 @@ function openFeedbackModal() {
     showToast('Danke! Der Admin sieht deine Rückmeldung.', 'success')
   })
 
-  setTimeout(() => (kind === 'person' ? nameInput : textArea).focus(), 50)
+  setTimeout(() => (person ? emailInput : textArea).focus(), 50)
 }
 
 let feedbackItems = []
@@ -10880,7 +10883,7 @@ async function openFeedbackListModal() {
       tag.className = 'feedback-kind-tag feedback-kind-' + item.kind
       tag.textContent = kindInfo.tag
       head.appendChild(tag)
-      if (item.kind === 'person' && item.person_name) head.appendChild(document.createTextNode(' ' + item.person_name))
+      if (item.kind === 'person' && (item.person_name || item.person_email)) head.appendChild(document.createTextNode(' ' + (item.person_name || item.person_email)))
 
       const sender = (item.profiles && item.profiles.display_name) || (profileCache[item.user_id] && profileCache[item.user_id].name) || 'Jemand'
       const meta = document.createElement('div')
@@ -10888,7 +10891,7 @@ async function openFeedbackListModal() {
       meta.textContent = 'Von ' + sender + ' · ' + formatTime(item.created_at)
       box.append(head, meta)
 
-      if (item.person_email) {
+      if (item.person_email && item.person_name) {
         const mail = document.createElement('div')
         mail.className = 'report-meta'
         mail.textContent = 'E-Mail: ' + item.person_email

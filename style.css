@@ -5820,27 +5820,11 @@ body.light-theme .birthday-age-pill {
   max-width: 420px;
 }
 
-.feedback-kinds {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 4px 0 12px;
-}
-
-.feedback-chip {
-  padding: 7px 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-secondary);
+.feedback-hint {
+  margin: 0 0 12px;
   font-size: 13px;
-  cursor: pointer;
-}
-
-.feedback-chip.selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
+  line-height: 1.4;
+  color: var(--text-secondary);
 }
 
 .feedback-input {
