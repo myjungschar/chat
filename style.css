@@ -5891,3 +5891,14 @@ body.light-theme .birthday-age-pill {
   background: rgba(63, 185, 140, 0.16);
   color: #3fb98c;
 }
+
+/* Handy: Nachrichten lassen sich nicht mehr per langem Drücken "markieren". Sonst wählt der Browser (Chrome) das Wort aus und zeigt
+   "Suchen" / Google an, noch bevor oder während das Nachrichten-Menü aufgeht. Kopieren geht weiter über das Menü ("Kopieren"). */
+@media (hover: none) and (pointer: coarse) {
+  .msg,
+  .msg * {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
