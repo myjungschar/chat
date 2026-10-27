@@ -46,7 +46,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261026-1">
+  <link rel="stylesheet" href="style.css?v=20261027-1">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -901,10 +901,18 @@
         <span class="poll-modal-icon">🎂</span>
         <p class="info-title">Dein Geburtsdatum</p>
       </div>
-      <p class="birthdate-text">Bitte trage es einmal ein. Die anderen Mitglieder sehen es in deinem Profil.</p>
+      <p class="birthdate-text">Bitte trage dein richtiges Geburtsdatum ein. Die anderen Mitglieder sehen es in deinem Profil.</p>
       <div class="input-group">
-        <label for="birthdate-input">Geburtsdatum</label>
-        <input type="date" id="birthdate-input" autocomplete="bday" oninput="onBirthdateInput()" onchange="onBirthdateInput()">
+        <label for="birthdate-day">Geburtsdatum</label>
+        <input type="hidden" id="birthdate-input">
+        <div class="birthdate-fields">
+          <input type="text" id="birthdate-day" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="Tag" autocomplete="off" aria-label="Tag" oninput="onBirthdatePartInput('day')">
+          <span class="birthdate-sep">.</span>
+          <input type="text" id="birthdate-month" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="Monat" autocomplete="off" aria-label="Monat" oninput="onBirthdatePartInput('month')" onkeydown="onBirthdateKey(event, 'month')">
+          <span class="birthdate-sep">.</span>
+          <input type="text" id="birthdate-year" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Jahr" autocomplete="off" aria-label="Jahr" oninput="onBirthdatePartInput('year')" onkeydown="onBirthdateKey(event, 'year')">
+        </div>
+        <div class="birthdate-years" id="birthdate-years"></div>
         <p class="field-error" id="birthdate-error" style="display: none;"></p>
       </div>
       <button type="submit" id="birthdate-save-btn" disabled>Speichern</button>
@@ -913,6 +921,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261026-1"></script>
+  <script src="script.js?v=20261027-1"></script>
 </body>
 </html>

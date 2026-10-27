@@ -27,9 +27,10 @@ Ein privater, webbasierter Gruppen-Chat für unsere Jungschar mit Login-System u
 * 🔎 **Suche in der Chatliste:** Die Suchleiste filtert Chats und durchsucht zugleich die Nachrichten aller Chats, die man sehen darf. Ein Tipp auf ein Ergebnis öffnet den Chat und springt zur Nachricht.
 * ⏳ **Schnell geladen:** Beim Laden erscheinen graue Platzhalter statt einer leeren Seite.
 * 🔔 **Benachrichtigungen:** Web-Push (auch bei geschlossener App) und ein Ton mit einstellbarer Lautstärke.
-* 🎂 **Profile und Geburtstage:** Geburtsdatum, Profil-Pop-up und Geburtstags-Pop-up mit Konfetti. Die Profilfarbe kann der Admin ändern.
+* 🎂 **Profile und Geburtstage:** Geburtsdatum (Eingabe in drei Zahlenfeldern mit Schnellwahl fürs Jahr), Profil-Pop-up und Geburtstags-Pop-up mit Konfetti. Die Profilfarbe kann der Admin ändern.
+* ⚙️ **Einstellungen:** Die Gruppen (Konto, Gruppen, Darstellung ...) lassen sich über ihre Überschrift zu- und aufklappen; das Gerät merkt sich den Stand.
 * 🛡️ **Sicherheit & Datenbank:** XSS-Schutz für Nachrichten, Rechte über Row Level Security und Datenbankfunktionen, automatischer Ringpuffer in PostgreSQL (max. 300 Nachrichten pro Chat).
-* 🛠️ **Verwaltung (Admin):** Nutzer einladen, sperren und löschen, Besondere Rechte (VIP, Foto-Sperre, Gruppen erstellen), Geburtsdatum und Profilfarbe ändern. Der Admin liest überall mit und schreibt nie.
+* 🛠️ **Verwaltung (Admin):** Nutzer einladen, sperren und löschen, Besondere Rechte (VIP, Foto-Sperre, Gruppen erstellen), Geburtsdatum ändern oder neu abfragen lassen, Profilfarbe ändern. Der Admin liest überall mit und schreibt nie.
 
 ---
 

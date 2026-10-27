@@ -5886,3 +5886,80 @@ body.light-theme .birthday-age-pill {
     -webkit-touch-callout: none;
   }
 }
+
+/* Einstellungen: Gruppen lassen sich über die Überschrift zuklappen */
+.settings-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.settings-group-title::after {
+  content: '▾';
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: transform 0.15s;
+}
+
+.settings-group.collapsed .settings-group-title::after {
+  transform: rotate(-90deg);
+}
+
+.settings-group.collapsed .settings-group-body {
+  display: none;
+}
+
+/* Geburtsdatum: drei Zahlenfelder (Tag, Monat, Jahr) und Schnellwahl fürs Jahr */
+#birthdate-modal .birthdate-fields {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#birthdate-modal .birthdate-fields input {
+  flex: 0 0 auto;
+  width: 4.4em;
+  padding: 12px 6px;
+  text-align: center;
+  font-size: 20px;
+}
+
+#birthdate-modal .birthdate-fields #birthdate-year {
+  width: 5.8em;
+}
+
+#birthdate-modal .birthdate-sep {
+  font-size: 22px;
+  color: var(--text-secondary);
+}
+
+#birthdate-modal .birthdate-years {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+#birthdate-modal .birthdate-year-chip {
+  width: auto;
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+#birthdate-modal .birthdate-year-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

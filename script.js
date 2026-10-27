@@ -7468,6 +7468,7 @@ function renderUserDetail(u) {
       </div>
       <p class="field-error" id="user-birth-error" style="display: none;"></p>
       <button type="button" class="user-color-btn" id="user-birth-save-btn" disabled>Geburtsdatum speichern</button>
+      <button type="button" class="user-color-btn" id="user-birth-reset-btn">Neu abfragen (Pop-up nochmal zeigen)</button>
     </div>`
 
   box.innerHTML =
@@ -7723,6 +7724,31 @@ function setupAdminBirthdate(user) {
   }
   ;[daySel, monthSel, yearSel].forEach(sel => sel.addEventListener('change', refresh))
   refresh()
+
+  // "Neu abfragen": löscht das gespeicherte Datum; die Person bekommt beim nächsten Öffnen der App das Pop-up "Dein Geburtsdatum" nochmal.
+  // Ohne gespeichertes Datum gibt es nichts zu tun (die Person wird ohnehin gefragt).
+  const resetBtn = document.getElementById('user-birth-reset-btn')
+  if (!saved) resetBtn.style.display = 'none'
+  resetBtn.addEventListener('click', async () => {
+    if (!isAdmin() || !saved) return
+    const name = user.display_name || 'Die Person'
+    const shown = saved.split('-').reverse().join('.')
+    const ok = await askConfirm('Das Geburtsdatum von ' + name + ' (' + shown + ') löschen? ' + name + ' bekommt beim nächsten Öffnen der App das Pop-up und trägt es neu ein.', { okText: 'Neu abfragen', danger: true })
+    if (!ok) return
+    resetBtn.disabled = true
+    const { data, error } = await supabaseClient.from('profiles').update({ birthdate: null }).eq('id', user.id).select('id')
+    if (error || !data || data.length === 0) {
+      errorEl.textContent = error ? error.message : 'Änderung nicht erlaubt.'
+      errorEl.style.display = ''
+      resetBtn.disabled = false
+      return
+    }
+    user.birthdate = null
+    if (profileCache[user.id]) profileCache[user.id].birthdate = null
+    showToast(name + ' wird beim nächsten Öffnen nach dem Geburtsdatum gefragt.', 'success')
+    renderUserDetail(user)
+    renderChatList() // Geburtstags-Markierungen neu setzen
+  })
 
   saveBtn.addEventListener('click', async () => {
     if (!isAdmin()) return
@@ -11773,14 +11799,71 @@ function ensureBirthdate() {
   if (!needsBirthdate()) return
   const modal = document.getElementById('birthdate-modal')
   if (modal.style.display === 'flex') return
-  const input = document.getElementById('birthdate-input')
-  input.min = isoDateYearsAgo(BIRTH_MAX_AGE)
-  input.max = isoDateYearsAgo(BIRTH_MIN_AGE)
-  input.value = ''
+  document.getElementById('birthdate-input').value = ''
+  ;['day', 'month', 'year'].forEach(part => { document.getElementById('birthdate-' + part).value = '' })
+  renderBirthYearChips()
   hideBirthdateError()
   document.getElementById('birthdate-save-btn').disabled = true
   modal.style.display = 'flex'
-  if (desktopQuery.matches) input.focus()
+  setTimeout(() => document.getElementById('birthdate-day').focus(), 50) // Zahlentastatur sofort offen: Tag, Monat, Jahr
+}
+
+// Eingabe in drei Feldern (Tag, Monat, Jahr) mit Zahlentastatur. Nach Tag und Monat springt der Cursor von selbst weiter.
+function onBirthdatePartInput(part) {
+  const fields = {
+    day: document.getElementById('birthdate-day'),
+    month: document.getElementById('birthdate-month'),
+    year: document.getElementById('birthdate-year')
+  }
+  const el = fields[part]
+  el.value = el.value.replace(/\D/g, '')
+  // Ist schon klar, dass es nur eine Ziffer sein kann (Tag ab 4, Monat ab 2), wird die Null davor ergänzt: "5" wird "05"
+  if (part === 'day' && el.value.length === 1 && Number(el.value) > 3) el.value = '0' + el.value
+  if (part === 'month' && el.value.length === 1 && Number(el.value) > 1) el.value = '0' + el.value
+  if (part === 'day' && el.value.length >= 2) fields.month.focus()
+  if (part === 'month' && el.value.length >= 2) fields.year.focus()
+  updateBirthdateValue()
+}
+
+// Rück-Taste in einem leeren Feld: zurück ins vorherige Feld
+function onBirthdateKey(event, part) {
+  if (event.key !== 'Backspace' || event.target.value !== '') return
+  document.getElementById(part === 'year' ? 'birthdate-month' : 'birthdate-day').focus()
+}
+
+// Setzt aus den drei Feldern das Datum zusammen (JJJJ-MM-TT) und prüft es wie vorher
+function updateBirthdateValue() {
+  const day = document.getElementById('birthdate-day').value
+  const month = document.getElementById('birthdate-month').value
+  const year = document.getElementById('birthdate-year').value
+  const complete = day !== '' && month !== '' && year.length === 4
+  document.getElementById('birthdate-input').value = complete ? year + '-' + pad2(month) + '-' + pad2(day) : ''
+  onBirthdateInput()
+}
+
+// Schnellwahl für das Jahr: die Jahrgänge, die in der Jungschar am häufigsten sind (13 bis 16 Jahre alt)
+function renderBirthYearChips() {
+  const box = document.getElementById('birthdate-years')
+  box.innerHTML = ''
+  const label = document.createElement('span')
+  label.textContent = 'Jahr antippen:'
+  box.appendChild(label)
+  const thisYear = new Date().getFullYear()
+  for (let year = thisYear - 16; year <= thisYear - 13; year++) {
+    const chip = document.createElement('button')
+    chip.type = 'button'
+    chip.className = 'birthdate-year-chip'
+    chip.textContent = String(year)
+    chip.addEventListener('click', () => {
+      document.getElementById('birthdate-year').value = String(year)
+      updateBirthdateValue()
+      const day = document.getElementById('birthdate-day')
+      const month = document.getElementById('birthdate-month')
+      if (day.value === '') day.focus()
+      else if (month.value === '') month.focus()
+    })
+    box.appendChild(chip)
+  }
 }
 
 function showBirthdateError(text) {
@@ -12572,3 +12655,36 @@ registerServiceWorker()
 applyEmojiImages(document.body)
 startEmojiObserver()
 init()
+
+// ===== Einstellungen: Gruppen ein- und ausklappen =====
+// Ein Tipp auf die Überschrift einer Gruppe (z. B. "Darstellung") klappt sie zu oder auf. Was man zugeklappt hat, merkt sich
+// das Gerät. Ohne Speicher (localStorage nicht erlaubt) klappt alles weiter, nur das Merken fehlt.
+function initSettingsCollapse() {
+  const KEY = 'settingsCollapsed'
+  let saved = []
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '[]') } catch (e) { saved = [] }
+  if (!Array.isArray(saved)) saved = []
+
+  const groups = Array.from(document.querySelectorAll('.settings-group'))
+  const persist = () => {
+    const collapsed = groups.filter(g => g.classList.contains('collapsed')).map(g => g.querySelector('.settings-group-title').textContent.trim())
+    try { localStorage.setItem(KEY, JSON.stringify(collapsed)) } catch (e) { /* egal */ }
+  }
+
+  groups.forEach(group => {
+    const title = group.querySelector('.settings-group-title')
+    if (!title) return
+    const setCollapsed = (collapsed) => {
+      group.classList.toggle('collapsed', collapsed)
+      title.setAttribute('aria-expanded', collapsed ? 'false' : 'true')
+    }
+    title.setAttribute('role', 'button')
+    title.tabIndex = 0
+    setCollapsed(saved.includes(title.textContent.trim()))
+    const toggle = () => { setCollapsed(!group.classList.contains('collapsed')); persist() }
+    title.addEventListener('click', toggle)
+    title.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle() } })
+  })
+}
+
+initSettingsCollapse()
