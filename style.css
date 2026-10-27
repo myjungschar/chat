@@ -5889,28 +5889,19 @@ body.light-theme .birthday-age-pill {
 
 /* Einstellungen: Gruppen lassen sich über die Überschrift zuklappen */
 .settings-group-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
-}
-
-.settings-group-title::after {
-  content: '▾';
-  margin-left: 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  transition: transform 0.15s;
-}
-
-.settings-group.collapsed .settings-group-title::after {
-  transform: rotate(-90deg);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .settings-group.collapsed .settings-group-body {
   display: none;
+}
+
+/* Kein waagerechter Scrollbalken unten in den Einstellungen (er entstand durch den negativen Rand rechts, wenn die Liste kurz ist) */
+#settings-bereich .settings-groups {
+  overflow-x: hidden;
 }
 
 /* Geburtsdatum: drei Zahlenfelder (Tag, Monat, Jahr) und Schnellwahl fürs Jahr */

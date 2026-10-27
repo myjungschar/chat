@@ -410,12 +410,44 @@ function rearmBackHistory() {
   backSentinel = true
 }
 
+// Schließt das oberste offene Pop-up und meldet true, wenn es eins gab. Pop-ups, die man nicht einfach wegtippen darf
+// (z. B. die Pflichtfrage nach dem Geburtsdatum), bleiben offen, schlucken aber die Zurück-Taste.
+function closeTopOverlay() {
+  // 1) Von der App erzeugte Fenster (Rückmeldung, Admin-Listen, Dateiname, Weiterleiten ...): das zuletzt geöffnete zuerst
+  const dynamic = Array.from(document.body.querySelectorAll(':scope > .confirm-overlay'))
+  const top = dynamic[dynamic.length - 1]
+  if (top) {
+    const cancel = top.querySelector('.confirm-cancel')
+    if (cancel) cancel.click()
+    else top.click() // Tipp neben das Fenster schließt es
+    return true
+  }
+
+  // 2) Feste Pop-ups aus der index.html: das letzte sichtbare
+  const open = Array.from(document.querySelectorAll('.modal-overlay')).filter(el => el.style.display !== 'none' && getComputedStyle(el).display !== 'none')
+  const modal = open[open.length - 1]
+  if (!modal) return false
+  switch (modal.id) {
+    case 'birthdate-modal': break // Pflicht: bleibt offen
+    case 'confirm-modal': confirmModalNo(); break
+    case 'install-modal': dismissInstallPopup(); break
+    case 'voice-modal': {
+      const cancel = modal.querySelector('#voice-actions .modal-cancel')
+      if (cancel) cancel.click()
+      break
+    }
+    default: modal.click() // Tipp neben das Fenster schließt es (bei Geburtstag nur, wenn das Kreuz schon da ist)
+  }
+  return true
+}
+
 window.addEventListener('popstate', () => {
   if (ignorePops > 0) { ignorePops--; return }
   backSentinel = false // den Eintrag hat der Browser gerade selbst entfernt
   if (desktopQuery.matches || !currentUser) return
 
   // Zuerst zumachen, was gerade "oben drauf" liegt
+  if (closeTopOverlay()) { rearmBackHistory(); return }
   if (pdfViewerEl) { closePdfViewer(); rearmBackHistory(); return }
   if (typeof photoViewerEl !== 'undefined' && photoViewerEl) { closePhotoViewer(); rearmBackHistory(); return }
   if (typeof selectMode !== 'undefined' && selectMode) { exitSelectMode(); rearmBackHistory(); return }
