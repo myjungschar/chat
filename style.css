@@ -5954,3 +5954,39 @@ body.light-theme .birthday-age-pill {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* Kleine Knöpfe: die allgemeine Button-Regel macht sonst jeden Knopf 100 % breit und färbt ihn beim Darüberfahren um */
+.photo-hd-btn {
+  width: auto;
+  margin: 0;
+  left: auto;
+}
+
+.photo-hd-btn:hover {
+  background: rgba(60, 60, 60, 0.8);
+}
+
+.photo-hd-btn.active:hover {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.group-pick-item .group-pick-admin {
+  width: auto;
+  margin: 0 0 0 auto;
+  flex: 0 0 auto;
+}
+
+.group-pick-item .group-pick-admin:hover {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.group-pick-item .group-pick-admin.on:hover {
+  background: var(--accent-soft);
+}
+
+/* Geburtsdatum in der Verwaltung: Abstand zwischen "Geburtsdatum speichern" und "Neu abfragen" */
+#user-birth-save-btn + #user-birth-reset-btn {
+  margin-top: 12px;
+}
