@@ -2922,7 +2922,7 @@ function buildInvitationCard(inv) {
     box.className = 'invite-card-value'
     const keyEl = document.createElement('span')
     keyEl.className = 'invite-card-key'
-    keyEl.textContent = key + ': '
+    keyEl.textContent = key
     const valEl = document.createElement('span')
     appendTextWithLinks(valEl, value)
     box.appendChild(keyEl)
