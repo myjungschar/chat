@@ -2922,7 +2922,7 @@ function buildInvitationCard(inv) {
     box.className = 'invite-card-value'
     const keyEl = document.createElement('span')
     keyEl.className = 'invite-card-key'
-    keyEl.textContent = key
+    keyEl.textContent = key + ': '
     const valEl = document.createElement('span')
     appendTextWithLinks(valEl, value)
     box.appendChild(keyEl)
@@ -2938,7 +2938,7 @@ function buildInvitationCard(inv) {
   if (whenMatch) { dateText = whenMatch[1]; timeText = whenMatch[2] }
   addRow('📅', 'Datum', dateText)
   addRow('🕐', 'Uhrzeit', timeText)
-  addRow('📍', 'Wo', inv.where)
+  addRow('📍', 'Ort', inv.where)
 
   if (inv.note) {
     const noteEl = document.createElement('div')
