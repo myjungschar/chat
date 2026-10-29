@@ -46,7 +46,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261028-1">
+  <link rel="stylesheet" href="style.css?v=20261029-1">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -791,14 +791,19 @@
         <input type="text" id="invite-card-name" placeholder="Worum geht's?" maxlength="80">
       </div>
 
+      <div class="input-group">
+        <label for="invite-date">Datum</label>
+        <input type="date" id="invite-date">
+      </div>
+
       <div class="invite-fields">
         <div class="input-group">
-          <label for="invite-date">Datum</label>
-          <input type="date" id="invite-date">
+          <label for="invite-time">Von (optional)</label>
+          <input type="time" id="invite-time">
         </div>
         <div class="input-group">
-          <label for="invite-time">Uhrzeit (optional)</label>
-          <input type="time" id="invite-time">
+          <label for="invite-time-end">Bis (optional)</label>
+          <input type="time" id="invite-time-end">
         </div>
       </div>
 
@@ -921,6 +926,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261028-1"></script>
+  <script src="script.js?v=20261029-1"></script>
 </body>
 </html>

@@ -2835,7 +2835,7 @@ async function sendVoiceMessage() {
 // nichts. Erkennt renderMessage diesen Aufbau, zeigt es statt des Textes eine Karte. Überall, wo die Karte nicht erkannt wird
 // (Push-Meldung, Suche), bleibt der Text gut lesbar. Aufbau:
 //   🎉 Einladung: <Titel>
-//   📅 Wann: <Datum und Uhrzeit>
+//   📅 Wann: <Datum und Uhrzeit, ggf. "von 15 bis 17 Uhr">
 //   📍 Wo: <Ort>          (optional)
 //   📝 <Hinweis>          (optional, darf mehrere Zeilen haben)
 function parseInvitation(text) {
@@ -2863,7 +2863,8 @@ function parseInvitation(text) {
 }
 
 // "2026-10-25" + "15:00" -> "Sonntag, 25. Oktober um 15 Uhr"
-function formatInviteWhen(dateStr, timeStr) {
+// Mit Ende ("17:30" als dritter Wert): "Sonntag, 25. Oktober von 15 bis 17:30 Uhr"
+function formatInviteWhen(dateStr, timeStr, endStr) {
   let dayPart = ''
   if (dateStr) {
     const d = new Date(dateStr + 'T12:00:00')
@@ -2873,12 +2874,19 @@ function formatInviteWhen(dateStr, timeStr) {
       dayPart = d.toLocaleDateString('de-DE', opts)
     }
   }
-  let timePart = ''
-  if (timeStr) {
-    const [h, m] = timeStr.split(':')
-    timePart = m === '00' ? Number(h) + ' Uhr' : Number(h) + ':' + m + ' Uhr'
+  const clock = (t) => {
+    const [h, m] = t.split(':')
+    return m === '00' ? String(Number(h)) : Number(h) + ':' + m
   }
-  if (dayPart && timePart) return dayPart + ' um ' + timePart
+  let timePart = ''
+  let range = false
+  if (timeStr && endStr) {
+    timePart = 'von ' + clock(timeStr) + ' bis ' + clock(endStr) + ' Uhr'
+    range = true
+  } else if (timeStr) {
+    timePart = clock(timeStr) + ' Uhr'
+  }
+  if (dayPart && timePart) return dayPart + (range ? ' ' : ' um ') + timePart
   return dayPart || timePart
 }
 
@@ -2931,7 +2939,7 @@ function buildInvitationCard(inv) {
 let inviteCardSending = false
 
 function openInviteModal() {
-  ;['invite-card-name', 'invite-date', 'invite-time', 'invite-where', 'invite-note'].forEach(id => {
+  ;['invite-card-name', 'invite-date', 'invite-time', 'invite-time-end', 'invite-where', 'invite-note'].forEach(id => {
     document.getElementById(id).value = ''
   })
   document.getElementById('invite-error').style.display = 'none'
@@ -2950,6 +2958,7 @@ async function submitInvitation() {
   const title = document.getElementById('invite-card-name').value.trim()
   const date = document.getElementById('invite-date').value
   const time = document.getElementById('invite-time').value
+  const timeEnd = document.getElementById('invite-time-end').value
   const where = document.getElementById('invite-where').value.trim()
   const note = document.getElementById('invite-note').value.trim()
 
@@ -2959,10 +2968,12 @@ async function submitInvitation() {
   const fail = (msg) => { errorEl.textContent = msg; errorEl.style.display = ''; showToast(msg) }
   if (!title) return fail('Bitte gib einen Titel ein.')
   if (!date) return fail('Bitte wähle ein Datum aus.')
+  if (timeEnd && !time) return fail('Bitte trag auch die Anfangsuhrzeit ein.')
+  if (timeEnd && timeEnd === time) return fail('Anfang und Ende sind dieselbe Uhrzeit.')
 
   // Zeilenumbrüche im Titel/Ort würden den Aufbau zerstören
   const oneLine = (t) => t.replace(/\s*\n+\s*/g, ' ')
-  const lines = ['🎉 Einladung: ' + oneLine(title), '📅 Wann: ' + formatInviteWhen(date, time)]
+  const lines = ['🎉 Einladung: ' + oneLine(title), '📅 Wann: ' + formatInviteWhen(date, time, timeEnd)]
   if (where) lines.push('📍 Wo: ' + oneLine(where))
   if (note) lines.push('📝 ' + note)
   const text = lines.join('\n')
