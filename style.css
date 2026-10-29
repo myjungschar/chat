@@ -5164,59 +5164,80 @@ body.light-theme #login-bereich.invite-open #shape-invite {
 
 /* ===== Einladungs-Karte (Nachricht "Einladung" aus dem Plus-Menü) ===== */
 .invite-card {
-  min-width: 230px;
+  min-width: 240px;
   max-width: 100%;
   margin: 2px 0 6px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border-left: 4px solid var(--accent);
+  border-radius: 16px;
+  overflow: hidden;
   background: rgba(127, 127, 127, 0.16);
 }
 
+/* Kopf: festlicher Farbverlauf mit weißer Schrift (unabhängig vom Blau der Sprechblase) */
+.invite-card-head {
+  padding: 14px 16px 15px;
+  color: #fff;
+  background: linear-gradient(135deg, #ff9a4d 0%, #f5527a 100%);
+}
+
 .invite-card-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  opacity: 0.8;
+  opacity: 0.9;
 }
 
 .invite-card-title {
-  margin: 4px 0 10px;
-  font-size: 18px;
+  margin-top: 4px;
+  font-size: 20px;
   font-weight: 700;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
+.invite-card-body {
+  padding: 6px 16px 14px;
+}
+
 .invite-card-row {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-top: 8px;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
 }
 
 .invite-card-icon {
   flex: 0 0 auto;
-  width: 22px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(127, 127, 127, 0.22);
+  font-size: 16px;
 }
 
 .invite-card-value {
   min-width: 0;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
 .invite-card-key {
   display: block;
-  font-size: 12px;
-  opacity: 0.7;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.65;
 }
 
 .invite-card-note {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(127, 127, 127, 0.3);
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(127, 127, 127, 0.14);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

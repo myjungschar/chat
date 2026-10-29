@@ -2894,15 +2894,22 @@ function buildInvitationCard(inv) {
   const card = document.createElement('div')
   card.className = 'invite-card'
 
+  // Kopf mit Farbverlauf (Einladung + Titel), darunter der Körper mit Datum, Uhrzeit, Ort und Hinweis
+  const head = document.createElement('div')
+  head.className = 'invite-card-head'
   const label = document.createElement('div')
   label.className = 'invite-card-label'
   label.textContent = '🎉 Einladung'
-  card.appendChild(label)
-
+  head.appendChild(label)
   const title = document.createElement('div')
   title.className = 'invite-card-title'
   title.textContent = inv.title
-  card.appendChild(title)
+  head.appendChild(title)
+  card.appendChild(head)
+
+  const body = document.createElement('div')
+  body.className = 'invite-card-body'
+  card.appendChild(body)
 
   const addRow = (icon, key, value) => {
     if (!value) return
@@ -2922,16 +2929,22 @@ function buildInvitationCard(inv) {
     box.appendChild(valEl)
     row.appendChild(iconEl)
     row.appendChild(box)
-    card.appendChild(row)
+    body.appendChild(row)
   }
-  addRow('📅', 'Wann', inv.when)
+  // Gespeichert ist nur "Freitag, 30. Oktober um 17 Uhr" bzw. "... von 17 bis 22 Uhr" - für die Karte in Datum und Uhrzeit teilen
+  let dateText = inv.when
+  let timeText = ''
+  const whenMatch = /^(.*?) (?:um|von) (\d.*)$/.exec(inv.when)
+  if (whenMatch) { dateText = whenMatch[1]; timeText = whenMatch[2] }
+  addRow('📅', 'Datum', dateText)
+  addRow('🕐', 'Uhrzeit', timeText)
   addRow('📍', 'Wo', inv.where)
 
   if (inv.note) {
     const noteEl = document.createElement('div')
     noteEl.className = 'invite-card-note'
     appendTextWithLinks(noteEl, inv.note)
-    card.appendChild(noteEl)
+    body.appendChild(noteEl)
   }
   return card
 }
