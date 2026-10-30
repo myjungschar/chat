@@ -708,6 +708,7 @@ async function enterApp(user) {
 
   currentUser = user
   currentProfile = profile
+  document.body.classList.toggle('is-admin', isAdmin())
 
   document.getElementById('user-display-name').innerText =
     profile.display_name || (user.email ? user.email.split('@')[0] : 'Nutzer')
@@ -1376,6 +1377,7 @@ async function openConversation(title) {
   peerMarks = {}
   markActiveListItem() // am PC: den geöffneten Chat links hervorheben
   loadVipIds() // frische VIP-Liste, muss nicht abgewartet werden
+  loadMessagesRetries = 0
   await loadMessages()
   listenForNewMessages()
   startPollListening()
@@ -1528,6 +1530,7 @@ function showChatBoxSkeleton() {
 // Linie "neue Nachricht" doppelt, Nachrichten fehlten oder der Chat scrollte an die falsche Stelle. Jetzt zählt jeder Lauf
 // mit; ein veralteter Lauf hört nach jedem Warten auf und fasst das Fenster nicht mehr an.
 let loadMessagesSeq = 0
+let loadMessagesRetries = 0 // Wiederholungen, falls das Laden fehlschlägt (z. B. Netz direkt nach dem Aufwachen noch nicht da)
 
 async function loadMessages() {
   const mySeq = ++loadMessagesSeq
@@ -1561,8 +1564,16 @@ async function loadMessages() {
 
   if (error) {
     console.error('Fehler beim Laden:', error)
+    // Direkt nach dem Aufwachen (z. B. Klick auf eine Benachrichtigung) ist das Netz oft noch nicht da: nicht aufgeben, bis zu 3-mal nochmal versuchen
+    if (loadMessagesRetries < 3) {
+      loadMessagesRetries++
+      setTimeout(() => { if (mySeq === loadMessagesSeq) loadMessages() }, 1500 * loadMessagesRetries)
+    } else {
+      showToast('Die Nachrichten konnten nicht geladen werden. Öffne den Chat bitte nochmal.')
+    }
     return
   }
+  loadMessagesRetries = 0
 
   exitSelectMode()
   const chatBox = document.getElementById('chat-box')
@@ -6448,6 +6459,7 @@ document.addEventListener('keydown', (e) => {
 
 // Reaktion setzen, wechseln oder wieder entfernen (ein Klick auf die bereits aktive schaltet sie aus)
 async function toggleReaction(messageId, emoji) {
+  if (isAdmin()) return // der Admin liest nur mit und reagiert nie (auch nicht über bestehende Reaktionen)
   const table = isDmRoom() ? 'dm_reactions' : 'message_reactions'
   const info = reactionMap[messageId] || { counts: {}, mine: null, users: [] }
 
@@ -12016,9 +12028,11 @@ function setBirthdateValue(birthEl, ageEl, iso) {
 function fillProfileInfo(rows, userId, myRequest) {
   const info = profileCache[userId] || {}
   rows.innerHTML = ''
-  const birthEl = addProfileRow(rows, 'Geburtsdatum')
-  const ageEl = addProfileRow(rows, 'Alter')
-  setBirthdateValue(birthEl, ageEl, info.birthdate)
+  // Der Admin hat kein Geburtsdatum (und braucht keins): dann gibt es die Zeilen Geburtsdatum und Alter gar nicht
+  const showBirth = info.role !== 'admin'
+  const birthEl = showBirth ? addProfileRow(rows, 'Geburtsdatum') : null
+  const ageEl = showBirth ? addProfileRow(rows, 'Alter') : null
+  if (showBirth) setBirthdateValue(birthEl, ageEl, info.birthdate)
 
   // E-Mail-Adresse: die eigene steht direkt da, die der anderen wird vom Server geholt
   // (Admin über die Edge Function, alle anderen über die Datenbankfunktion get_member_email)
@@ -12030,7 +12044,7 @@ function fillProfileInfo(rows, userId, myRequest) {
     loadProfileEmail(userId, myRequest, emailEl)
   }
 
-  refreshProfileBirthdate(userId, myRequest, birthEl, ageEl)
+  if (showBirth) refreshProfileBirthdate(userId, myRequest, birthEl, ageEl)
 }
 
 // Frisch nachladen: die Person könnte ihr Geburtsdatum erst nach dem Start dieser App eingetragen haben
@@ -12282,11 +12296,33 @@ async function handlePushOpen(chatKey) {
     return
   }
   if (isAdmin()) return
-  if (chatKey && openChatByKey(chatKey)) return
+  if (chatKey && openChatByKey(chatKey)) {
+    syncAfterPushOpen()
+    return
+  }
+
+  // Gruppe oder Person noch nicht bekannt (z. B. erst neu dazugekommen): Listen auffrischen und noch einmal versuchen
+  if (chatKey) {
+    try {
+      if (chatKey.startsWith('grp_')) await loadChatGroups(true)
+      else if (chatKey.startsWith('dm:')) await loadProfileCache()
+    } catch (e) { /* dann geht es unten mit dem neuesten ungelesenen Chat weiter */ }
+    if (openChatByKey(chatKey)) {
+      syncAfterPushOpen()
+      return
+    }
+  }
 
   // Chat unbekannt: frische Zähler holen (die App lag vielleicht im Hintergrund) und den neuesten ungelesenen öffnen
   await renderChatList()
   openChatByKey(newestUnreadChatKey())
+}
+
+// Direkt nach dem Aufwachen ist das Netz oft noch nicht ganz da: kurz nach dem Öffnen nochmal nach neuen Nachrichten schauen
+function syncAfterPushOpen() {
+  setTimeout(() => {
+    if (isConversationVisible()) fetchMissedMessages().catch(e => console.error('Nachholen nach dem Banner-Klick fehlgeschlagen:', e))
+  }, 2500)
 }
 
 function consumePendingPushOpen() {

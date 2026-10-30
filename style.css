@@ -5540,6 +5540,12 @@ body.light-theme .birthday-age-pill {
     margin-bottom: 0;
   }
 
+  /* Admin: ohne Eingabefeld klebten die Sprechblasen am Rand - hier etwas Luft links und rechts */
+  body.is-admin #conversation-bereich #chat-box {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
   #conversation-bereich #edit-bar,
   #conversation-bereich #reply-bar {
     margin: 6px 8px 0;
