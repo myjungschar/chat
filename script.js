@@ -709,6 +709,7 @@ async function enterApp(user) {
   currentUser = user
   currentProfile = profile
   document.body.classList.toggle('is-admin', isAdmin())
+  startFeedbackListening()
 
   document.getElementById('user-display-name').innerText =
     profile.display_name || (user.email ? user.email.split('@')[0] : 'Nutzer')
@@ -5130,8 +5131,11 @@ function renderMessage(msg) {
   const canDownloadAudio = !!msg.audio_id
   const canForward = !isAdmin() && !!msg.text && !msg.photo_id && !msg.audio_id && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   const canReport = !isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
-  // Info (wer hat die Nachricht gelesen/bekommen) und Häkchen gibt es für eigene Nachrichten in Einzelchat und Gruppe
-  const canInfo = READ_RECEIPTS_ENABLED && isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
+  // Info (wer hat die Nachricht gelesen/bekommen) und Häkchen: für eigene Nachrichten in Einzelchat und Gruppe.
+  // Der Admin sieht sie an allen Nachrichten (Gruppe und Einblick in Einzelchats): wer hat gelesen, wer nicht, und wann
+  const canInfo = READ_RECEIPTS_ENABLED && (isAdmin()
+    ? (currentRoom.type === 'group' || currentRoom.type === 'dm-view')
+    : isOwn && (currentRoom.type === 'group' || currentRoom.type === 'dm'))
 
   attachMessageMenuTriggers(msgElement, msg, { canEdit, canDelete, canReact, canInfo, canReply, canCopy, canDownloadAudio, canReport, canForward })
   if (canReply) attachReplyGesture(row, msg)
@@ -5181,7 +5185,7 @@ function renderMessage(msg) {
     ticksEl.className = 'msg-ticks sent'
     ticksEl.addEventListener('click', (e) => {
       e.stopPropagation()
-      openMessageInfo(msg.created_at)
+      openMessageInfo(msg.created_at, msg.sender_id)
     })
     footer.appendChild(ticksEl)
     row.classList.add('has-ticks')
@@ -5240,15 +5244,18 @@ function peerKeyForRoom(room) {
 }
 
 // Wer zählt bei einer Nachricht als Empfänger? (Gruppe: alle Mitglieder außer mir, Admin und Gesperrten)
-function recipientIdsForRoom() {
+// senderId: Absender der Nachricht (nur beim Admin-Einblick wichtig, dort schreibt ja jemand anderes)
+function recipientIdsForRoom(senderId) {
+  const skip = id => id === currentUser.id || id === senderId
   if (currentRoom.type === 'dm') return [currentRoom.userId]
+  if (currentRoom.type === 'dm-view') return [currentRoom.userA, currentRoom.userB].filter(id => id !== senderId)
   if (currentRoom.type !== 'group') return []
-  if (currentRoom.groupId) return customGroupMemberIds(currentRoom.groupId).filter(id => id !== currentUser.id)
+  if (currentRoom.groupId) return customGroupMemberIds(currentRoom.groupId).filter(id => !skip(id))
 
   const key = currentRoom.groupKey || 'main'
   return Object.entries(profileCache)
     .filter(([id, info]) => {
-      if (id === currentUser.id || info.role === 'admin' || info.blocked || info.active === false) return false
+      if (skip(id) || info.role === 'admin' || info.blocked || info.active === false) return false
       return key === 'main' || info.gender === key
     })
     .map(([id]) => id)
@@ -5259,13 +5266,26 @@ function peerEntry(userId) {
   return peerMarks[userId]
 }
 
+// Admin-Einblick in einen fremden Einzelchat: wer von beiden hat welchen Chat gelesen? (B liest "dm:A", A liest "dm:B")
+function adminPairFilter(room) {
+  return 'and(user_id.eq.' + room.userB + ',chat_key.eq.dm:' + room.userA + '),and(user_id.eq.' + room.userA + ',chat_key.eq.dm:' + room.userB + ')'
+}
+
 async function loadPeerMarks() {
-  const key = peerKeyForRoom(currentRoom)
-  if (!READ_RECEIPTS_ENABLED || !key || isAdmin()) return
+  const key = isAdmin() ? (currentRoom.type === 'group' ? (currentRoom.groupKey || 'main') : null) : peerKeyForRoom(currentRoom)
+  const adminPair = isAdmin() && currentRoom.type === 'dm-view'
+  if (!READ_RECEIPTS_ENABLED || (!key && !adminPair)) return
   const roomAtStart = currentRoom
 
-  let readQuery = supabaseClient.from('read_marks').select('user_id, last_read_at').eq('chat_key', key)
-  let deliveredQuery = supabaseClient.from('delivery_marks').select('user_id, delivered_at').eq('chat_key', key)
+  let readQuery = supabaseClient.from('read_marks').select('user_id, last_read_at')
+  let deliveredQuery = supabaseClient.from('delivery_marks').select('user_id, delivered_at')
+  if (adminPair) {
+    readQuery = readQuery.or(adminPairFilter(roomAtStart))
+    deliveredQuery = deliveredQuery.or(adminPairFilter(roomAtStart))
+  } else {
+    readQuery = readQuery.eq('chat_key', key)
+    deliveredQuery = deliveredQuery.eq('chat_key', key)
+  }
   if (roomAtStart.type === 'dm') {
     readQuery = readQuery.eq('user_id', roomAtStart.userId)
     deliveredQuery = deliveredQuery.eq('user_id', roomAtStart.userId)
@@ -5289,11 +5309,20 @@ async function loadPeerMarks() {
 // selbst auch dann weiterlaufen, falls hier mal etwas nicht klappt
 function startPeerListening() {
   stopPeerListening()
-  const key = peerKeyForRoom(currentRoom)
-  if (!READ_RECEIPTS_ENABLED || !key || isAdmin()) return
+  const key = isAdmin() ? (currentRoom.type === 'group' ? (currentRoom.groupKey || 'main') : null) : peerKeyForRoom(currentRoom)
+  const adminPair = isAdmin() && currentRoom.type === 'dm-view'
+  if (!READ_RECEIPTS_ENABLED || (!key && !adminPair)) return
 
   function apply(kind, row) {
-    if (!row || row.chat_key !== key || row.user_id === currentUser.id) return
+    if (!row || row.user_id === currentUser.id) return
+    if (adminPair) {
+      const a = currentRoom.userA
+      const b = currentRoom.userB
+      const ok = (row.user_id === b && row.chat_key === 'dm:' + a) || (row.user_id === a && row.chat_key === 'dm:' + b)
+      if (!ok) return
+    } else if (row.chat_key !== key) {
+      return
+    }
     if (currentRoom.type === 'dm' && row.user_id !== currentRoom.userId) return
     const entry = peerEntry(row.user_id)
     if (kind === 'read') entry.readAt = new Date(row.last_read_at)
@@ -5302,7 +5331,7 @@ function startPeerListening() {
   }
 
   peerChannel = supabaseClient
-    .channel('peers:' + key)
+    .channel('peers:' + (adminPair ? 'adm:' + currentRoom.userA + ':' + currentRoom.userB : key))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'read_marks' }, (p) => apply('read', p.new))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'delivery_marks' }, (p) => apply('delivered', p.new))
     .subscribe()
@@ -5316,15 +5345,15 @@ function stopPeerListening() {
 }
 
 // Für eine Nachricht: wer hat sie gelesen, wem wurde sie zugestellt, wer hat sie noch nicht
-function deliveryListsFor(createdAt) {
+function deliveryListsFor(createdAt, senderId) {
   const sentAt = new Date(createdAt)
   const lists = { read: [], delivered: [], pending: [] }
 
-  recipientIdsForRoom().forEach(id => {
+  recipientIdsForRoom(senderId).forEach(id => {
     const marks = peerMarks[id] || {}
-    const person = { id: id, name: (profileCache[id] && profileCache[id].name) || 'Unbekannt' }
-    if (marks.readAt && marks.readAt >= sentAt) lists.read.push(person)
-    else if (marks.deliveredAt && marks.deliveredAt >= sentAt) lists.delivered.push(person)
+    const person = { id: id, name: (profileCache[id] && profileCache[id].name) || 'Unbekannt', at: null }
+    if (marks.readAt && marks.readAt >= sentAt) { person.at = marks.readAt; lists.read.push(person) }
+    else if (marks.deliveredAt && marks.deliveredAt >= sentAt) { person.at = marks.deliveredAt; lists.delivered.push(person) }
     else lists.pending.push(person)
   })
 
@@ -5332,8 +5361,8 @@ function deliveryListsFor(createdAt) {
   return lists
 }
 
-function tickStatus(createdAt) {
-  const lists = deliveryListsFor(createdAt)
+function tickStatus(createdAt, senderId) {
+  const lists = deliveryListsFor(createdAt, senderId)
   const total = lists.read.length + lists.delivered.length + lists.pending.length
   if (total === 0 || lists.pending.length > 0) return 'sent'
   return lists.delivered.length > 0 ? 'delivered' : 'read'
@@ -5353,7 +5382,7 @@ function tickSVG(double) {
 function updateTicks(row) {
   const el = row.querySelector('.msg-ticks')
   if (!el) return
-  const status = tickStatus(row.dataset.createdAt)
+  const status = tickStatus(row.dataset.createdAt, row.dataset.senderId)
   el.className = 'msg-ticks ' + status
   el.innerHTML = tickSVG(status !== 'sent')
   el.setAttribute('aria-label', TICK_LABELS[status] + ' - Info öffnen')
@@ -5364,8 +5393,8 @@ function refreshTicks() {
 }
 
 // Pop-up "Nachrichten-Info": wer hat die Nachricht gelesen, wem wurde sie zugestellt, wer noch nicht
-function openMessageInfo(createdAt) {
-  const lists = deliveryListsFor(createdAt)
+function openMessageInfo(createdAt, senderId) {
+  const lists = deliveryListsFor(createdAt, senderId)
   document.getElementById('info-sent').textContent = 'Gesendet: ' + formatTime(createdAt)
 
   const box = document.getElementById('info-sections')
@@ -5413,6 +5442,8 @@ function openMessageInfo(createdAt) {
     section.people.forEach(person => {
       const item = document.createElement('li')
       item.className = 'info-item'
+      // Der Admin sieht dazu die Uhrzeit (per CSS rechts angezeigt): bei "gelesen" wann die Person den Chat zuletzt bis dorthin gesehen hat
+      if (isAdmin() && person.at) item.dataset.when = (section.status === 'read' ? 'zuletzt gelesen ' : 'zugestellt ') + formatTime(person.at)
 
       const avatar = document.createElement('div')
       avatar.className = 'info-avatar'
@@ -6009,7 +6040,7 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
       infoItem.textContent = 'Info'
       infoItem.addEventListener('click', () => {
         closeMessageMenu()
-        openMessageInfo(msg.created_at)
+        openMessageInfo(msg.created_at, msg.sender_id)
       })
       menu.appendChild(infoItem)
     }
@@ -7030,7 +7061,7 @@ function openSettings() {
   document.getElementById('push-group').style.display = isAdmin() ? 'none' : ''
   document.getElementById('feedback-settings-group').style.display = isAdmin() ? 'none' : ''
   updateNewGroupButton()
-  if (isAdmin()) { updateReportsBadge(); updateInviteRequestsBadge(); updateFeedbackBadge() }
+  if (isAdmin()) { updateReportsBadge(); updateInviteRequestsBadge(); updateFeedbackBadge() } else updateMyFeedbackBadge()
   refreshPushToggleUI()
   updateInstallMenu()
 }
@@ -10890,7 +10921,8 @@ function openFeedbackModal(kind = 'problem') {
       return
     }
     close()
-    showToast('Danke! Der Admin sieht deine Rückmeldung.', 'success')
+    showToast('Danke! Der Admin sieht deine Rückmeldung. Antworten findest du unter "Meine Rückmeldungen".', 'success')
+    updateMyFeedbackBadge()
   })
 
   setTimeout(() => (person ? emailInput : textArea).focus(), 50)
@@ -10942,6 +10974,14 @@ async function openFeedbackListModal() {
   overlay.addEventListener('click', e => { if (e.target === overlay) close() })
 
   const markHandled = async (item) => {
+    // Erledigt: die Unterhaltung dazu wird komplett gelöscht
+    const info = feedbackThreadInfo[item.id]
+    if (info && info.count > 0 && !(await askConfirm('Erledigt? Die Unterhaltung zu dieser Rückmeldung wird dabei gelöscht.', { okText: 'Erledigt' }))) return false
+    const del = await supabaseClient.from('feedback_messages').delete().eq('feedback_id', item.id)
+    if (del.error) {
+      console.error('Unterhaltung konnte nicht gelöscht werden:', del.error)
+      if (info && info.count > 0) { showToast('Löschen hat nicht geklappt: ' + del.error.message); return false }
+    }
     const { error } = await supabaseClient.from('feedback').update({ handled: true }).eq('id', item.id)
     if (error) { showToast('Speichern hat nicht geklappt: ' + error.message); return false }
     feedbackItems = feedbackItems.filter(f => f.id !== item.id)
@@ -10978,6 +11018,12 @@ async function openFeedbackListModal() {
       tag.textContent = kindInfo.tag
       head.appendChild(tag)
       if (item.kind === 'person' && (item.person_name || item.person_email)) head.appendChild(document.createTextNode(' ' + (item.person_name || item.person_email)))
+      if (fbIsUnread(item)) {
+        const fresh = document.createElement('span')
+        fresh.className = 'feedback-new-tag'
+        fresh.textContent = 'Neu'
+        head.appendChild(fresh)
+      }
 
       const sender = (item.profiles && item.profiles.display_name) || (profileCache[item.user_id] && profileCache[item.user_id].name) || 'Jemand'
       const meta = document.createElement('div')
@@ -11006,6 +11052,18 @@ async function openFeedbackListModal() {
       doneBtn.textContent = 'Erledigt'
       doneBtn.addEventListener('click', async () => { if (await markHandled(item)) render() })
       actions.appendChild(doneBtn)
+
+      const chatInfo = feedbackThreadInfo[item.id]
+      const chatBtn = document.createElement('button')
+      chatBtn.type = 'button'
+      chatBtn.className = 'confirm-ok'
+      chatBtn.textContent = chatInfo && chatInfo.count > 0 ? 'Chat (' + chatInfo.count + ')' : 'Chat'
+      chatBtn.addEventListener('click', async () => {
+        await openFeedbackThread(item)
+        await loadFeedbackThreadInfo(feedbackItems.map(f => f.id))
+        render()
+      })
+      actions.appendChild(chatBtn)
 
       if (item.kind === 'person') {
         const inviteBtn = document.createElement('button')
@@ -11042,7 +11100,345 @@ async function openFeedbackListModal() {
     addCloseButton()
     return
   }
+  await loadFeedbackThreadInfo(feedbackItems.map(f => f.id))
   render()
+}
+
+// ===== Unterhaltung zu einer Rückmeldung (wie ein Support-Chat) =====
+// Zu jeder Rückmeldung gibt es eine kleine Unterhaltung zwischen der Person und dem Admin (Tabelle feedback_messages, braucht
+// rueckmeldungen-chat.sql). Ist die Rückmeldung "Erledigt", wird die Unterhaltung komplett gelöscht. Hier schreibt der Admin
+// ausnahmsweise selbst. Ob etwas neu ist, merkt sich jedes Gerät für sich (localStorage).
+let feedbackThreadInfo = {} // Rückmeldungs-ID -> { count, last }
+let openFeedbackThreadId = null
+let feedbackListenChannel = null
+
+function fbReadKey(id) {
+  return 'fbRead:' + (currentUser ? currentUser.id : '') + ':' + id
+}
+
+function fbMarkRead(id) {
+  try { localStorage.setItem(fbReadKey(id), new Date().toISOString()) } catch (e) { /* egal */ }
+}
+
+// Neu = die letzte Nachricht kam von der anderen Seite und ist jünger als der letzte Besuch (beim Admin zählt eine
+// Rückmeldung ohne jede Antwort auch als neu)
+function fbIsUnread(item) {
+  if (!currentUser) return false
+  const info = feedbackThreadInfo[item.id]
+  let lastAt = null
+  let fromOther = false
+  if (info && info.last) {
+    lastAt = info.last.created_at
+    fromOther = info.last.sender_id !== currentUser.id
+  } else if (isAdmin()) {
+    lastAt = item.created_at
+    fromOther = true
+  }
+  if (!lastAt || !fromOther) return false
+  let seen = null
+  try { seen = localStorage.getItem(fbReadKey(item.id)) } catch (e) { /* egal */ }
+  return !seen || new Date(lastAt) > new Date(seen)
+}
+
+async function loadFeedbackThreadInfo(ids) {
+  feedbackThreadInfo = {}
+  if (!ids || ids.length === 0) return
+  const { data, error } = await supabaseClient
+    .from('feedback_messages')
+    .select('id, feedback_id, sender_id, created_at')
+    .in('feedback_id', ids)
+    .order('created_at', { ascending: true })
+    .limit(2000)
+  if (error) {
+    console.error('Unterhaltungen konnten nicht geladen werden:', error.message)
+    return
+  }
+  ;(data || []).forEach(m => {
+    const entry = feedbackThreadInfo[m.feedback_id] || (feedbackThreadInfo[m.feedback_id] = { count: 0, last: null })
+    entry.count++
+    entry.last = m
+  })
+}
+
+// Öffnet die Unterhaltung; das Versprechen ist erfüllt, sobald sie wieder zu ist
+function openFeedbackThread(item) {
+  return new Promise(resolve => {
+    if (!currentUser) { resolve(); return }
+    const admin = isAdmin()
+    const personName = (profileCache[item.user_id] && profileCache[item.user_id].name) || 'Jemand'
+    const kindInfo = FEEDBACK_KINDS[item.kind] || { tag: 'Rückmeldung' }
+    openFeedbackThreadId = item.id
+
+    const overlay = document.createElement('div')
+    overlay.className = 'confirm-overlay'
+    const dialog = document.createElement('div')
+    dialog.className = 'confirm-dialog fb-thread-dialog'
+    dialog.setAttribute('role', 'dialog')
+    dialog.setAttribute('aria-modal', 'true')
+
+    const heading = document.createElement('p')
+    heading.className = 'audio-name-heading'
+    heading.textContent = admin ? kindInfo.tag + ' von ' + personName : kindInfo.tag + ': Unterhaltung mit dem Admin'
+
+    const list = document.createElement('div')
+    list.className = 'fb-thread-list'
+
+    const form = document.createElement('div')
+    form.className = 'fb-thread-send'
+    const input = document.createElement('textarea')
+    input.className = 'feedback-input fb-thread-input'
+    input.rows = 2
+    input.maxLength = 1000
+    input.placeholder = 'Nachricht schreiben …'
+    const sendBtn = document.createElement('button')
+    sendBtn.type = 'button'
+    sendBtn.textContent = 'Senden'
+    sendBtn.disabled = true
+    form.append(input, sendBtn)
+
+    const closeBtn = document.createElement('button')
+    closeBtn.type = 'button'
+    closeBtn.className = 'confirm-cancel'
+    closeBtn.textContent = 'Schließen'
+
+    dialog.append(heading, list, form, closeBtn)
+    overlay.appendChild(dialog)
+    document.body.appendChild(overlay)
+
+    const shown = new Set()
+    const addBubble = (id, senderId, text, createdAt) => {
+      if (shown.has(id)) return
+      shown.add(id)
+      const mine = senderId === currentUser.id
+      const bubble = document.createElement('div')
+      bubble.className = 'fb-msg ' + (mine ? 'mine' : 'other')
+      if (!mine) {
+        const who = document.createElement('div')
+        who.className = 'fb-msg-who'
+        who.textContent = senderId === item.user_id ? personName : 'Admin'
+        bubble.appendChild(who)
+      }
+      const body = document.createElement('div')
+      body.textContent = text
+      bubble.appendChild(body)
+      const time = document.createElement('div')
+      time.className = 'fb-msg-time'
+      time.textContent = formatTime(createdAt)
+      bubble.appendChild(time)
+      list.appendChild(bubble)
+      list.scrollTop = list.scrollHeight
+    }
+
+    // Die Rückmeldung selbst ist die erste Nachricht
+    let first = item.message || ''
+    if (item.kind === 'person' && (item.person_name || item.person_email)) {
+      first = 'Gesucht: ' + (item.person_name || item.person_email) + (item.message ? '\n' + item.message : '')
+    }
+    addBubble('first', item.user_id, first, item.created_at)
+
+    const channel = supabaseClient
+      .channel('fbthread:' + item.id + ':' + Date.now())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'feedback_messages', filter: 'feedback_id=eq.' + item.id }, (p) => {
+        const m = p.new
+        if (!m) return
+        addBubble(m.id, m.sender_id, m.text, m.created_at)
+        fbMarkRead(item.id)
+      })
+      .subscribe()
+
+    const close = () => {
+      document.removeEventListener('keydown', onKey)
+      supabaseClient.removeChannel(channel)
+      overlay.remove()
+      openFeedbackThreadId = null
+      fbMarkRead(item.id)
+      if (admin) updateFeedbackBadge(); else updateMyFeedbackBadge()
+      resolve()
+    }
+    const onKey = e => { if (e.key === 'Escape') close() }
+    document.addEventListener('keydown', onKey)
+    closeBtn.addEventListener('click', close)
+    overlay.addEventListener('click', e => { if (e.target === overlay) close() })
+
+    const refresh = () => { sendBtn.disabled = input.value.trim().length === 0 }
+    input.addEventListener('input', refresh)
+    input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendBtn.click() } })
+
+    sendBtn.addEventListener('click', async () => {
+      const text = input.value.trim()
+      if (!text) return
+      sendBtn.disabled = true
+      const { data, error } = await supabaseClient
+        .from('feedback_messages')
+        .insert({ feedback_id: item.id, sender_id: currentUser.id, text: text })
+        .select()
+        .single()
+      if (error) {
+        sendBtn.disabled = false
+        showToast('Senden hat nicht geklappt: ' + error.message)
+        return
+      }
+      input.value = ''
+      refresh()
+      if (data) addBubble(data.id, data.sender_id, data.text, data.created_at)
+      fbMarkRead(item.id)
+    })
+
+    // Bisherigen Verlauf laden
+    supabaseClient
+      .from('feedback_messages')
+      .select('id, sender_id, text, created_at')
+      .eq('feedback_id', item.id)
+      .order('created_at', { ascending: true })
+      .limit(500)
+      .then(({ data, error }) => {
+        if (error) { console.error('Unterhaltung konnte nicht geladen werden:', error.message); return }
+        ;(data || []).forEach(m => addBubble(m.id, m.sender_id, m.text, m.created_at))
+        fbMarkRead(item.id)
+      })
+
+    fbMarkRead(item.id)
+    setTimeout(() => input.focus(), 50)
+  })
+}
+
+// Die eigenen offenen Rückmeldungen (Person) - von hier aus geht es in die jeweilige Unterhaltung
+async function loadMyFeedback() {
+  const { data, error } = await supabaseClient
+    .from('feedback')
+    .select('*')
+    .eq('user_id', currentUser.id)
+    .eq('handled', false)
+    .order('created_at', { ascending: false })
+    .limit(50)
+  if (error) {
+    console.error('Eigene Rückmeldungen konnten nicht geladen werden:', error.message)
+    return null
+  }
+  await loadFeedbackThreadInfo((data || []).map(f => f.id))
+  return data || []
+}
+
+async function updateMyFeedbackBadge() {
+  const badge = document.getElementById('feedback-mine-badge')
+  if (!badge || !currentUser || isAdmin()) return
+  const items = await loadMyFeedback()
+  const unread = items ? items.filter(fbIsUnread).length : 0
+  badge.textContent = String(unread)
+  badge.style.display = unread > 0 ? '' : 'none'
+}
+
+async function openMyFeedbackList() {
+  if (!currentUser || isAdmin()) return
+  const overlay = document.createElement('div')
+  overlay.className = 'confirm-overlay'
+  const dialog = document.createElement('div')
+  dialog.className = 'confirm-dialog reports-dialog'
+  dialog.setAttribute('role', 'dialog')
+  dialog.setAttribute('aria-modal', 'true')
+  overlay.appendChild(dialog)
+  document.body.appendChild(overlay)
+
+  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); updateMyFeedbackBadge() }
+  const onKey = e => { if (e.key === 'Escape') close() }
+  document.addEventListener('keydown', onKey)
+  overlay.addEventListener('click', e => { if (e.target === overlay) close() })
+
+  let items = null
+  let loaded = false
+
+  const render = () => {
+    dialog.innerHTML = ''
+    const heading = document.createElement('p')
+    heading.className = 'audio-name-heading'
+    heading.textContent = !loaded ? 'Meine Rückmeldungen' : !items ? 'Meine Rückmeldungen' : items.length === 0 ? 'Keine offenen Rückmeldungen' : 'Meine Rückmeldungen (' + items.length + ')'
+    dialog.appendChild(heading)
+
+    if (loaded && !items) {
+      const info = document.createElement('p')
+      info.textContent = 'Die Rückmeldungen konnten nicht geladen werden. Versuch es später nochmal.'
+      dialog.appendChild(info)
+    } else if (items) {
+      const list = document.createElement('div')
+      list.className = 'reports-list'
+      items.forEach(item => {
+        const kindInfo = FEEDBACK_KINDS[item.kind] || { tag: item.kind }
+        const box = document.createElement('div')
+        box.className = 'report-item fb-clickable'
+        box.setAttribute('role', 'button')
+        box.tabIndex = 0
+
+        const head = document.createElement('div')
+        head.className = 'report-head'
+        const tag = document.createElement('span')
+        tag.className = 'feedback-kind-tag feedback-kind-' + item.kind
+        tag.textContent = kindInfo.tag
+        head.appendChild(tag)
+        if (fbIsUnread(item)) {
+          const fresh = document.createElement('span')
+          fresh.className = 'feedback-new-tag'
+          fresh.textContent = 'Neu'
+          head.appendChild(fresh)
+        }
+        box.appendChild(head)
+
+        const note = document.createElement('div')
+        note.className = 'report-text'
+        const text = item.message || (item.person_email || '')
+        note.textContent = text.length > 90 ? text.slice(0, 90) + ' …' : text
+        box.appendChild(note)
+
+        const info = feedbackThreadInfo[item.id]
+        const meta = document.createElement('div')
+        meta.className = 'report-meta'
+        meta.textContent = info && info.last
+          ? (info.last.sender_id === currentUser.id ? 'Du hast zuletzt geschrieben' : 'Der Admin hat geantwortet') + ' · ' + formatTime(info.last.created_at)
+          : 'Noch keine Antwort · ' + formatTime(item.created_at)
+        box.appendChild(meta)
+
+        const open = async () => {
+          await openFeedbackThread(item)
+          items = await loadMyFeedback()
+          render()
+        }
+        box.addEventListener('click', open)
+        box.addEventListener('keydown', e => { if (e.key === 'Enter') open() })
+        list.appendChild(box)
+      })
+      dialog.appendChild(list)
+    }
+
+    const closeBtn = document.createElement('button')
+    closeBtn.type = 'button'
+    closeBtn.className = 'confirm-cancel'
+    closeBtn.textContent = 'Schließen'
+    closeBtn.addEventListener('click', close)
+    dialog.appendChild(closeBtn)
+  }
+
+  render()
+  items = await loadMyFeedback()
+  loaded = true
+  render()
+}
+
+// Kommt eine neue Nachricht in einer Unterhaltung an (und ist sie nicht von mir), gibt es einen Hinweis und der Zähler zieht nach
+function startFeedbackListening() {
+  if (feedbackListenChannel) {
+    supabaseClient.removeChannel(feedbackListenChannel)
+    feedbackListenChannel = null
+  }
+  if (!currentUser) return
+  feedbackListenChannel = supabaseClient
+    .channel('feedback-msgs')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'feedback_messages' }, (p) => {
+      const m = p.new
+      if (!m || !currentUser || m.sender_id === currentUser.id) return
+      if (String(openFeedbackThreadId) === String(m.feedback_id)) return // die offene Unterhaltung zeigt es selbst
+      showToast(isAdmin() ? 'Neue Nachricht zu einer Rückmeldung.' : 'Der Admin hat auf deine Rückmeldung geantwortet.', 'success')
+      if (isAdmin()) updateFeedbackBadge(); else updateMyFeedbackBadge()
+    })
+    .subscribe()
 }
 
 // ===== Nachrichten melden =====

@@ -1366,6 +1366,24 @@ img.emoji {
   color: #7fe0ff;
 }
 
+/* Beim Admin stehen die Häkchen auch an fremden (hellen) Sprechblasen: dort in der Textfarbe statt in Weiß */
+.msg.other .msg-ticks {
+  color: var(--text-secondary);
+}
+
+.msg.other .msg-ticks.read {
+  color: #1a8fd0;
+}
+
+/* Admin: rechts neben dem Namen die Uhrzeit (gelesen / zugestellt) */
+.info-item[data-when]::after {
+  content: attr(data-when);
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 .msg-ticks svg {
   display: block;
   width: 14px;
@@ -5996,4 +6014,109 @@ body.light-theme .birthday-age-pill {
 /* Geburtsdatum in der Verwaltung: Abstand zwischen "Geburtsdatum speichern" und "Neu abfragen" */
 #user-birth-save-btn + #user-birth-reset-btn {
   margin-top: 12px;
+}
+/* ===== Unterhaltung zu einer Rückmeldung ===== */
+.fb-thread-dialog {
+  text-align: left;
+  max-width: 460px;
+  width: calc(100% - 32px);
+}
+
+.fb-thread-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 120px;
+  max-height: 50vh;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.fb-msg {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: var(--radius-bubble);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fb-msg.mine {
+  align-self: flex-end;
+  background: var(--bubble-own);
+  color: var(--bubble-own-text);
+  border-bottom-right-radius: 4px;
+}
+
+.fb-msg.other {
+  align-self: flex-start;
+  background: var(--bubble-other);
+  color: var(--bubble-other-text);
+  border-bottom-left-radius: 4px;
+}
+
+.fb-msg-who {
+  margin-bottom: 2px;
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+.fb-msg-time {
+  margin-top: 2px;
+  font-size: 11px;
+  text-align: right;
+  opacity: 0.7;
+}
+
+.fb-thread-send {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  margin-bottom: 10px;
+}
+
+.fb-thread-send .fb-thread-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  margin-bottom: 0;
+  resize: none;
+}
+
+/* Die allgemeine button-Regel macht Knöpfe 100 % breit: hier bewusst klein und mit eigener Farbe */
+.fb-thread-send button {
+  width: auto;
+  margin: 0;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fb-thread-send button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.fb-thread-send button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.feedback-new-tag {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.fb-clickable {
+  cursor: pointer;
 }

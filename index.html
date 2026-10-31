@@ -46,7 +46,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261030-3">
+  <link rel="stylesheet" href="style.css?v=20261030-4">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -297,6 +297,10 @@
               <li id="menu-feedback-idee" onclick="openFeedbackModal('idee')">
                 <span>Verbesserungsvorschlag</span>
                 <span class="settings-arrow">›</span>
+              </li>
+              <li id="menu-feedback-mine" onclick="openMyFeedbackList()">
+                <span>Meine Rückmeldungen</span>
+                <span class="settings-arrow"><span class="reports-badge" id="feedback-mine-badge" style="display: none;"></span>›</span>
               </li>
             </ul>
           </div>
@@ -926,6 +930,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261030-3"></script>
+  <script src="script.js?v=20261030-4"></script>
 </body>
 </html>

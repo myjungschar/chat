@@ -20,7 +20,7 @@ Ein privater, webbasierter Gruppen-Chat für unsere Jungschar mit Login-System u
 * 🧭 **Orientierung im Chat:** Linie „neue Nachrichten“ beim Öffnen und ein Knopf „nach unten“ mit Zähler.
 * ↪️ **Weiterleiten:** Text-Nachrichten lassen sich an die Hauptgruppe, die eigene Jungs-/Mädels-Gruppe, eigene Gruppen oder einzelne Personen weiterleiten (mit Vermerk „Weitergeleitet“).
 * 📩 **Einladung anfragen:** Über den Reiter „Neu hier?“ oben rechts am Login-Fenster können Neue und Eingeladene, bei denen die Einladung nicht geklappt hat, ihre E-Mail-Adresse und, wenn sie wollen, eine Nachricht hinterlassen. Der Admin sieht die Anfrage unter Einstellungen → Verwaltung → Einladungs-Anfragen und lädt direkt von dort neu ein.
-* 💌 **Rückmeldung:** Unter Einstellungen → Rückmeldung gibt es drei Einträge: „Vermisst du jemanden?“ (E-Mail-Adresse der Person), „Hast du ein Problem?“ und „Verbesserungsvorschlag“ (höchstens 3 pro Tag und Person). Der Admin sieht alles unter Einstellungen → Verwaltung → Rückmeldungen und kann vermisste Personen direkt einladen.
+* 💌 **Rückmeldung:** Unter Einstellungen → Rückmeldung gibt es drei Einträge: „Vermisst du jemanden?“ (E-Mail-Adresse der Person), „Hast du ein Problem?“ und „Verbesserungsvorschlag“ (höchstens 3 pro Tag und Person). Der Admin sieht alles unter Einstellungen → Verwaltung → Rückmeldungen und kann vermisste Personen direkt einladen. Zu jeder Rückmeldung gibt es eine kleine Unterhaltung zwischen der Person (Einstellungen → Meine Rückmeldungen) und dem Admin; auf "Erledigt" wird sie komplett gelöscht (`rueckmeldungen-chat.sql`).
 * 🚩 **Melden:** Mitglieder können Nachrichten anderer über das Menü melden. Der Admin sieht die Meldungen unter Einstellungen → Verwaltung → Meldungen und kann sie erledigen oder die Nachricht löschen.
 * ↩️ **Schnell antworten:** Doppelklick oder Doppeltipp auf die Höhe einer Nachricht startet die Antwort.
 * 🔍 **Suche im Chat:** Über die Lupe oben rechts nach Wörtern suchen und von Treffer zu Treffer springen.
@@ -30,7 +30,7 @@ Ein privater, webbasierter Gruppen-Chat für unsere Jungschar mit Login-System u
 * 🎂 **Profile und Geburtstage:** Geburtsdatum (Eingabe in drei Zahlenfeldern mit Schnellwahl fürs Jahr), Profil-Pop-up und Geburtstags-Pop-up mit Konfetti. Die Profilfarbe kann der Admin ändern.
 * ⚙️ **Einstellungen:** Die Gruppen (Konto, Gruppen, Darstellung ...) lassen sich über ihre Überschrift zu- und aufklappen (ohne Pfeil); das Gerät merkt sich den Stand. Die Zurück-Taste des Handys schließt zuerst offene Pop-ups, dann die Seite.
 * 🛡️ **Sicherheit & Datenbank:** XSS-Schutz für Nachrichten, Rechte über Row Level Security und Datenbankfunktionen, automatischer Ringpuffer in PostgreSQL (max. 300 Nachrichten pro Chat).
-* 🛠️ **Verwaltung (Admin):** Nutzer einladen, sperren und löschen, Besondere Rechte (VIP, Foto-Sperre, Gruppen erstellen), Geburtsdatum ändern oder neu abfragen lassen, Profilfarbe ändern. Der Admin liest überall mit und schreibt nie.
+* 🛠️ **Verwaltung (Admin):** Nutzer einladen, sperren und löschen, Besondere Rechte (VIP, Foto-Sperre, Gruppen erstellen), Geburtsdatum ändern oder neu abfragen lassen, Profilfarbe ändern. Der Admin liest überall mit und schreibt nie (außer in den Unterhaltungen zu Rückmeldungen), reagiert nicht und sieht an jeder Nachricht, wer sie gelesen hat und wann (`admin-lesestatus.sql`).
 
 ---
 
