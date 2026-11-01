@@ -8454,6 +8454,45 @@ function lowercaseEmailInput(input) {
   try { input.setSelectionRange(start, end) } catch (e) { /* E-Mail-Felder kennen das auf manchen Geräten nicht */ }
 }
 
+// Sucht unter allen Nutzern den mit dieser E-Mail-Adresse (die Adressen holt die Funktion get-user-email, jeweils nur einmal)
+async function findUserByEmail(email) {
+  const target = email.trim().toLowerCase()
+  const users = allUsers.slice()
+  for (let i = 0; i < users.length; i += 8) {
+    const batch = users.slice(i, i + 8)
+    const emails = await Promise.all(batch.map(async u => {
+      if (profileEmailCache[u.id]) return profileEmailCache[u.id]
+      const { data, error } = await supabaseClient.functions.invoke('get-user-email', { body: { userId: u.id } })
+      if (error || !data || !data.email) return null
+      profileEmailCache[u.id] = data.email
+      return data.email
+    }))
+    const index = emails.findIndex(e => e && e.toLowerCase() === target)
+    if (index >= 0) return batch[index]
+  }
+  return null
+}
+
+// Die E-Mail gibt es schon: true = bisheriger Nutzer wurde gelöscht (Einladung kann neu raus), false = abgebrochen,
+// null = den Nutzer nicht gefunden (dann bleibt es bei der Fehlermeldung)
+async function replaceExistingUser(email) {
+  const existing = await findUserByEmail(email)
+  if (!existing) return null
+  const name = existing.display_name || 'ein Nutzer'
+  const ok = await askConfirm(
+    'Diese E-Mail-Adresse gibt es schon: ' + name + '. Soll der bisherige Nutzer gelöscht und die Einladung neu gesendet werden? Sein Konto wird dabei endgültig gelöscht.',
+    { okText: 'Löschen und neu einladen', cancelText: 'Abbrechen', danger: true }
+  )
+  if (!ok) return false
+  const { error } = await supabaseClient.functions.invoke('delete-user', { body: { userId: existing.id } })
+  if (error) {
+    showToast('Löschen fehlgeschlagen: ' + await readFunctionError(error))
+    return false
+  }
+  allUsers = allUsers.filter(u => u.id !== existing.id)
+  return true
+}
+
 async function inviteUser() {
   if (!isAdmin()) return
   const input = document.getElementById('new-user-email')
@@ -8498,21 +8537,31 @@ async function inviteUser() {
     return
   }
 
-  const { data, error } = await invokeWithRetry('invite-user', async () => {
+  const sendInvite = () => invokeWithRetry('invite-user', async () => {
     const { data: { session: fresh } } = await supabaseClient.auth.getSession()
     return {
       body: { email, gender, vip: makeVip, username, display_name: displayName },
       headers: { Authorization: 'Bearer ' + (fresh || session).access_token }
     }
   })
+  const errorTextOf = async (res) => res.error ? await readFunctionError(res.error) : (res.data && res.data.error ? res.data.error : '')
+
+  let { data, error } = await sendInvite()
+  let errorText = await errorTextOf({ data, error })
+
+  // Gibt es diese E-Mail-Adresse schon als Nutzer? Dann fragen, ob der bisherige gelöscht und die Einladung neu gesendet werden soll
+  if (errorText && /already|registered|exists|bereits|schon|registriert|vorhanden/i.test(errorText)) {
+    const replaced = await replaceExistingUser(email)
+    if (replaced === false) { finishSending(); return }
+    if (replaced === true) {
+      ;({ data, error } = await sendInvite())
+      errorText = await errorTextOf({ data, error })
+    }
+  }
   finishSending()
 
-  if (error) {
-    showToast('Einladung konnte nicht gesendet werden: ' + await readFunctionError(error))
-    return
-  }
-  if (data && data.error) {
-    showToast('Einladung konnte nicht gesendet werden: ' + data.error)
+  if (errorText) {
+    showToast('Einladung konnte nicht gesendet werden: ' + errorText)
     return
   }
 
@@ -10727,7 +10776,17 @@ async function loadInviteRequests() {
     inviteRequests = []
     return false
   }
-  inviteRequests = data || []
+  // Dazu kommen die Vorschläge aus "Vermisst du jemanden?" (kommen aus den Rückmeldungen)
+  await loadFeedback()
+  const fromFeedback = personFeedbackItems.map(f => ({
+    id: f.id,
+    email: f.person_email || f.person_name || '',
+    message: f.message || '',
+    created_at: f.created_at,
+    fromFeedback: true,
+    requesterName: (f.profiles && f.profiles.display_name) || (profileCache[f.user_id] && profileCache[f.user_id].name) || ''
+  }))
+  inviteRequests = [...(data || []), ...fromFeedback].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
   return true
 }
 
@@ -10756,9 +10815,10 @@ async function openInviteRequestsModal() {
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
 
   const markHandled = async (request) => {
-    const { error } = await supabaseClient.from('invite_requests').update({ handled: true }).eq('id', request.id)
+    const table = request.fromFeedback ? 'feedback' : 'invite_requests'
+    const { error } = await supabaseClient.from(table).update({ handled: true }).eq('id', request.id)
     if (error) { showToast('Speichern hat nicht geklappt: ' + error.message); return false }
-    inviteRequests = inviteRequests.filter(r => r.id !== request.id)
+    inviteRequests = inviteRequests.filter(r => !(r.id === request.id && !!r.fromFeedback === !!request.fromFeedback))
     return true
   }
 
@@ -10779,7 +10839,9 @@ async function openInviteRequestsModal() {
       head.textContent = request.email
       const meta = document.createElement('div')
       meta.className = 'report-meta'
-      meta.textContent = 'Angefragt ' + formatTime(request.created_at)
+      meta.textContent = request.fromFeedback
+        ? 'Vorgeschlagen' + (request.requesterName ? ' von ' + request.requesterName : '') + ' · ' + formatTime(request.created_at)
+        : 'Angefragt ' + formatTime(request.created_at)
       let note = null
       if (request.message) {
         note = document.createElement('div')
@@ -10956,6 +11018,7 @@ function openFeedbackModal(kind = 'problem') {
 }
 
 let feedbackItems = []
+let personFeedbackItems = [] // "Vermisst du jemanden?": erscheint bei den Einladungs-Anfragen, nicht bei den Rückmeldungen
 
 async function loadFeedback() {
   // Mit dem Namen der Person; klappt das nicht (Beziehung nicht gefunden), ohne
@@ -10970,9 +11033,12 @@ async function loadFeedback() {
   }
   if (res.error) {
     feedbackItems = []
+    personFeedbackItems = []
     return false
   }
-  feedbackItems = res.data || []
+  const all = res.data || []
+  feedbackItems = all.filter(f => f.kind !== 'person')
+  personFeedbackItems = all.filter(f => f.kind === 'person')
   return true
 }
 

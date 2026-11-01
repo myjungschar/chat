@@ -3823,6 +3823,13 @@ input[type="date"]::-webkit-date-and-time-value {
   padding-right: 2px;
 }
 
+/* Am Handy (eigene volle Seite) soll die Liste bis ganz nach unten reichen, nicht bei 60 % der Höhe aufhören */
+@media (max-width: 899.98px) {
+  #user-list {
+    max-height: none;
+  }
+}
+
 #user-list {
   list-style: none;
   display: flex;
@@ -3932,6 +3939,15 @@ input[type="date"]::-webkit-date-and-time-value {
 
 #birthday-modal {
   overflow: hidden;
+}
+
+/* Haben viele Leute Geburtstag, ist der Inhalt höher als der Bildschirm: dann scrollt nur der Text im Pop-up, das Kreuz
+   oben rechts bleibt immer an seinem Platz sichtbar (früher rutschte es aus dem Bild und ließ sich nicht mehr antippen) */
+#birthday-body {
+  max-height: calc(100vh - 110px);
+  max-height: calc(100dvh - 110px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .birthday-box {
@@ -5812,6 +5828,7 @@ body.light-theme .birthday-age-pill {
 /* Geburtstags-Pop-up: Kreuz oben rechts (grau, beim Darüberfahren rot); beim ersten automatischen Öffnen erscheint es nach 3 Sekunden */
 .birthday-x {
   position: absolute;
+  z-index: 2; /* über dem Emoji und dem Text, sonst fängt dieser den Tipp ab und das Kreuz reagiert nicht zuverlässig */
   top: 8px;
   right: 8px;
   width: 34px;
