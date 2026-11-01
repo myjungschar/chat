@@ -3828,6 +3828,12 @@ input[type="date"]::-webkit-date-and-time-value {
   #user-list {
     max-height: none;
   }
+
+  /* Die Seite lässt unten keinen Rand mehr: die Liste reicht bis zum Bildschirmrand. Die Luft für die letzte Zeile
+     (über Handy-Leisten hinweg) steckt im Innenabstand der Liste selbst. */
+  #users-bereich {
+    padding-bottom: 0;
+  }
 }
 
 #user-list {
