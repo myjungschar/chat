@@ -33,6 +33,7 @@ let unreadCounts = {}        // chat_key -> Anzahl ungelesener Nachrichten, für
 const READ_RECEIPTS_ENABLED = true
 
 let peerMarks = {}          // user_id -> { readAt, deliveredAt } der anderen Teilnehmer im offenen Chat, für die Häkchen
+let readLogs = {}           // Admin: user_id -> [{ lastReadAt, seenAt }] (aufsteigend nach seenAt): wann die Person den Chat bis wohin gesehen hat
 let peerChannel = null      // Realtime: Lese-/Zustellmarkierungen der anderen im offenen Chat
 let inboxChannel = null     // Realtime: neue Nachrichten, solange man eingeloggt ist (für "zugestellt")
 let deliveredReported = {}  // chat_key -> ms der neuesten Nachricht, für die "zugestellt" schon gemeldet wurde
@@ -1378,6 +1379,7 @@ async function openConversation(title) {
   peerMarks = {}
   markActiveListItem() // am PC: den geöffneten Chat links hervorheben
   loadVipIds() // frische VIP-Liste, muss nicht abgewartet werden
+  readLogs = {}
   loadMessagesRetries = 0
   await loadMessages()
   listenForNewMessages()
@@ -5291,16 +5293,32 @@ async function loadPeerMarks() {
     deliveredQuery = deliveredQuery.eq('user_id', roomAtStart.userId)
   }
 
-  const [readRes, deliveredRes] = await Promise.all([readQuery, deliveredQuery])
+  // Der Admin bekommt zusätzlich den Verlauf der Lese-Markierungen (Tabelle read_log, braucht lesezeit.sql): daraus ergibt sich,
+  // wann eine Nachricht wirklich gelesen wurde. Fehlt die Tabelle noch, gibt es einfach keine Uhrzeit.
+  let logQuery = null
+  if (isAdmin()) {
+    logQuery = supabaseClient.from('read_log').select('user_id, last_read_at, seen_at')
+    logQuery = adminPair ? logQuery.or(adminPairFilter(roomAtStart)) : logQuery.eq('chat_key', key)
+    logQuery = logQuery.order('seen_at', { ascending: false }).limit(5000)
+  }
+
+  const [readRes, deliveredRes, logRes] = await Promise.all([readQuery, deliveredQuery, logQuery || Promise.resolve(null)])
   // Zwischenzeitlich in einen anderen Chat gewechselt? Dann verwerfen
   if (currentRoom !== roomAtStart) return
 
   peerMarks = {}
+  readLogs = {}
   if (readRes.error) console.error('Lesemarkierungen konnten nicht geladen werden:', readRes.error)
   else (readRes.data || []).forEach(m => { peerEntry(m.user_id).readAt = new Date(m.last_read_at) })
 
   if (deliveredRes.error) console.error('Zustellmarkierungen konnten nicht geladen werden:', deliveredRes.error)
   else (deliveredRes.data || []).forEach(m => { peerEntry(m.user_id).deliveredAt = new Date(m.delivered_at) })
+
+  if (logRes && !logRes.error) {
+    ;(logRes.data || []).slice().reverse().forEach(m => {
+      (readLogs[m.user_id] || (readLogs[m.user_id] = [])).push({ lastReadAt: new Date(m.last_read_at), seenAt: new Date(m.seen_at) })
+    })
+  }
 
   refreshTicks()
 }
@@ -5325,8 +5343,12 @@ function startPeerListening() {
     }
     if (currentRoom.type === 'dm' && row.user_id !== currentRoom.userId) return
     const entry = peerEntry(row.user_id)
-    if (kind === 'read') entry.readAt = new Date(row.last_read_at)
-    else entry.deliveredAt = new Date(row.delivered_at)
+    if (kind === 'read') {
+      entry.readAt = new Date(row.last_read_at)
+      if (isAdmin()) (readLogs[row.user_id] || (readLogs[row.user_id] = [])).push({ lastReadAt: entry.readAt, seenAt: new Date() })
+    } else {
+      entry.deliveredAt = new Date(row.delivered_at)
+    }
     refreshTicks()
   }
 
@@ -5352,8 +5374,13 @@ function deliveryListsFor(createdAt, senderId) {
   recipientIdsForRoom(senderId).forEach(id => {
     const marks = peerMarks[id] || {}
     const person = { id: id, name: (profileCache[id] && profileCache[id].name) || 'Unbekannt', at: null }
-    if (marks.readAt && marks.readAt >= sentAt) { person.at = marks.readAt; lists.read.push(person) }
-    else if (marks.deliveredAt && marks.deliveredAt >= sentAt) { person.at = marks.deliveredAt; lists.delivered.push(person) }
+    if (marks.readAt && marks.readAt >= sentAt) {
+      // Echte Lesezeit: der früheste Moment, in dem die Markierung der Person diese Nachricht schon eingeschlossen hat
+      const hit = (readLogs[id] || []).find(entry => entry.lastReadAt >= sentAt)
+      person.at = hit ? hit.seenAt : null
+      lists.read.push(person)
+    }
+    else if (marks.deliveredAt && marks.deliveredAt >= sentAt) { lists.delivered.push(person) }
     else lists.pending.push(person)
   })
 
@@ -5442,8 +5469,8 @@ function openMessageInfo(createdAt, senderId) {
     section.people.forEach(person => {
       const item = document.createElement('li')
       item.className = 'info-item'
-      // Der Admin sieht dazu die Uhrzeit (per CSS rechts angezeigt): bei "gelesen" wann die Person den Chat zuletzt bis dorthin gesehen hat
-      if (isAdmin() && person.at) item.dataset.when = (section.status === 'read' ? 'zuletzt gelesen ' : 'zugestellt ') + formatTime(person.at)
+      // Der Admin sieht bei "gelesen" dazu die Uhrzeit (per CSS rechts angezeigt)
+      if (isAdmin() && section.status === 'read' && person.at) item.dataset.when = 'gelesen ' + formatTime(person.at)
 
       const avatar = document.createElement('div')
       avatar.className = 'info-avatar'
@@ -12624,7 +12651,7 @@ document.addEventListener('keydown', (e) => {
 
 // ===== Klick auf eine Benachrichtigung: den passenden Chat öffnen =====
 // Der Service Worker meldet den Klick (push-open) oder startet die App mit ?push=1&chat=SCHLÜSSEL. Kennt die
-// Benachrichtigung ihren Chat (chatKey: "main", "junge", "maedchen" oder "dm:<Nutzer-ID>"), wird genau er geöffnet;
+// Benachrichtigung ihren Chat (chatKey: "main", "junge", "maedchen", "dm:<Nutzer-ID>" oder "feedback:<ID>" für eine Admin-Antwort), wird genau er geöffnet;
 // sonst der Chat mit der neuesten ungelesenen Nachricht.
 let pendingPushOpen = null
 
@@ -12692,6 +12719,10 @@ async function handlePushOpen(chatKey) {
     return
   }
   if (isAdmin()) return
+  if (chatKey && chatKey.startsWith('feedback:')) {
+    openFeedbackFromPush(chatKey.slice('feedback:'.length))
+    return
+  }
   if (chatKey && openChatByKey(chatKey)) {
     syncAfterPushOpen()
     return
@@ -12712,6 +12743,22 @@ async function handlePushOpen(chatKey) {
   // Chat unbekannt: frische Zähler holen (die App lag vielleicht im Hintergrund) und den neuesten ungelesenen öffnen
   await renderChatList()
   openChatByKey(newestUnreadChatKey())
+}
+
+// Die Antwort des Admins auf eine Rückmeldung wurde angetippt: die passende Unterhaltung öffnen
+async function openFeedbackFromPush(feedbackId) {
+  if (!/^[\w-]{1,64}$/.test(String(feedbackId))) return
+  const { data, error } = await supabaseClient
+    .from('feedback')
+    .select('*')
+    .eq('id', feedbackId)
+    .eq('user_id', currentUser.id)
+    .maybeSingle()
+  if (error || !data) {
+    showToast('Diese Rückmeldung gibt es nicht mehr.')
+    return
+  }
+  await openFeedbackThread(data)
 }
 
 // Direkt nach dem Aufwachen ist das Netz oft noch nicht ganz da: kurz nach dem Öffnen nochmal nach neuen Nachrichten schauen

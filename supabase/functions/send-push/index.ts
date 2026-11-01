@@ -86,10 +86,78 @@ function pushText(text) {
   return stripFormatting(text)
 }
 
+// Schickt die fertige Meldung an alle Geräte (Abos) und räumt abgelaufene/ungültige Abos wieder weg
+async function sendToSubscriptions(subs, notificationPayload: string) {
+  // urgency "high": Android/Samsung stellt die Nachricht sofort zu, auch wenn das Handy ruht (Energiesparen/Doze).
+  // Ohne diese Angabe wird eine Push-Nachricht oft erst nach Minuten ausgeliefert.
+  // TTL: so lange hält der Push-Dienst die Nachricht für ein gerade ausgeschaltetes/offline Handy bereit (1 Stunde).
+  // timeout: ein hängender Empfänger bremst die anderen nicht ewig aus.
+  const pushOptions = { urgency: "high" as const, TTL: 3600, timeout: 10000 }
+
+  const results = await Promise.allSettled(
+    subs.map((sub) =>
+      webpush.sendNotification(
+        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+        notificationPayload,
+        pushOptions
+      )
+    )
+  )
+
+  // Abgelaufene/ungültige Abos (Gerät abgemeldet, Browser deinstalliert, ...) wieder entfernen
+  await Promise.all(
+    results.map((result, i) => {
+      if (result.status === "rejected") {
+        const statusCode = result.reason?.statusCode
+        if (statusCode === 404 || statusCode === 410) {
+          return supabaseAdmin.from("push_subscriptions").delete().eq("endpoint", subs[i].endpoint)
+        }
+      }
+      return Promise.resolve()
+    })
+  )
+}
+
+// Antwort des Admins in der Unterhaltung zu einer Rückmeldung (Tabelle feedback_messages): Meldung nur an die Person,
+// der die Rückmeldung gehört. An den Admin selbst gibt es nie eine Push-Meldung.
+async function handleFeedbackMessage(record) {
+  if (!record || !record.sender_id || !record.feedback_id) {
+    return new Response("kein passender Datensatz", { status: 200 })
+  }
+  const { data: sender } = await supabaseAdmin.from("profiles").select("role").eq("id", record.sender_id).single()
+  if (!sender || sender.role !== "admin") {
+    return new Response("keine Push-Meldung an den Admin", { status: 200 })
+  }
+  const { data: feedback } = await supabaseAdmin.from("feedback").select("user_id").eq("id", record.feedback_id).single()
+  if (!feedback || !feedback.user_id) {
+    return new Response("Rückmeldung nicht gefunden", { status: 200 })
+  }
+  const { data: subs } = await supabaseAdmin.from("push_subscriptions").select("*").eq("user_id", feedback.user_id)
+  if (!subs || subs.length === 0) {
+    return new Response("niemand hat Push aktiviert", { status: 200 })
+  }
+
+  const key = "feedback:" + record.feedback_id
+  // Bewusst ohne createdAt: sonst würde der Service Worker die Meldung als "zugestellt" für einen Chat melden
+  const notificationPayload = JSON.stringify({
+    title: "Antwort vom Admin",
+    body: String(record.text || "").slice(0, 120),
+    tag: key,
+    chatKey: key,
+    url: "./"
+  })
+  await sendToSubscriptions(subs, notificationPayload)
+  return new Response("ok", { status: 200 })
+}
+
 Deno.serve(async (req) => {
   try {
     const payload = await req.json()
     const record = payload.record
+
+    if (payload.table === "feedback_messages") {
+      return await handleFeedbackMessage(record)
+    }
 
     if (!record || !record.sender_id) {
       return new Response("kein passender Datensatz", { status: 200 })
@@ -177,7 +245,13 @@ Deno.serve(async (req) => {
 
     const senderName = sender.display_name || "Neue Nachricht"
     // Fotos und Audios haben oft keinen Text: dann steht stattdessen ein kurzer Hinweis in der Meldung
-    const bodyText = (record.text ? pushText(record.text) : (record.photo_id ? "📷 Foto" : record.audio_id ? "🎵 Audio" : "")).slice(0, 120)
+    // Dateien (PDF, Word ...) liegen in den Audio-Spalten, erkennbar am audio_mime, der nicht mit "audio/" anfängt
+    const fileHint = record.audio_id
+      ? (record.audio_mime && !String(record.audio_mime).startsWith("audio/")
+          ? (record.audio_mime === "application/pdf" ? "📄 PDF" : "📎 Datei")
+          : "🎵 Audio")
+      : ""
+    const bodyText = (record.text ? pushText(record.text) : (record.photo_id ? "📷 Foto" : fileHint)).slice(0, 120)
     const notificationPayload = JSON.stringify({
       title: groupName ? senderName + " · " + groupName : senderName,
       body: bodyText,
@@ -187,34 +261,7 @@ Deno.serve(async (req) => {
       url: "./"
     })
 
-    // urgency "high": Android/Samsung stellt die Nachricht sofort zu, auch wenn das Handy ruht (Energiesparen/Doze).
-    // Ohne diese Angabe wird eine Push-Nachricht oft erst nach Minuten ausgeliefert.
-    // TTL: so lange hält der Push-Dienst die Nachricht für ein gerade ausgeschaltetes/offline Handy bereit (1 Stunde).
-    // timeout: ein hängender Empfänger bremst die anderen nicht ewig aus.
-    const pushOptions = { urgency: "high" as const, TTL: 3600, timeout: 10000 }
-
-    const results = await Promise.allSettled(
-      subs.map((sub) =>
-        webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          notificationPayload,
-          pushOptions
-        )
-      )
-    )
-
-    // Abgelaufene/ungültige Abos (Gerät abgemeldet, Browser deinstalliert, ...) wieder entfernen
-    await Promise.all(
-      results.map((result, i) => {
-        if (result.status === "rejected") {
-          const statusCode = result.reason?.statusCode
-          if (statusCode === 404 || statusCode === 410) {
-            return supabaseAdmin.from("push_subscriptions").delete().eq("endpoint", subs[i].endpoint)
-          }
-        }
-        return Promise.resolve()
-      })
-    )
+    await sendToSubscriptions(subs, notificationPayload)
 
     return new Response("ok", { status: 200 })
   } catch (err) {
