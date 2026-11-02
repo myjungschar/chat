@@ -8501,23 +8501,77 @@ async function findUserByEmail(email) {
   return null
 }
 
-// Die E-Mail gibt es schon: true = bisheriger Nutzer wurde gelöscht (Einladung kann neu raus), false = abgebrochen,
-// null = den Nutzer nicht gefunden (dann bleibt es bei der Fehlermeldung)
-async function replaceExistingUser(email) {
-  const existing = await findUserByEmail(email)
-  if (!existing) return null
-  const name = existing.display_name || 'ein Nutzer'
-  const ok = await askConfirm(
-    'Diese E-Mail-Adresse gibt es schon: ' + name + '. Soll der bisherige Nutzer gelöscht und die Einladung neu gesendet werden? Sein Konto wird dabei endgültig gelöscht.',
-    { okText: 'Löschen und neu einladen', cancelText: 'Abbrechen', danger: true }
+// Dialog mit mehreren Knöpfen untereinander: gibt den "value" des angetippten Knopfs zurück (Abbrechen, Esc oder daneben tippen = null)
+function askChoice(message, choices) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div')
+    overlay.className = 'confirm-overlay'
+    const dialog = document.createElement('div')
+    dialog.className = 'confirm-dialog'
+    dialog.setAttribute('role', 'alertdialog')
+    dialog.setAttribute('aria-modal', 'true')
+
+    const text = document.createElement('p')
+    text.textContent = message
+    const buttons = document.createElement('div')
+    buttons.className = 'confirm-buttons stacked'
+
+    const finish = value => {
+      document.removeEventListener('keydown', onKey)
+      overlay.remove()
+      resolve(value)
+    }
+    const onKey = e => { if (e.key === 'Escape') finish(null) }
+    let cancelBtn = null
+    choices.forEach(choice => {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = choice.kind === 'danger' ? 'confirm-ok danger' : choice.kind === 'cancel' ? 'confirm-cancel' : 'confirm-ok'
+      btn.textContent = choice.label
+      btn.addEventListener('click', () => finish(choice.value))
+      if (choice.kind === 'cancel') cancelBtn = btn
+      buttons.appendChild(btn)
+    })
+
+    dialog.append(text, buttons)
+    overlay.appendChild(dialog)
+    document.body.appendChild(overlay)
+    document.addEventListener('keydown', onKey)
+    overlay.addEventListener('click', e => { if (e.target === overlay) finish(null) })
+    if (cancelBtn) cancelBtn.focus() // Vorauswahl ist "Abbrechen", damit man nicht aus Versehen bestätigt
+  })
+}
+
+// Es gibt schon einen Nutzer mit dieser E-Mail-Adresse. Ergebnis: 'resend' (Einladung nochmal senden), 'replace'
+// (bisherigen Nutzer löschen und neu einladen) oder null (abbrechen)
+function askExistingUser(info) {
+  const name = info.name || 'ein Nutzer'
+  if (!info.accepted) {
+    return askChoice(
+      'Diese E-Mail-Adresse gibt es schon: ' + name + '. Die Einladung wurde noch nicht angenommen. Soll die E-Mail nochmal gesendet werden, falls sie nicht gelesen wurde?',
+      [
+        { value: 'resend', label: 'E-Mail nochmal senden', kind: 'primary' },
+        { value: 'replace', label: 'Löschen und neu einladen', kind: 'danger' },
+        { value: null, label: 'Abbrechen', kind: 'cancel' }
+      ]
+    )
+  }
+  return askChoice(
+    'Diese E-Mail-Adresse gibt es schon: ' + name + '. Diese Person hat die Einladung schon angenommen. Soll ihr Konto gelöscht und neu eingeladen werden? Das Konto wird dabei endgültig gelöscht.',
+    [
+      { value: 'replace', label: 'Löschen und neu einladen', kind: 'danger' },
+      { value: null, label: 'Abbrechen', kind: 'cancel' }
+    ]
   )
-  if (!ok) return false
-  const { error } = await supabaseClient.functions.invoke('delete-user', { body: { userId: existing.id } })
+}
+
+async function deleteUserById(userId) {
+  const { error } = await supabaseClient.functions.invoke('delete-user', { body: { userId } })
   if (error) {
     showToast('Löschen fehlgeschlagen: ' + await readFunctionError(error))
     return false
   }
-  allUsers = allUsers.filter(u => u.id !== existing.id)
+  allUsers = allUsers.filter(u => u.id !== userId)
   return true
 }
 
@@ -8577,14 +8631,44 @@ async function inviteUser() {
   let { data, error } = await sendInvite()
   let errorText = await errorTextOf({ data, error })
 
-  // Gibt es diese E-Mail-Adresse schon als Nutzer? Dann fragen, ob der bisherige gelöscht und die Einladung neu gesendet werden soll
-  if (errorText && /already (been )?registered|already exists|email.?exists|bereits registriert|schon registriert/i.test(errorText)) {
-    const replaced = await replaceExistingUser(email)
-    if (replaced === false) { finishSending(); return }
-    if (replaced === true) {
-      ;({ data, error } = await sendInvite())
-      errorText = await errorTextOf({ data, error })
+  // Gibt es diese E-Mail-Adresse schon als Nutzer? Die (neue) Funktion meldet das als { exists: true, ... }, die alte Fassung
+  // antwortet mit der Fehlermeldung von Supabase ("already been registered").
+  let existing = null
+  if (data && data.exists === true) {
+    existing = { id: data.userId, name: data.displayName, accepted: data.accepted === true }
+  } else if (errorText && /already (been )?registered|already exists|email.?exists|bereits registriert|schon registriert/i.test(errorText)) {
+    const found = await findUserByEmail(email)
+    if (found) existing = { id: found.id, name: found.display_name, accepted: found.active !== false }
+  }
+  if (existing) {
+    const choice = await askExistingUser(existing)
+
+    if (choice === 'resend') {
+      // Die Einladungs-E-Mail geht nochmal an dieselbe Person (nur möglich, solange sie nicht angenommen wurde)
+      const res = await invokeWithRetry('invite-user', async () => {
+        const { data: { session: fresh } } = await supabaseClient.auth.getSession()
+        return { body: { email, resend: true }, headers: { Authorization: 'Bearer ' + (fresh || session).access_token } }
+      })
+      const resendError = await errorTextOf(res)
+      finishSending()
+      if (resendError) {
+        showToast(resendError)
+        return
+      }
+      input.value = ''
+      document.querySelectorAll('#new-user-gender .gender-btn').forEach(b => b.classList.remove('active'))
+      await showInfoDialog('Die Einladung wurde nochmal an ' + email + ' gesendet.')
+      loadUsers()
+      return
     }
+
+    if (choice !== 'replace' || !(await deleteUserById(existing.id))) {
+      finishSending()
+      return
+    }
+    ;({ data, error } = await sendInvite())
+    errorText = await errorTextOf({ data, error })
+    if (!errorText && data && data.exists === true) errorText = 'Die E-Mail-Adresse gibt es immer noch als Nutzer.'
   }
   finishSending()
 

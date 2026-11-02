@@ -87,6 +87,18 @@ function nameFromUsername(username: string): string {
     .join(' ')
 }
 
+// Sucht unter allen Konten das mit dieser E-Mail-Adresse (die Nutzerzahl ist klein, deshalb reicht Durchblättern)
+async function findAuthUserByEmail(admin: ReturnType<typeof createClient>, emailLower: string) {
+  for (let page = 1; page <= 20; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 })
+    if (error) throw new Error('Nutzerliste konnte nicht gelesen werden: ' + error.message)
+    const hit = data.users.find((u) => (u.email ?? '').toLowerCase() === emailLower)
+    if (hit) return hit
+    if (data.users.length < 200) break
+  }
+  return null
+}
+
 // Zeichen, die bei ilike (Groß-/Kleinschreibung egal) Platzhalter wären, werden entschärft
 const escapeLike = (text: string) => text.replace(/[\%_]/g, '\\$&')
 
@@ -113,6 +125,37 @@ Deno.serve(async (req) => {
     if (typeof email !== 'string' || !email.includes('@')) {
       return json({ error: 'Bitte eine gültige E-Mail-Adresse angeben.' }, 400)
     }
+
+    // Gibt es diese E-Mail-Adresse schon? Dann wird NICHT neu angelegt: Ohne "resend" meldet die Funktion das zurück
+    // ({ exists: true, ... }), damit die App fragen kann. Mit "resend: true" geht die Einladung nochmal raus (nur wenn
+    // sie noch nicht angenommen wurde).
+    const existingUser = await findAuthUserByEmail(admin, email.trim().toLowerCase())
+    if (existingUser) {
+      const { data: existingProfile } = await admin.from('profiles').select('*').eq('id', existingUser.id).maybeSingle()
+      const accepted = !!existingProfile && existingProfile.active !== false
+      const existingName = existingProfile?.display_name ?? existingUser.user_metadata?.display_name ?? ''
+      if (body.resend !== true) return json({ exists: true, userId: existingUser.id, displayName: existingName, accepted })
+      if (accepted) return json({ error: 'Diese Person hat die Einladung schon angenommen.' }, 400)
+
+      const resendData: Record<string, unknown> = { ...(existingUser.user_metadata ?? {}) }
+      if (!resendData.invite_token) {
+        const t = await makeInviteToken(email)
+        if (t) resendData.invite_token = t
+      }
+      const { error: resendError } = await admin.auth.admin.inviteUserByEmail(email.trim(), { data: resendData, redirectTo: REDIRECT_URL })
+      if (resendError) {
+        const opened = /already|registered/i.test(resendError.message)
+        return json({
+          error: opened
+            ? 'Die Person hat den Einladungs-Link schon einmal geöffnet, deshalb geht die E-Mail nicht nochmal. Bitte lösche sie unter Nutzer verwalten und lade sie neu ein.'
+            : 'E-Mail konnte nicht gesendet werden: ' + resendError.message
+        }, 400)
+      }
+      await admin.from('profiles').update({ invited_at: new Date().toISOString() }).eq('id', existingUser.id)
+      return json({ resent: true, userId: existingUser.id, displayName: existingName })
+    }
+    if (body.resend === true) return json({ error: 'Diesen Nutzer gibt es nicht.' }, 404)
+
     if (gender !== 'junge' && gender !== 'maedchen') {
       return json({ error: 'Das Geschlecht fehlt (Junge oder Mädchen).' }, 400)
     }
