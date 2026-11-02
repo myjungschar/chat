@@ -1484,7 +1484,7 @@ async function loadProfileCache() {
   profileCache = {}
   data.forEach(p => {
     // active = false: eingeladen, aber Einladung noch nicht angenommen / noch kein Passwort gesetzt
-    profileCache[p.id] = { name: p.display_name, role: p.role, blocked: !!p.is_blocked, gender: p.gender, active: p.active !== false, birthdate: p.birthdate || null, color: p.color || null }
+    profileCache[p.id] = { name: p.display_name, role: p.role, blocked: !!p.is_blocked, gender: p.gender, active: p.active !== false, birthdate: p.birthdate || null, color: p.color || null, invitedAt: p.invited_at || null }
   })
 }
 
@@ -7089,6 +7089,7 @@ function openSettings() {
   document.getElementById('feedback-settings-group').style.display = isAdmin() ? 'none' : ''
   updateNewGroupButton()
   if (isAdmin()) { updateReportsBadge(); updateInviteRequestsBadge(); updateFeedbackBadge() } else updateMyFeedbackBadge()
+  updatePendingInvitesEntry()
   refreshPushToggleUI()
   updateInstallMenu()
 }
@@ -11420,6 +11421,93 @@ function openFeedbackThread(item) {
     fbMarkRead(item.id)
     setTimeout(() => input.focus(), 50)
   })
+}
+
+// ===== Wer wurde noch eingeladen? (für alle Mitglieder) =====
+// Zeigt die Namen von Leuten, die eingeladen wurden, die Einladung aber noch nicht angenommen haben.
+// Nur Namen (und wie lange das her ist), keine E-Mail-Adressen. Der Admin hat dafür die Nutzerverwaltung.
+function pendingInviteProfiles() {
+  if (!currentUser) return []
+  return Object.entries(profileCache)
+    .filter(([id, p]) => p.active === false && !p.blocked && p.role !== 'admin' && id !== currentUser.id)
+    .map(([id, p]) => ({ id: id, info: p, name: p.name || 'Ohne Namen' }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' }))
+}
+
+// Menüpunkt in den Einstellungen: nur da, solange es jemanden gibt, der noch eingeladen ist (und nicht beim Admin)
+function updatePendingInvitesEntry() {
+  const section = document.getElementById('members-group')
+  if (!section) return
+  const count = isAdmin() ? 0 : pendingInviteProfiles().length
+  section.style.display = count > 0 ? '' : 'none'
+  const badge = document.getElementById('pending-invites-badge')
+  if (badge) badge.textContent = String(count)
+}
+
+async function openPendingInvites() {
+  if (!currentUser || isAdmin()) return
+  await loadProfileCache() // frischer Stand: vielleicht hat inzwischen jemand angenommen
+  updatePendingInvitesEntry()
+
+  const overlay = document.createElement('div')
+  overlay.className = 'confirm-overlay'
+  const dialog = document.createElement('div')
+  dialog.className = 'confirm-dialog reports-dialog'
+  dialog.setAttribute('role', 'dialog')
+  dialog.setAttribute('aria-modal', 'true')
+  overlay.appendChild(dialog)
+  document.body.appendChild(overlay)
+
+  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove() }
+  const onKey = e => { if (e.key === 'Escape') close() }
+  document.addEventListener('keydown', onKey)
+  overlay.addEventListener('click', e => { if (e.target === overlay) close() })
+
+  const people = pendingInviteProfiles()
+  const heading = document.createElement('p')
+  heading.className = 'audio-name-heading'
+  heading.textContent = people.length === 0 ? 'Alle haben die Einladung angenommen' : 'Noch eingeladen (' + people.length + ')'
+  dialog.appendChild(heading)
+
+  if (people.length > 0) {
+    const hint = document.createElement('p')
+    hint.className = 'pending-invites-hint'
+    hint.textContent = 'Diese Leute wurden eingeladen, haben die Einladung aber noch nicht angenommen.'
+    dialog.appendChild(hint)
+
+    const list = document.createElement('div')
+    list.className = 'pending-invites-list'
+    people.forEach(person => {
+      const row = document.createElement('div')
+      row.className = 'pending-invite-row'
+      const avatar = document.createElement('div')
+      avatar.className = 'chat-list-avatar'
+      avatar.style.background = avatarColorOf(person.id, person.info)
+      avatar.textContent = initialsOf(person.name)
+      const text = document.createElement('div')
+      text.className = 'pending-invite-text'
+      const name = document.createElement('div')
+      name.className = 'chat-list-name'
+      name.textContent = person.name
+      text.appendChild(name)
+      if (person.info.invitedAt) {
+        const when = document.createElement('div')
+        when.className = 'chat-list-preview'
+        when.textContent = invitedAgoText(person.info.invitedAt)
+        text.appendChild(when)
+      }
+      row.append(avatar, text)
+      list.appendChild(row)
+    })
+    dialog.appendChild(list)
+  }
+
+  const closeBtn = document.createElement('button')
+  closeBtn.type = 'button'
+  closeBtn.className = 'confirm-cancel'
+  closeBtn.textContent = 'Schließen'
+  closeBtn.addEventListener('click', close)
+  dialog.appendChild(closeBtn)
 }
 
 // Die eigenen offenen Rückmeldungen (Person) - von hier aus geht es in die jeweilige Unterhaltung

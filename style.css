@@ -6169,3 +6169,34 @@ body.light-theme .user-invite-pill {
 #user-list .chat-list-item.invited .chat-list-avatar {
   opacity: 0.55;
 }
+
+/* Wer ist noch eingeladen? (Liste für alle Mitglieder) */
+.pending-invites-hint {
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.pending-invites-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 50vh;
+  margin-bottom: 14px;
+  overflow-y: auto;
+}
+
+.pending-invite-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pending-invite-row .chat-list-avatar {
+  opacity: 0.6;
+}
+
+.pending-invite-text {
+  min-width: 0;
+  text-align: left;
+}
