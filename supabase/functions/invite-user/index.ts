@@ -88,7 +88,8 @@ function nameFromUsername(username: string): string {
 }
 
 // Sucht unter allen Konten das mit dieser E-Mail-Adresse (die Nutzerzahl ist klein, deshalb reicht Durchblättern)
-async function findAuthUserByEmail(admin: ReturnType<typeof createClient>, emailLower: string) {
+// deno-lint-ignore no-explicit-any
+async function findAuthUserByEmail(admin: any, emailLower: string) {
   for (let page = 1; page <= 20; page++) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 })
     if (error) throw new Error('Nutzerliste konnte nicht gelesen werden: ' + error.message)
