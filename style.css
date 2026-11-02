@@ -3950,10 +3950,14 @@ input[type="date"]::-webkit-date-and-time-value {
 /* Haben viele Leute Geburtstag, ist der Inhalt höher als der Bildschirm: dann scrollt nur der Text im Pop-up, das Kreuz
    oben rechts bleibt immer an seinem Platz sichtbar (früher rutschte es aus dem Bild und ließ sich nicht mehr antippen) */
 #birthday-body {
-  max-height: calc(100vh - 110px);
-  max-height: calc(100dvh - 110px);
+  max-height: calc(100vh - 90px);
+  max-height: calc(100dvh - 90px);
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* Das Emoji hüpft nach oben: ohne diesen Platz würde es oben abgeschnitten (sah aus wie "größer und kleiner").
+     Das Minus-margin gleicht den Platz wieder aus, damit sich am Aussehen nichts verschiebt. */
+  padding-top: 20px;
+  margin-top: -20px;
 }
 
 .birthday-box {
@@ -6142,4 +6146,26 @@ body.light-theme .birthday-age-pill {
 
 .fb-clickable {
   cursor: pointer;
+}
+
+/* Nutzerliste: Einladung verschickt, aber noch nicht angenommen */
+.user-invite-pill {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 170, 60, 0.18);
+  color: #ffb454;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+body.light-theme .user-invite-pill {
+  background: rgba(214, 120, 0, 0.14);
+  color: #b86a00;
+}
+
+#user-list .chat-list-item.invited .chat-list-avatar {
+  opacity: 0.55;
 }

@@ -7400,18 +7400,37 @@ function markActiveUserRow() {
   })
 }
 
+// "heute eingeladen", "gestern eingeladen", "vor 5 Tagen eingeladen" (Datum steht seit der Einladung im Profil: invited_at)
+function invitedAgoText(value) {
+  const date = new Date(value)
+  if (isNaN(date.getTime())) return ''
+  const days = Math.floor((Date.now() - date.getTime()) / 86400000)
+  if (days < 1) return 'heute eingeladen'
+  if (days === 1) return 'gestern eingeladen'
+  return 'vor ' + days + ' Tagen eingeladen'
+}
+
 function renderUserList() {
+  // Filterknopf "Offen": nur da, solange jemand die Einladung noch nicht angenommen hat (mit Anzahl)
+  const openCount = allUsers.filter(u => u.active === false).length
+  const openBtn = document.querySelector('#user-filter .filter-btn[data-value="invited"]')
+  if (openBtn) {
+    openBtn.style.display = openCount > 0 ? '' : 'none'
+    openBtn.textContent = 'Offen (' + openCount + ')'
+  }
+  if (userFilterGender === 'invited' && openCount === 0) setUserFilter('all')
+
   const list = document.getElementById('user-list')
   const query = (document.getElementById('user-search').value || '').trim().toLowerCase()
   list.innerHTML = ''
 
   allUsers
-    .filter(u => userFilterGender === 'all' || u.gender === userFilterGender)
+    .filter(u => userFilterGender === 'all' || (userFilterGender === 'invited' ? u.active === false : u.gender === userFilterGender))
     .filter(u => !query || (u.display_name || '').toLowerCase().includes(query))
     .forEach(u => {
       // Aufgebaut wie eine Zeile der Chatliste: Profilbild in der Profilfarbe, Name, darunter eine kleine Angabe statt der Nachricht
       const row = document.createElement('li')
-      row.className = 'chat-list-item' + (u.is_blocked ? ' blocked' : '')
+      row.className = 'chat-list-item' + (u.is_blocked ? ' blocked' : '') + (u.active === false ? ' invited' : '')
       row.dataset.userId = u.id
 
       const avatar = document.createElement('div')
@@ -7432,7 +7451,7 @@ function renderUserList() {
       else if (u.gender === 'maedchen') info.push('Mädchen')
       else if (u.role !== 'admin') info.push('Geschlecht fehlt')
       if (u.is_blocked) info.push('gesperrt')
-      if (u.active === false) info.push('Einladung offen')
+      if (u.active === false && u.invited_at) info.push(invitedAgoText(u.invited_at))
       if (info.length > 0) {
         const sub = document.createElement('div')
         sub.className = 'chat-list-preview'
@@ -7440,6 +7459,14 @@ function renderUserList() {
         text.appendChild(sub)
       }
       row.appendChild(text)
+
+      // Einladung verschickt, aber noch nicht angenommen: gut sichtbares Schild rechts in der Zeile
+      if (u.active === false) {
+        const pill = document.createElement('span')
+        pill.className = 'user-invite-pill'
+        pill.textContent = 'Einladung offen'
+        row.appendChild(pill)
+      }
 
       row.addEventListener('click', () => openUserDetail(u))
       list.appendChild(row)
@@ -8550,7 +8577,7 @@ async function inviteUser() {
   let errorText = await errorTextOf({ data, error })
 
   // Gibt es diese E-Mail-Adresse schon als Nutzer? Dann fragen, ob der bisherige gelöscht und die Einladung neu gesendet werden soll
-  if (errorText && /already|registered|exists|bereits|schon|registriert|vorhanden/i.test(errorText)) {
+  if (errorText && /already (been )?registered|already exists|email.?exists|bereits registriert|schon registriert/i.test(errorText)) {
     const replaced = await replaceExistingUser(email)
     if (replaced === false) { finishSending(); return }
     if (replaced === true) {

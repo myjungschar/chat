@@ -218,6 +218,10 @@ Deno.serve(async (req) => {
       return json({ error: 'E-Mail konnte nicht gesendet werden: ' + inviteError.message }, 400)
     }
 
+    // Datum der Einladung im Profil merken (Spalte invited_at, siehe einladung-datum.sql). Nur ein Zusatz: klappt das nicht
+    // (z. B. weil die Spalte noch fehlt), ist die Einladung trotzdem raus und alles andere läuft weiter.
+    await admin.from('profiles').update({ invited_at: new Date().toISOString() }).eq('id', userId)
+
     // Besondere Rechte (optional)
     let vipSaved = false
     if (vip === true) {
