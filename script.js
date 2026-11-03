@@ -798,7 +798,7 @@ async function loadChatPreviews() {
   if (!usedPreviewRpc) {
     const { data: groupRows } = await supabaseClient
       .from('messages')
-      .select('text, photo_id, audio_id, audio_mime, created_at, group_key, sender_id')
+      .select('text, photo_id, audio_id, audio_mime, audio_name, created_at, group_key, sender_id')
       .order('created_at', { ascending: false })
       .limit(300)
 
@@ -813,7 +813,7 @@ async function loadChatPreviews() {
 
     const { data: dmRows } = await supabaseClient
       .from('direct_messages')
-      .select('text, photo_id, audio_id, audio_mime, created_at, sender_id, recipient_id')
+      .select('text, photo_id, audio_id, audio_mime, audio_name, created_at, sender_id, recipient_id')
       .order('created_at', { ascending: false })
       .limit(400)
 
@@ -3063,7 +3063,7 @@ function messageSnippet(msg) {
   const inv = msg && msg.text ? parseInvitation(msg.text) : null
   if (inv) return '🎉 Einladung: ' + inv.title
   const plain = msg && msg.text ? stripFormatting(msg.text) : ''
-  return plain || (msg && msg.photo_id ? '📷 Foto' : '') || (msg && msg.audio_id ? (isFileMessage(msg) ? (isPdfMessage(msg) ? '📄 PDF' : '📎 Datei') : '🎵 Audio') : '')
+  return plain || (msg && msg.photo_id ? '📷 Foto' : '') || (msg && msg.audio_id ? (isFileMessage(msg) ? (isPdfMessage(msg) ? '📄 PDF' : '📎 Datei') : (isVoiceName(msg.audio_name) ? '🎤 Sprachnachricht' : '🎵 Audio')) : '')
 }
 
 function formatBytes(bytes) {
@@ -11789,25 +11789,24 @@ function reportChatLabel(report) {
   return key
 }
 
-// chat_previews meldet nur "letzte Nachricht hat Audio" - ob das eigentlich eine Datei (PDF, Word ...) ist, steht dort nicht.
-// Deshalb werden die zuletzt gesendeten Dateien nachgeladen und mit den Vorschauen abgeglichen (gleicher Absender, gleiche Zeit),
-// damit in der Chatliste "📄 PDF" oder "📎 Datei" statt "🎵 Audio" steht. Schlägt das fehl, bleibt es bei "Audio".
+// chat_previews meldet nur "letzte Nachricht hat Audio" - ob das eigentlich eine Datei (PDF, Word ...) oder eine Sprachnachricht ist, steht dort nicht.
+// Deshalb werden die zuletzt gesendeten Audios/Dateien nachgeladen und mit den Vorschauen abgeglichen (gleicher Absender, gleiche Zeit),
+// damit in der Chatliste "📄 PDF", "📎 Datei" oder "🎤 Sprachnachricht" statt "🎵 Audio" steht. Schlägt das fehl, bleibt es bei "Audio".
 async function markFilePreviews(...previewMaps) {
   const rows = previewMaps.flatMap(map => Object.values(map)).filter(row => row.audio_id === true)
   if (rows.length === 0) return
   try {
     const results = await Promise.all(['messages', 'direct_messages'].map(table => supabaseClient
       .from(table)
-      .select('audio_mime, created_at, sender_id')
+      .select('audio_mime, audio_name, created_at, sender_id')
       .not('audio_id', 'is', null)
-      .not('audio_mime', 'like', 'audio/%')
       .order('created_at', { ascending: false })
       .limit(50)))
     const files = results.flatMap(res => res.data || [])
     rows.forEach(row => {
       const time = new Date(row.created_at).getTime()
       const hit = files.find(f => f.sender_id === row.sender_id && new Date(f.created_at).getTime() === time)
-      if (hit) row.audio_mime = hit.audio_mime
+      if (hit) { row.audio_mime = hit.audio_mime; row.audio_name = hit.audio_name }
     })
   } catch (e) {
     console.warn('Datei-Vorschauen nachladen:', e)

@@ -249,7 +249,7 @@ Deno.serve(async (req) => {
     const fileHint = record.audio_id
       ? (record.audio_mime && !String(record.audio_mime).startsWith("audio/")
           ? (record.audio_mime === "application/pdf" ? "📄 PDF" : "📎 Datei")
-          : "🎵 Audio")
+          : (/^Sprachnachricht \d{4}-\d{2}-\d{2} \d{2}-\d{2}(\.[a-z0-9]+)?$/i.test(String(record.audio_name || "")) ? "🎤 Sprachnachricht" : "🎵 Audio"))
       : ""
     const bodyText = (record.text ? pushText(record.text) : (record.photo_id ? "📷 Foto" : fileHint)).slice(0, 120)
     const notificationPayload = JSON.stringify({
