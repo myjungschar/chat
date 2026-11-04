@@ -1366,6 +1366,7 @@ async function openConversation(title) {
   cancelEditingMessage()
   clearMessageInput() // das Feld gehört dem neuen Chat; ein früherer Text steht als Entwurf im jeweiligen Chat
   cancelReplyingTo()
+  cancelPendingForward()
   draftRoomKey = isAdmin() ? null : chatKeyForRoom(currentRoom)
   if (draftRoomKey) {
     restoreDraftText(draftRoomKey)
@@ -5131,7 +5132,7 @@ function renderMessage(msg) {
   const canReply = !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   const canCopy = !!msg.text
   const canDownloadAudio = !!msg.audio_id
-  const canForward = !isAdmin() && !!msg.text && !msg.photo_id && !msg.audio_id && (currentRoom.type === 'group' || currentRoom.type === 'dm')
+  const canForward = !isAdmin() && (!!msg.text || ((!!msg.photo_id || !!msg.audio_id) && !isPhotoBlockedSelf())) && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   const canReport = !isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   // Info (wer hat die Nachricht gelesen/bekommen) und Häkchen: für eigene Nachrichten in Einzelchat und Gruppe.
   // Der Admin sieht sie an allen Nachrichten (Gruppe und Einblick in Einzelchats): wer hat gelesen, wer nicht, und wann
@@ -5988,7 +5989,7 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
       forwardItem.textContent = 'Weiterleiten'
       forwardItem.addEventListener('click', () => {
         closeMessageMenu()
-        openForwardModal(msg)
+        openForwardModal([msg])
       })
       menu.appendChild(forwardItem)
     }
@@ -6083,7 +6084,7 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
       menu.appendChild(editItem)
     }
 
-    if (options.canDelete) {
+    if (options.canDelete || options.canForward) {
       const selectItem = document.createElement('button')
       selectItem.className = 'msg-menu-item'
       selectItem.textContent = 'Auswählen'
@@ -6092,7 +6093,9 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
         enterSelectMode(msg.id)
       })
       menu.appendChild(selectItem)
+    }
 
+    if (options.canDelete) {
       const delItem = document.createElement('button')
       delItem.className = 'msg-menu-item danger'
       delItem.textContent = 'Löschen'
@@ -6396,15 +6399,21 @@ function cleanupDateSeparators() {
   if (chatBox.children.length === 0) showEmptyHint()
 }
 
-// ===== Mehrere Nachrichten auswählen und gemeinsam löschen =====
-// Nur Nachrichten, die man löschen darf (eigene, als Admin alle). Umfragen sind davon ausgenommen.
+// ===== Mehrere Nachrichten auswählen und gemeinsam löschen oder weiterleiten =====
+// Löschen: nur eigene Nachrichten (als Admin alle). Weiterleiten: alle Nachrichten außer Umfragen (nicht für den Admin).
+// Umfragen sind von beidem ausgenommen.
 function isRowDeletable(row) {
   return !!row.dataset.id && !row.classList.contains('poll-row') &&
     (isAdmin() || row.dataset.senderId === currentUser.id)
 }
 
+function isRowSelectable(row) {
+  if (!row.dataset.id || row.classList.contains('poll-row')) return false
+  return isAdmin() ? isRowDeletable(row) : true
+}
+
 function makeRowSelectable(row) {
-  if (!isRowDeletable(row)) return
+  if (!isRowSelectable(row)) return
   row.classList.add('selectable')
   if (!row.querySelector('.select-dot')) {
     const dot = document.createElement('span')
@@ -6468,8 +6477,44 @@ function updateSelectBar() {
   const count = selectedMessageIds.size
   const countEl = document.getElementById('select-bar-count')
   const deleteBtn = document.getElementById('select-bar-delete')
+  const forwardBtn = document.getElementById('select-bar-forward')
   if (countEl) countEl.textContent = count === 1 ? '1 ausgewählt' : count + ' ausgewählt'
-  if (deleteBtn) deleteBtn.disabled = count === 0
+  const selectedRows = Array.from(selectedMessageIds)
+    .map(id => document.querySelector(`#chat-box .msg-row[data-id="${id}"]`))
+    .filter(Boolean)
+  const allDeletable = selectedRows.length > 0 && selectedRows.every(isRowDeletable)
+  if (deleteBtn) {
+    deleteBtn.disabled = !allDeletable
+    deleteBtn.title = count > 0 && !allDeletable ? 'Löschen geht nur bei eigenen Nachrichten' : ''
+  }
+  if (forwardBtn) {
+    forwardBtn.style.display = isAdmin() ? 'none' : ''
+    forwardBtn.disabled = count === 0
+  }
+}
+
+// Ausgewählte Nachrichten frisch aus der Datenbank holen (mit allen Feldern, auch Datei-IDs) und zum Weiterleiten anbieten
+async function forwardSelectedMessages() {
+  const ids = Array.from(selectedMessageIds)
+  if (ids.length === 0 || isAdmin()) return
+  const { data, error } = await supabaseClient
+    .from(currentTable())
+    .select('*')
+    .in('id', ids)
+    .order('created_at', { ascending: true })
+  if (error) {
+    showToast('Die Auswahl konnte nicht geladen werden: ' + error.message)
+    return
+  }
+  const blocked = isPhotoBlockedSelf()
+  const msgs = (data || []).filter(m => m.text || (!blocked && (m.photo_id || m.audio_id)))
+  if (msgs.length === 0) {
+    showToast('Diese Nachrichten lassen sich nicht weiterleiten.')
+    return
+  }
+  if (msgs.length < ids.length) showToast((ids.length - msgs.length) + ' Nachricht(en) lassen sich nicht weiterleiten und bleiben weg.')
+  exitSelectMode()
+  openForwardModal(msgs)
 }
 
 function deleteSelectedMessages() {
@@ -10638,8 +10683,11 @@ function updateMembersModalButtons() {
 }
 
 // ===== Weiterleiten =====
-// Nur Text-Nachrichten. Die Kopie bekommt den Vermerk "Weitergeleitet" (Spalte forwarded) und geht an einen Chat,
-// in dem man selbst schreiben darf: Hauptgruppe, die eigene Jungs- oder Mädels-Gruppe, eigene Gruppen oder eine Person.
+// Texte, Fotos, Dateien und Sprachnachrichten, einzeln oder mehrere zusammen (Auswählen -> Weiterleiten). Die Kopie bekommt den
+// Vermerk "Weitergeleitet" (Spalte forwarded) und geht an einen Chat, in dem man selbst schreiben darf: Hauptgruppe, die eigene
+// Jungs- oder Mädels-Gruppe, eigene Gruppen oder eine Person. Nach der Wahl des Chats geht dieser Chat auf, und unten steht eine
+// Leiste mit "Senden" - erst dann wird wirklich gesendet. Fotos, Dateien und Sprachnachrichten werden NICHT neu hochgeladen:
+// die neue Nachricht zeigt auf dieselbe Datei in Google Drive (get-photo und cleanup-photos kommen damit klar).
 function forwardTargets() {
   const targets = [{ label: 'JungscharChat (Hauptgruppe)', table: 'messages', fields: { group_key: null } }]
   if (currentProfile && currentProfile.gender === 'junge') targets.push({ label: 'Jungs', table: 'messages', fields: { group_key: 'junge' } })
@@ -10654,8 +10702,16 @@ function forwardTargets() {
   return targets
 }
 
-function openForwardModal(msg) {
-  if (!currentUser || isAdmin() || !msg.text) return
+function forwardPreviewText(msgs) {
+  if (msgs.length > 1) return msgs.length + ' Nachrichten'
+  const m = msgs[0]
+  const text = m.text ? String(m.text) : messageSnippet(m)
+  return text.length > 140 ? text.slice(0, 140) + ' …' : text
+}
+
+function openForwardModal(msgs) {
+  if (!Array.isArray(msgs)) msgs = [msgs]
+  if (!currentUser || isAdmin() || msgs.length === 0) return
   const overlay = document.createElement('div')
   overlay.className = 'confirm-overlay'
   const dialog = document.createElement('div')
@@ -10669,7 +10725,7 @@ function openForwardModal(msg) {
 
   const snippet = document.createElement('div')
   snippet.className = 'forward-snippet'
-  snippet.textContent = msg.text.length > 140 ? msg.text.slice(0, 140) + ' …' : msg.text
+  snippet.textContent = forwardPreviewText(msgs)
 
   const search = document.createElement('input')
   search.type = 'search'
@@ -10704,9 +10760,9 @@ function openForwardModal(msg) {
       btn.type = 'button'
       btn.className = 'forward-target'
       btn.textContent = target.label
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', () => {
         close()
-        await forwardMessageTo(msg, target)
+        startPendingForward(msgs, target)
       })
       list.appendChild(btn)
     })
@@ -10722,23 +10778,87 @@ function openForwardModal(msg) {
   search.focus()
 }
 
-async function forwardMessageTo(msg, target) {
-  const row = Object.assign({ sender_id: currentUser.id, text: msg.text, forwarded: true }, target.fields)
-  const { data: inserted, error } = await supabaseClient
-    .from(target.table)
-    .insert([row])
-    .select('*, profiles!sender_id(display_name)')
-    .single()
+// Die Nachrichten, die gerade auf "Senden" warten (nur für den einen Chat, in dem die Leiste steht)
+var pendingForward = null
+var forwardSending = false
 
-  if (error) {
-    const offline = /failed to fetch|networkerror|network request|load failed/i.test(String(error.message))
-    showToast(offline ? 'Keine Verbindung. Weiterleiten hat nicht geklappt.' : 'Weiterleiten hat nicht geklappt: ' + error.message)
-    return
+// Den Ziel-Chat öffnen (wie ein Tipp auf den Eintrag in der Chatliste)
+function openForwardTargetChat(target) {
+  const f = target.fields
+  if (target.table === 'direct_messages') openDirectChat(f.recipient_id, target.label)
+  else if (!f.group_key) openGroupChat()
+  else if (f.group_key === 'junge') openGenderGroup('junge', 'Jungs')
+  else if (f.group_key === 'maedchen') openGenderGroup('maedchen', 'Mädels')
+  else openCustomGroup(String(f.group_key).slice(4))
+}
+
+function startPendingForward(msgs, target) {
+  openForwardTargetChat(target) // openConversation verwirft dabei eine ältere Weiterleitung, darum erst danach merken
+  pendingForward = { msgs: msgs.slice(), target, roomKey: chatKeyForRoom(currentRoom) }
+  document.getElementById('forward-bar-target').textContent = target.label
+  document.getElementById('forward-bar-snippet').textContent = forwardPreviewText(pendingForward.msgs)
+  document.getElementById('forward-bar-send').disabled = false
+  document.getElementById('forward-bar').style.display = 'flex'
+}
+
+function cancelPendingForward() {
+  pendingForward = null
+  const bar = document.getElementById('forward-bar')
+  if (bar) bar.style.display = 'none'
+}
+
+async function confirmPendingForward() {
+  const p = pendingForward
+  if (!p || forwardSending) return
+  if (chatKeyForRoom(currentRoom) !== p.roomKey) { cancelPendingForward(); return }
+  forwardSending = true
+  const sendBtn = document.getElementById('forward-bar-send')
+  sendBtn.disabled = true
+  const ok = await forwardMessagesTo(p.msgs, p.target)
+  forwardSending = false
+  if (ok) cancelPendingForward()
+  else if (pendingForward === p) {
+    // Teilweise geschickt: die Leiste zeigt nur noch, was noch fehlt, damit nichts doppelt rausgeht
+    document.getElementById('forward-bar-snippet').textContent = forwardPreviewText(p.msgs)
+    sendBtn.disabled = false
   }
-  showToast('Weitergeleitet an ' + target.label + '.', 'success')
-  // Ist das Ziel der Chat, der gerade offen ist, erscheint die Nachricht sofort
-  if (target.table === currentTable() && belongsToCurrentRoom(inserted)) renderMessage(inserted)
+}
+
+// Schickt nacheinander (damit die Reihenfolge stimmt). Gesendete werden aus msgs entfernt. true = alles gesendet.
+const FORWARD_COPY_FIELDS = ['photo_id', 'photo_thumb_id', 'photo_w', 'photo_h', 'audio_id', 'audio_mime', 'audio_name', 'audio_size', 'audio_duration']
+
+async function forwardMessagesTo(msgs, target) {
+  let sent = 0
+  while (msgs.length > 0) {
+    const msg = msgs[0]
+    if ((msg.photo_id || msg.audio_id) && isPhotoBlockedSelf()) {
+      showToast('Du darfst im Moment keine Fotos, Audios und Dateien senden.')
+      return false
+    }
+    const row = Object.assign({ sender_id: currentUser.id, text: msg.text || '', forwarded: true }, target.fields)
+    FORWARD_COPY_FIELDS.forEach(key => {
+      if (msg[key] !== null && msg[key] !== undefined) row[key] = msg[key]
+    })
+    const { data: inserted, error } = await supabaseClient
+      .from(target.table)
+      .insert([row])
+      .select('*, profiles!sender_id(display_name)')
+      .single()
+
+    if (error) {
+      const offline = /failed to fetch|networkerror|network request|load failed/i.test(String(error.message))
+      const rest = sent > 0 ? ' (' + sent + ' wurde(n) schon gesendet)' : ''
+      showToast((offline ? 'Keine Verbindung. Weiterleiten hat nicht geklappt.' : 'Weiterleiten hat nicht geklappt: ' + error.message) + rest)
+      return false
+    }
+    msgs.shift()
+    sent++
+    // Ist das Ziel der Chat, der gerade offen ist (das ist es normalerweise), erscheint die Nachricht sofort
+    if (target.table === currentTable() && belongsToCurrentRoom(inserted)) renderMessage(inserted)
+  }
+  showToast(sent === 1 ? 'Weitergeleitet an ' + target.label + '.' : sent + ' Nachrichten weitergeleitet an ' + target.label + '.', 'success')
   renderChatList()
+  return true
 }
 
 // ===== Einladung hat nicht geklappt: Anfrage aus dem Login-Fenster =====

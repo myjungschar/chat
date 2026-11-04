@@ -1,7 +1,7 @@
 // Edge Function "get-photo": liefert ein Foto oder eine Audio-Datei aus Google Drive aus - aber nur, wenn die Person den Chat sehen darf.
 // Aufruf: GET ...?id=<Drive-ID> mit dem Zugriffs-Token der Person.
 // Regeln wie bei den Chats: Hauptgruppe alle, Jungs/Mädchen nur die jeweilige Gruppe, eigene Gruppen nur deren Mitglieder,
-// Einzelchat nur die zwei (Admin liest mit).
+// Einzelchat nur die zwei (Admin liest mit). Steht die Datei in mehreren Nachrichten (weitergeleitet), reicht eine davon.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const cors = {
@@ -58,19 +58,19 @@ Deno.serve(async (req) => {
     if (!profile || profile.is_blocked) return fail('Zugang gesperrt', 403)
     const isAdmin = profile.role === 'admin'
 
-    // Zu welcher Nachricht gehört die Datei? Daraus ergibt sich, wer sie sehen darf.
+    // Zu welchen Nachrichten gehört die Datei? Eine Datei kann in mehreren Nachrichten stehen (Weiterleiten benutzt dieselbe
+    // Datei weiter, ohne neu hochzuladen). Sie darf ausgeliefert werden, wenn die Person EINE dieser Nachrichten sehen darf.
     const filter = `photo_id.eq.${id},photo_thumb_id.eq.${id},audio_id.eq.${id}` // id ist oben auf sichere Zeichen geprüft
     let allowed = false
     let found = false
     let contentType = 'image/jpeg'
 
-    const { data: groupRows } = await admin.from('messages').select('group_key, audio_id, audio_mime').or(filter).limit(1)
-    if (groupRows && groupRows.length > 0) {
+    const { data: groupRows } = await admin.from('messages').select('group_key, audio_id, audio_mime').or(filter).limit(50)
+    for (const row of groupRows ?? []) {
       found = true
-      const row = groupRows[0]
-      const key = row.group_key
       if (row.audio_id === id && AUDIO_MIMES.includes(row.audio_mime)) contentType = row.audio_mime
-
+      if (allowed) continue
+      const key = row.group_key
       if (isAdmin || key === null || key === profile.gender) {
         allowed = true
       } else if (typeof key === 'string' && CUSTOM_GROUP.test(key)) {
@@ -81,20 +81,19 @@ Deno.serve(async (req) => {
           .eq('group_id', key.slice(4))
           .eq('user_id', userId)
           .maybeSingle()
-        allowed = !!member
+        if (member) allowed = true
       }
-    } else {
-      const { data: dmRows } = await admin
-        .from('direct_messages')
-        .select('sender_id, recipient_id, audio_id, audio_mime')
-        .or(filter)
-        .limit(1)
-      if (dmRows && dmRows.length > 0) {
-        found = true
-        const row = dmRows[0]
-        if (row.audio_id === id && AUDIO_MIMES.includes(row.audio_mime)) contentType = row.audio_mime
-        allowed = isAdmin || row.sender_id === userId || row.recipient_id === userId
-      }
+    }
+
+    const { data: dmRows } = await admin
+      .from('direct_messages')
+      .select('sender_id, recipient_id, audio_id, audio_mime')
+      .or(filter)
+      .limit(50)
+    for (const row of dmRows ?? []) {
+      found = true
+      if (row.audio_id === id && AUDIO_MIMES.includes(row.audio_mime)) contentType = row.audio_mime
+      if (isAdmin || row.sender_id === userId || row.recipient_id === userId) allowed = true
     }
 
     if (!found) return fail('Datei nicht gefunden', 404)

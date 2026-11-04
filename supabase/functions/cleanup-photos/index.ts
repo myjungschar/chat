@@ -45,6 +45,17 @@ async function deleteFile(id: string): Promise<boolean> {
   return res.ok || res.status === 404 // 404 = war schon weg
 }
 
+// Gibt es noch eine Nachricht (Gruppe oder Einzelchat), die diese Datei benutzt? Im Zweifel true (= nicht löschen).
+async function stillUsed(adminDb: any, id: string): Promise<boolean> {
+  if (!/^[A-Za-z0-9_-]{10,100}$/.test(id)) return true // keine echte Drive-ID: nicht in einen Filter einbauen, nichts löschen
+  const filter = `photo_id.eq.${id},photo_thumb_id.eq.${id},audio_id.eq.${id}`
+  for (const table of ['messages', 'direct_messages']) {
+    const { data, error } = await adminDb.from(table).select('id').or(filter).limit(1)
+    if (error || (data && data.length > 0)) return true
+  }
+  return false
+}
+
 type DriveFile = { id: string; createdTime: string; size?: string }
 
 async function listDriveFiles(): Promise<DriveFile[]> {
@@ -80,11 +91,19 @@ Deno.serve(async (req) => {
     try { payload = await req.json() } catch { /* leerer Body beim täglichen Aufruf */ }
 
     // Fall 1: Webhook einer gelöschten Nachricht
+    // Eine Datei kann in mehreren Nachrichten stehen (Weiterleiten benutzt dieselbe Datei weiter). Gelöscht wird sie nur,
+    // wenn keine andere Nachricht sie mehr braucht. Bei Zweifel (Abfrage klappt nicht, seltsame ID) bleibt sie lieber liegen -
+    // der tägliche Abgleich räumt Übriggebliebenes später auf.
     if (payload && payload.type === 'DELETE' && payload.old_record) {
       const ids = [payload.old_record.photo_id, payload.old_record.photo_thumb_id, payload.old_record.audio_id].filter(Boolean)
+      const adminDb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
       let deleted = 0
-      for (const id of ids) if (await deleteFile(id)) deleted++
-      return json({ mode: 'webhook', deleted })
+      let kept = 0
+      for (const id of ids) {
+        if (await stillUsed(adminDb, String(id))) { kept++; continue }
+        if (await deleteFile(id)) deleted++
+      }
+      return json({ mode: 'webhook', deleted, kept })
     }
 
     // Fall 2: täglicher Abgleich

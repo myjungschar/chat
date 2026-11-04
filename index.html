@@ -46,7 +46,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261103-1">
+  <link rel="stylesheet" href="style.css?v=20261103-2">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -639,6 +639,18 @@
         <button type="button" class="edit-bar-cancel" onclick="cancelEditingMessage()" aria-label="Bearbeiten abbrechen">✕</button>
       </div>
 
+      <!-- Weiterleiten: der Chat ist offen, die Nachricht(en) warten auf "Senden" -->
+      <div id="forward-bar" style="display: none;">
+        <div class="forward-bar-info">
+          <span class="forward-bar-label">Weiterleiten an <span id="forward-bar-target"></span></span>
+          <span id="forward-bar-snippet" class="forward-bar-snippet"></span>
+        </div>
+        <div class="forward-bar-actions">
+          <button type="button" class="forward-bar-cancel" onclick="cancelPendingForward()">Abbrechen</button>
+          <button type="button" id="forward-bar-send" class="forward-bar-send" onclick="confirmPendingForward()">Senden</button>
+        </div>
+      </div>
+
       <!-- Eingabefeld -->
       <div class="chat-input-area">
         <button type="button" id="emoji-toggle-btn" class="input-round-btn" onclick="toggleTextEmojiPicker(this, event)" aria-label="Emoji einfügen">😊</button>
@@ -652,11 +664,14 @@
         <button type="button" id="send-btn" class="input-round-btn send" onclick="sendMessage()" aria-label="Senden" disabled>➤</button>
       </div>
 
-      <!-- Auswahl-Leiste: ersetzt das Eingabefeld, solange mehrere Nachrichten zum Löschen ausgewählt werden -->
+      <!-- Auswahl-Leiste: ersetzt das Eingabefeld, solange mehrere Nachrichten zum Löschen oder Weiterleiten ausgewählt werden -->
       <div id="select-bar" style="display: none;">
         <button type="button" class="select-bar-cancel" onclick="exitSelectMode()">Abbrechen</button>
         <span id="select-bar-count">0 ausgewählt</span>
-        <button type="button" id="select-bar-delete" class="select-bar-delete" onclick="deleteSelectedMessages()" disabled>Löschen</button>
+        <div class="select-bar-actions">
+          <button type="button" id="select-bar-forward" class="select-bar-forward" onclick="forwardSelectedMessages()" disabled>Weiterleiten</button>
+          <button type="button" id="select-bar-delete" class="select-bar-delete" onclick="deleteSelectedMessages()" disabled>Löschen</button>
+        </div>
       </div>
 
     </div>
@@ -943,6 +958,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261103-1"></script>
+  <script src="script.js?v=20261103-2"></script>
 </body>
 </html>

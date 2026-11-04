@@ -209,6 +209,8 @@ Deno.serve(async (req) => {
       if (record.group_key) query = query.eq("gender", record.group_key) // "junge" oder "maedchen"
       const { data: members } = await query
       recipientIds = (members || []).map((m) => m.id)
+      // Namen wie in der Chatliste, damit man in der Meldung sieht, um welche Gruppe es geht
+      groupName = record.group_key === "junge" ? "Jungs" : record.group_key === "maedchen" ? "Mädels" : "JungscharChat"
     }
 
     // Chat-Schlüssel: "main", "junge", "maedchen", "grp_<id>" oder (Einzelchat) "dm:<Absender>"
