@@ -1,963 +1,6309 @@
-<!DOCTYPE html>
-<html lang="de">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
-  <title>JungscharChat</title>
-  <meta name="theme-color" content="#0e1621">
-  <meta name="color-scheme" content="dark light">
-  
-  <!-- App-Verhalten auf iPads / Mobilgeräten -->
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="JungscharChat">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="mobile-web-app-title" content="JungscharChat">
+/* ===== Farb- und Layout-Tokens ===== */
+:root {
+  --bg-app: #0e1621;
+  --bg-panel: #17212b;
+  --bg-panel-raised: #1e2a36;
+  --bg-input: #242f3d;
+  --border-subtle: #26333f;
 
-  <!-- Beschreibungen & Metadaten für Google -->
-  <meta name="description" content="Melde dich an, um mitzuschreiben: Das ist der private Chat für die Jungschar der ECBG Gifhorn. Hier tauschen wir Nachrichten und Termine aus.">
-  <meta name="keywords" content="JungscharChat, Jungschar, Gifhorn, Chat, Messenger, ECBG, Evangeliums-Christen-Baptisten, Gemeinde, Jungs, Mädchen, Termine, Infos, Nachrichten, Anmeldung, Login, anmelden">
-  <meta name="robots" content="index, follow">
+  --text-primary: #e9edf1;
+  --text-secondary: #7d8b99;
+  --text-on-accent: #ffffff;
 
-  <meta property="og:site_name" content="JungscharChat">
-  <meta property="og:title" content="JungscharChat – Gifhorn">
-  <meta property="og:description" content="Der private Chat der Jungschar der ECBG Gifhorn: Nachrichten, Termine und Infos.">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="https://myjungschar.github.io/chat/">
+  --accent: #4ea3e0;
+  --accent-hover: #3d8fca;
+  --accent-soft: rgba(78, 163, 224, 0.15);
 
-  <!-- Icons & Web App Manifest -->
-  <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="apple-touch-icon" href="apple-touch-icon.png">
-  <link rel="manifest" href="manifest.json">
+  --bubble-own: #2b5c8a;
+  --bubble-own-text: #eaf2fa;
+  --bubble-other: #202b36;
+  --bubble-other-text: #e9edf1;
 
-  <!-- Strukturierte Daten -->
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "WebSite",
-    "name": "JungscharChat",
-    "alternateName": ["Jungschar Chat Gifhorn", "Jungschar Chat"],
-    "url": "https://myjungschar.github.io/chat/",
-    "publisher": {
-      "@type": "Organization",
-      "name": "ECBG Gifhorn",
-      "url": "https://ecbg.de"
-    }
+  --danger: #e0615a;
+  --danger-hover: #c94f49;
+  --success: #3fb98c;
+  --success-hover: #34a37a;
+
+  --radius-card: 16px;
+  --radius-bubble: 16px;
+  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+/* Helles Farbschema, aktiv wenn body die Klasse "light-theme" trägt */
+body.light-theme {
+  --bg-app: #f4f6f8;
+  --bg-panel: #ffffff;
+  --bg-panel-raised: #eef1f4;
+  --bg-input: #f0f2f5;
+  --border-subtle: #dde2e7;
+
+  --text-primary: #1b232b;
+  --text-secondary: #6b7684;
+  --text-on-accent: #ffffff;
+
+  --accent: #0088cc;
+  --accent-hover: #006699;
+  --accent-soft: rgba(0, 136, 204, 0.12);
+
+  --bubble-own: #0088cc;
+  --bubble-own-text: #ffffff;
+  --bubble-other: #eef1f4;
+  --bubble-other-text: #1b232b;
+
+  --shadow-card: 0 4px 15px rgba(0, 0, 0, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  /* Sorgt dafür, dass beim Umschalten Hell/Dunkel alles weich überblendet statt hart umzuspringen */
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+body {
+  background: radial-gradient(circle at top, #16222e 0%, var(--bg-app) 55%);
+  color: var(--text-primary);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  /* Platz für Statusleiste/Notch (Safari, iPad, iPhone); ohne Notch ist das 0 */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+/* Wird der Inhalt höher als der sichtbare Bereich, darf er nicht mittig oben abgeschnitten werden (Safari-Fehler):
+   mit automatischem Rand rutscht er dann nach oben und bleibt scrollbar */
+body > .app-container {
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+body.light-theme {
+  background: radial-gradient(circle at top, #ffffff 0%, var(--bg-app) 55%);
+}
+
+/* ===== Hell/Dunkel-Umschalter oben rechts in der Login-Karte, auf Höhe der Überschrift =====
+   Eine Pille mit zwei Kugeln: eine helle, eine dunkle, die aktive ist per Rahmen markiert */
+.login-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.login-heading-row h2 {
+  margin-bottom: 0;
+}
+
+.theme-switch {
+  flex-shrink: 0;
+}
+
+/* ===== "Wer wir sind": kleiner Info-Button unten rechts in der Login-Karte ===== */
+#login-bereich {
+  position: relative;
+  margin-top: 30px; /* Platz für den Reiter "Einladungsprobleme?" über der Karte */
+  padding-bottom: 44px; /* Platz für den Info-Button unten rechts, damit er nichts überlappt */
+}
+
+.info-corner-btn {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  width: 24px;
+  height: 24px;
+  /* Innen wie die Karte selbst, drumherum ein einfacher heller Ring, das "i" in derselben Farbe */
+  background: var(--bg-panel);
+  border: 1.5px solid var(--accent);
+  color: var(--accent);
+  padding: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.info-corner-btn:hover {
+  background-color: var(--bg-input);
+  transform: scale(1.1);
+}
+
+.info-text-i {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-style: italic; /* Macht das i leicht schräg/klassisch */
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Eigene Karte unter der Login-Karte, klappt sanft auf/zu (Höhe, Deckkraft und Abstand animiert) -
+   ein Grid mit variabler Zeilenhöhe ist der einzige Weg, "auto" weich zu animieren */
+/* ".card.about-card" statt nur ".about-card": die Basisregel ".card" steht weiter unten in der Datei
+   und würde sonst den Innenabstand (padding: 0) und die Höhe wieder überschreiben */
+.card.about-card {
+  display: grid;
+  grid-template-rows: 0fr;
+  height: auto;
+  padding: 0;
+  margin-top: 0;
+  opacity: 0;
+  transition: grid-template-rows 0.3s ease, opacity 0.25s ease, margin-top 0.3s ease;
+}
+
+.card.about-card.open {
+  grid-template-rows: 1fr;
+  margin-top: 14px;
+  opacity: 1;
+}
+
+/* Die Karte gehört nur zum Login. Überall sonst (Chatliste am Handy, PC-Ansicht) muss sie komplett
+   aus dem Layout raus - sonst nimmt sie Platz weg (am Handy sogar eine ganze Bildschirmhöhe) */
+body:not(.auth-screen) #about-card {
+  display: none;
+}
+
+.about-card-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.about-card.open .about-card-inner {
+  padding: 22px;
+}
+
+.about-heading {
+  margin-bottom: 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.about-text {
+  margin-bottom: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.about-text a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.about-text a:hover {
+  text-decoration: underline;
+}
+
+.app-container {
+  width: 100%;
+  max-width: 460px;
+  padding: 15px;
+}
+
+.card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: 22px;
+  box-shadow: var(--shadow-card);
+  flex-direction: column;
+}
+
+/* ===== Login ===== */
+#login-bereich h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+#login-bereich p {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-bottom: 22px;
+}
+
+.input-group {
+  margin-bottom: 15px;
+}
+
+.input-group label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+input,
+textarea {
+  width: 100%;
+  padding: 11px 13px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 15px;
+  transition: border-color 0.15s ease;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #55636f;
+}
+
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+button {
+  width: 100%;
+  padding: 12px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+button:hover {
+  background: var(--accent-hover);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.link-btn {
+  width: auto;
+  display: block;
+  margin: 10px auto 0;
+  padding: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 400;
+  text-decoration: underline;
+}
+
+.link-btn:hover {
+  background: transparent;
+  color: var(--accent);
+}
+
+#admin-settings-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  margin-top: 6px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 14px;
+}
+
+.settings-menu {
+  list-style: none;
+}
+
+.settings-menu li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.settings-menu li:hover {
+  color: var(--accent);
+}
+
+.settings-arrow {
+  color: var(--text-secondary);
+  font-size: 18px;
+}
+
+.settings-hint {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+#current-email-display {
+  opacity: 0.7;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 42px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 24px;
+  transition: background 0.15s ease;
+}
+
+.switch-slider::before {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 3px;
+  top: 3px;
+  background: var(--text-secondary);
+  border-radius: 50%;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.switch input:checked + .switch-slider {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.switch input:checked + .switch-slider::before {
+  transform: translateX(18px);
+  background: var(--accent);
+}
+
+/* ===== Chat-Kopf ===== */
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Zurück-Knopf: schlichter Winkel in der Akzentfarbe, ohne Rahmen (Antippfläche bleibt 40 x 40) */
+.back-btn {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-size: 15px;
+  border-radius: 50%;
+}
+
+.back-btn svg {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  stroke-width: 2.6;
+}
+
+.back-btn:hover {
+  background: var(--bg-input);
+  color: var(--accent-hover);
+}
+
+/* Der Text-Knopf "← Abbrechen" im Passwort-Fenster behält die alte Form */
+.back-btn.back-btn-text {
+  width: auto;
+  padding: 0 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  color: var(--text-secondary);
+}
+
+.back-btn.back-btn-text:hover {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#list-bereich .user-info::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  flex-shrink: 0;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.logout-btn,
+.admin-btn,
+.settings-btn {
+  width: auto;
+  padding: 7px 13px;
+  font-size: 13px;
+}
+
+.settings-btn {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.settings-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: transparent;
+}
+
+.logout-btn {
+  background: transparent;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.logout-btn:hover {
+  background: var(--danger);
+  color: var(--text-on-accent);
+}
+
+.admin-btn {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.admin-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: transparent;
+}
+
+/* ===== Chatverlauf ===== */
+#chat-box {
+  height: min(60vh, 460px);
+  min-height: 260px;
+  overflow-y: auto;
+  background: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-empty {
+  margin: auto;
+  color: var(--text-secondary);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* Eine Nachrichtenzeile: Avatar + Sprechblase */
+.msg-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.msg-row.own {
+  justify-content: flex-end;
+}
+
+.msg-avatar {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-on-accent);
+}
+
+/* Mehrere Nachrichten derselben Person hintereinander: Profilbild nur bei der untersten, oben bleibt der Platz frei */
+.msg-row.avatar-hidden > .msg-avatar {
+  visibility: hidden;
+}
+
+.msg {
+  position: relative;
+  max-width: 78%;
+  padding: 8px 12px 6px 12px;
+  border-radius: var(--radius-bubble);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.msg.other {
+  background: var(--bubble-other);
+  color: var(--bubble-other-text);
+  border-bottom-left-radius: 4px;
+}
+
+.msg.own {
+  background: var(--bubble-own);
+  color: var(--bubble-own-text);
+  border-bottom-right-radius: 4px;
+}
+
+.msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+  font-size: 11px;
+}
+
+.msg.other .msg-meta {
+  color: var(--text-secondary);
+}
+
+.msg.own .msg-meta {
+  justify-content: flex-end;
+  color: rgba(234, 242, 250, 0.7);
+}
+
+.msg-author {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.msg-edited {
+  font-style: italic;
+  opacity: 0.7;
+}
+
+.msg-link {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.msg.own .msg-link {
+  color: #fff;
+}
+
+.msg-text {
+  /* Klassischer Clearfix: ohne das würde die Fußzeile (siehe unten), die rechts im Text schwebt,
+     nicht zur Höhe dieses Blocks beitragen */
+  overflow: hidden;
+}
+
+/* Uhrzeit (+ "bearbeitet"/Haken) schwebt rechts im Textfluss, wie bei WhatsApp: bei kurzen
+   Nachrichten rutscht sie hinter den Text, bei langen presst sie sich unten rechts an */
+.msg-footer {
+  float: right;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 7px 0 0 4px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.msg.other .msg-footer {
+  color: var(--text-secondary);
+}
+
+.msg.own .msg-footer {
+  color: rgba(234, 242, 250, 0.7);
+}
+
+/* ===== Datums-Trenner zwischen Nachrichten verschiedener Tage ===== */
+.date-separator {
+  display: flex;
+  justify-content: center;
+  margin: 14px 0;
+}
+
+.date-separator-pill {
+  padding: 4px 12px;
+  background: var(--bg-panel-raised);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* Reaktionen: kleiner dunkler Chip unten links an der Nachricht (ragt etwas über den unteren Rand) */
+.msg-reactions {
+  position: absolute;
+  left: 16px;
+  bottom: -18px;
+  display: flex;
+  z-index: 1;
+}
+
+.msg.has-reactions {
+  margin-bottom: 19px; /* Platz, damit der Chip nicht in die nächste Nachricht ragt */
+}
+
+.reaction-btn {
+  width: auto;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.msg.other .reaction-btn {
+  background: var(--bg-app);
+}
+
+.reaction-btn:hover {
+  border-color: var(--accent);
+}
+
+.reaction-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.msg-menu {
+  position: fixed; /* Position setzt positionFloatingMenu() in JS, abhängig vom verfügbaren Platz */
+  z-index: 10002;
+  min-width: 140px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.msg-menu-item {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text-primary);
+}
+
+.msg-menu-item:hover {
+  background: var(--bg-input);
+}
+
+.msg-menu-item.danger {
+  color: var(--danger);
+}
+
+.emoji-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px;
+}
+
+.emoji-picker-btn {
+  width: auto;
+  padding: 4px 6px;
+  background: transparent;
+  font-size: 20px;
+  border-radius: 8px;
+}
+
+.emoji-picker-btn:hover {
+  background: var(--bg-input);
+}
+
+/* Von Twemoji gezeichnete Emoji-Bilder überall in der App einheitlich groß */
+img.emoji {
+  height: 1.15em;
+  width: 1.15em;
+  margin: 0 0.05em;
+  vertical-align: -0.2em;
+}
+
+.emoji-picker-btn img.emoji {
+  height: 20px;
+  width: 20px;
+  margin: 0;
+}
+
+/* ===== Antwort-Leiste über dem Eingabefeld ===== */
+#reply-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.reply-bar-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.reply-bar-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.reply-bar-snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+/* ===== Zitat einer beantworteten Nachricht, oben in der eigenen Sprechblase ===== */
+.msg-reply-quote {
+  display: block;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  box-shadow: none;
+  border-radius: 6px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.35;
+  color: inherit;
+  cursor: pointer;
+}
+
+.msg-reply-quote:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.msg-reply-quote.missing {
+  cursor: default;
+  font-style: italic;
+  opacity: 0.75;
+}
+
+.msg-reply-author {
+  display: block;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.msg-reply-snippet {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Markierte Nachricht (Menü offen oder Sprung zu einer Antwort): heller, durchsichtiger Streifen über die ganze Breite des Chats.
+   Der Streifen über den Rand der Zeile hinaus kommt aus dem Schatten; #chat-box schneidet ihn am Rand ab. */
+.msg-row {
+  box-shadow: -50vw 0 0 transparent, 50vw 0 0 transparent;
+  transition: background-color 0.3s, box-shadow 0.3s;
+}
+
+.msg-row.menu-open,
+.msg-row.highlight {
+  background: var(--accent-soft);
+  box-shadow: -50vw 0 0 var(--accent-soft), 50vw 0 0 var(--accent-soft);
+}
+
+/* ===== Bearbeiten-Leiste über dem Eingabefeld ===== */
+#edit-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.edit-bar-cancel {
+  width: auto;
+  padding: 2px 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.edit-bar-cancel:hover {
+  background: transparent;
+  color: var(--danger);
+}
+
+/* ===== Eigenes Bestätigungs-Pop-up ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-box {
+  width: 100%;
+  max-width: 340px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+}
+
+.modal-box p {
+  margin-bottom: 18px;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.modal-actions button {
+  flex: 1;
+}
+
+.modal-cancel {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.modal-cancel:hover {
+  background: transparent;
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+.modal-confirm {
+  background: var(--danger);
+}
+
+.modal-confirm:hover {
+  background: var(--danger-hover);
+}
+
+/* ===== Admin-Bereich ===== */
+.admin-panel {
+  margin-bottom: 14px;
+  padding: 14px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+
+.admin-panel h3 {
+  margin-bottom: 10px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+#user-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.settings-menu li.blocked .user-name {
+  color: var(--text-secondary);
+}
+
+#user-detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.user-row:last-child {
+  border-bottom: none;
+}
+
+.user-name {
+  color: var(--text-primary);
+}
+
+.user-row.blocked .user-name {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+}
+
+.user-tag {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 20px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.user-row button {
+  width: auto;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.gender-toggle {
+  display: inline-flex;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+.gender-option {
+  width: auto;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 400;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 20px;
+}
+
+.gender-option:hover {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.gender-option.active {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.user-row .block-btn {
+  background: transparent;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.user-row .block-btn:hover {
+  background: var(--danger);
+  color: var(--text-on-accent);
+}
+
+.user-row .unblock-btn {
+  background: transparent;
+  border: 1px solid var(--success);
+  color: var(--success);
+}
+
+.user-row .unblock-btn:hover {
+  background: var(--success);
+  color: var(--text-on-accent);
+}
+
+/* ===== Eingabezeile ===== */
+.chat-input-area {
+  display: flex;
+  align-items: flex-end; /* Feld wächst nach oben, die Knöpfe bleiben unten in gleichbleibendem Abstand */
+  gap: 6px;
+  position: relative;
+}
+
+/* War ein <input>, ist jetzt ein <textarea>, damit es beim Tippen in die Höhe mitwachsen kann.
+   Die Höhe selbst setzt autoResizeMessageInput() in JS. */
+.message-input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: calc(1.35em + 20px); /* eine Zeile: Zeilenhöhe + Innenabstand + Rahmen */
+  padding: 9px 20px 9px 16px; /* rechts Platz für den eigenen Scroll-Balken, damit Text nicht darunter läuft */
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-y: hidden; /* die Höhe (höchstens 5 Zeilen) setzt autoResizeMessageInput() */
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+  transition: border-color 0.15s ease;
+  scrollbar-width: none; /* Der eingebaute Balken ist aus - unten sitzt ein eigener, genau platzierter */
+}
+
+.message-input::-webkit-scrollbar {
+  display: none;
+}
+
+.message-input:focus {
+  border-color: var(--accent);
+}
+
+/* Platzhalter "Nachricht", solange das Feld leer ist */
+.message-input:empty::before,
+.message-input.is-empty::before {
+  content: attr(data-placeholder);
+  color: #55636f;
+  pointer-events: none;
+}
+
+/* Emoji-Bilder im Feld etwas größer, damit sie schön aussehen */
+.message-input img.emoji {
+  height: 1.3em;
+  width: 1.3em;
+  vertical-align: -0.3em;
+}
+
+/* Feld-Hülle: nötig, damit der eigene Balken über dem Textfeld liegen kann */
+.message-field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+/* Eigener Scroll-Balken: 12px Abstand oben/unten (damit er in den runden Ecken nicht herausguckt),
+   8px Abstand zum rechten Rand, hell und nur 3px dünn */
+.field-scrollbar {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  right: 8px;
+  width: 3px;
+  display: none;      /* ohne Text über einer Zeile: gar nicht da, schiebt also nichts und macht nichts scrollbar */
+  overflow: hidden;   /* der Balken kann nie über seine Bahn hinausragen */
+  pointer-events: none;
+}
+
+.field-scrollbar.visible {
+  display: block;
+}
+
+.field-scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  border-radius: 999px;
+  background: var(--text-secondary);
+}
+
+.input-round-btn {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: opacity 0.15s ease, transform 0.15s ease, width 0.15s ease, margin 0.15s ease;
+}
+
+/* Der "+"-Knopf verschwindet, sobald etwas im Feld steht - dafür ist dann eh kein Platz mehr nötig */
+#attach-btn.hidden-btn {
+  width: 0;
+  opacity: 0;
+  transform: scale(0.6);
+  pointer-events: none;
+  margin-left: -6px; /* füllt die durch gap entstandene Lücke, das Textfeld rückt nach */
+}
+
+.input-round-btn:hover {
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+
+.input-round-btn.send {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 15px;
+  padding-left: 2px; /* der Pfeil wirkt sonst leicht außermittig */
+}
+
+.input-round-btn.send:hover {
+  background: var(--accent-hover);
+}
+
+.input-emoji-picker,
+.attach-menu {
+  position: absolute;
+  bottom: 48px;
+  z-index: 20;
+}
+
+.input-emoji-picker {
+  left: 0;
+  max-width: 260px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+}
+
+.attach-menu {
+  right: 46px;
+  top: auto;
+}
+
+/* ===== Passwortfeld mit Sichtbar-Schalter ===== */
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 42px;
+}
+
+.toggle-password {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: auto;
+  padding: 6px 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  line-height: 0;
+  display: flex;
+  align-items: center;
+}
+
+.toggle-password svg {
+  display: block;
+}
+
+.toggle-password:hover {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+/* ===== Chatliste ===== */
+#chat-list,
+#admin-contacts-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: min(60vh, 460px);
+  overflow-y: auto;
+}
+
+.chat-list-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.chat-list-item:hover {
+  background: var(--bg-panel-raised);
+}
+
+.chat-list-item.pinned {
+  background: var(--bg-panel-raised);
+  margin-bottom: 6px;
+}
+
+.chat-list-avatar {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-on-accent);
+}
+
+.group-avatar {
+  background: var(--accent);
+  font-size: 17px;
+}
+
+.chat-list-name {
+  font-size: 15px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-list-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-list-preview {
+  font-size: 13px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
+/* Entwurf in der Chatliste: rotes "Entwurf:" vor dem angefangenen Text */
+.chat-list-draft {
+  color: var(--danger);
+}
+
+.chat-list-time-badge {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.chat-list-time {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.unread-badge {
+  min-width: 18px;
+  padding: 1px 6px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
+  border-radius: 10px;
+}
+
+/* ===== Häkchen neben der Uhrzeit (in der Fußzeile der eigenen Nachricht) ===== */
+.msg-ticks {
+  width: auto;
+  padding: 0;
+  background: transparent;
+  border: none;
+  line-height: 0;
+  /* Deutlich heller als der eigene (blaue) Nachrichten-Hintergrund, sonst kaum zu erkennen */
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+}
+
+.msg-ticks:hover {
+  background: transparent;
+}
+
+.msg-ticks.read {
+  /* Bewusst nicht die Akzentfarbe, die ist im hellen Design identisch mit dem Blasen-Hintergrund
+     und wäre darauf unsichtbar - stattdessen ein deutlich helleres Cyan für echten Kontrast */
+  color: #7fe0ff;
+}
+
+/* Beim Admin stehen die Häkchen auch an fremden (hellen) Sprechblasen: dort in der Textfarbe statt in Weiß */
+.msg.other .msg-ticks {
+  color: var(--text-secondary);
+}
+
+.msg.other .msg-ticks.read {
+  color: #1a8fd0;
+}
+
+/* Admin: rechts neben dem Namen die Uhrzeit (gelesen / zugestellt) */
+.info-item[data-when]::after {
+  content: attr(data-when);
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.msg-ticks svg {
+  display: block;
+  width: 14px;
+  height: 9px;
+}
+
+/* ===== Pop-up "Nachrichten-Info" ===== */
+.modal-box .info-title {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.modal-box .info-sub {
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+#info-sections {
+  max-height: 50vh;
+  margin-bottom: 16px;
+  overflow-y: auto;
+}
+
+.info-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.info-tick {
+  display: inline-flex;
+  line-height: 0;
+}
+
+.info-section-title.read .info-tick {
+  color: var(--accent);
+}
+
+.info-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.info-empty {
+  padding: 8px 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 14px;
+}
+
+.info-item:last-child {
+  border-bottom: none;
+}
+
+.info-avatar {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.info-empty {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+/* ===== Große PC-Ansicht: Chatliste links, geöffneter Chat rechts (wie Telegram) =====
+   Wird per JavaScript über die Klasse "split-view" am body eingeschaltet (ab 900px Breite,
+   nicht auf den Login-Bildschirmen). Am Handy ändert sich nichts. */
+#chat-placeholder {
+  display: none;
+}
+
+.chat-list-item.active,
+.chat-list-item.active:hover {
+  background: var(--accent-soft);
+}
+
+/* ===== Handy/schmales Fenster: die ganze Fläche nutzen statt einer schwebenden Karte in der Mitte -
+   jeder Bildschirm (Liste, Chat, Einstellungen, ...) ist dann eine eigene volle Seite ===== */
+@media (max-width: 899.98px) {
+  body {
+    display: block;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
   }
-  </script>
-
-  <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261103-2">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
-  <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
-       dadurch sehen sie auf jedem Gerät gleich schön aus statt wie die eingebauten Systemzeichen -->
-  <script src="https://cdn.jsdelivr.net/npm/twemoji@14.0.2/dist/twemoji.min.js" crossorigin="anonymous"></script>
-</head>
-<body>
-
-  <!-- Meldung, wenn keine Internetverbindung besteht -->
-  <div id="offline-banner" style="display: none;">Keine Internetverbindung</div>
-
-  <div class="app-container">
-
-    <!-- BEREICH 1: LOGIN -->
-    <div id="login-bereich" class="card" style="display: none;">
-      <!-- Zwei Karten liegen hintereinander und sind gespiegelt ausgeschnitten (Form zeichnet script.js, drawLoginShape):
-           vorne ist eine obere Ecke frei, dort schaut die "Zunge" der hinteren Karte heraus. Tipp auf die Zunge holt sie nach vorne. -->
-      <svg id="shape-login" class="login-shape" aria-hidden="true"><path d=""/></svg>
-      <svg id="shape-invite" class="login-shape" aria-hidden="true"><path d=""/></svg>
-
-      <!-- Zunge der Einladungs-Karte (rechts, sichtbar solange der Login vorne ist) -->
-      <button type="button" id="tongue-invite" class="card-tongue tongue-right" onclick="toggleInvitePane()" aria-controls="invite-pane">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
-        <span>Neu hier?</span>
-      </button>
-      <!-- Zunge der Login-Karte (links, sichtbar solange die Einladungs-Karte vorne ist) -->
-      <button type="button" id="tongue-login" class="card-tongue tongue-left" onclick="toggleInvitePane()" aria-controls="login-pane">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
-        <span>Login</span>
-      </button>
-
-      <div class="login-heading-row">
-        <h2 id="login-title" class="card-title">JungscharChat Login</h2>
-        <h2 id="invite-title" class="card-title">Einladung anfragen</h2>
-      </div>
-      <label class="switch theme-switch" aria-label="Hellen/dunklen Modus umschalten">
-        <input type="checkbox" id="theme-switch-input" onchange="setTheme(this.checked)">
-        <span class="switch-slider"></span>
-      </label>
-
-      <div class="login-panes">
-        <!-- Fläche 1: normaler Login -->
-        <div id="login-pane" class="login-pane">
-          <p>Melde dich an, um mitzuschreiben.</p>
-
-          <div class="input-group">
-            <label for="username">Benutzername</label>
-            <input type="text" id="username" placeholder="vorname.nachname" autocomplete="username">
-          </div>
-
-          <div class="input-group">
-            <label for="password">Passwort</label>
-            <div class="password-field">
-              <input type="password" id="password" placeholder="••••••••" autocomplete="current-password">
-              <button type="button" class="toggle-password" onclick="toggleFieldVisibility('password', this)" aria-label="Passwort anzeigen"></button>
-            </div>
-          </div>
-
-          <button id="login-btn" onclick="login()">Einloggen</button>
-          <button type="button" id="forgot-password-btn" class="link-btn" onclick="showForgotScreen()">Passwort vergessen?</button>
-
-          <!-- Erscheint nur, wenn auf diesem Gerät eine Einladung begonnen und abgebrochen wurde -->
-          <div id="pending-invite" class="pending-invite" style="display: none;">
-            <p>Du hast eine Einladung begonnen, aber noch kein Passwort gesetzt.</p>
-            <button type="button" onclick="resumePendingInvite()">Einladung fortsetzen</button>
-          </div>
-        </div>
-
-        <!-- Fläche 2: Einladung hat nicht geklappt (E-Mail und optional eine Nachricht an den Admin) -->
-        <div id="invite-pane" class="login-pane" aria-hidden="true">
-          <p id="invite-request-note">An welche E-Mail-Adresse soll die Einladung gehen?</p>
-
-          <div class="input-group">
-            <label for="invite-request-email">E-Mail-Adresse</label>
-            <input type="email" id="invite-request-email" placeholder="name@adresse.de" autocomplete="email">
-          </div>
-
-          <div class="input-group">
-            <label for="invite-request-message">Nachricht (optional)</label>
-            <textarea id="invite-request-message" class="invite-message" maxlength="500" rows="3" placeholder="Schreib eine Nachricht…"></textarea>
-          </div>
-
-          <button id="invite-request-btn" onclick="sendInviteRequest()">Anfrage senden</button>
-        </div>
-      </div>
-
-      <button type="button" id="about-toggle-btn" class="info-corner-btn" onclick="toggleAboutInline()" aria-label="Wer wir sind">
-        <span class="info-text-i">i</span>
-      </button>
-    </div>
-
-    <!-- Eigene Karte unter der Login-Karte, erscheint erst nach Klick auf "Wer wir sind" -->
-    <div id="about-card" class="card about-card">
-      <div class="about-card-inner">
-        <p class="about-heading">Über uns</p>
-        <p class="about-text">
-          Wir sind die Jungschar der
-          <a href="https://www.ecbg.de/" target="_blank" rel="noopener noreferrer"><strong>Evangeliums-Christen-Baptisten Gemeinde Gifhorn (ECBG e.V.)</strong></a>.
-          Dieser Chat ist unser gemeinsamer Treffpunkt für Infos, Termine und Austausch.
-        </p>
-      </div>
-    </div>
-
-    <!-- BEREICH 1b: PASSWORT VERGESSEN (Benutzername eingeben, Link geht an hinterlegte E-Mail) -->
-    <div id="forgot-bereich" class="card" style="display: none;">
-      <h2>Passwort vergessen</h2>
-      <p>Gib deinen Benutzernamen ein. Falls er uns bekannt ist, schicken wir einen Link an die hinterlegte E-Mail-Adresse.</p>
-
-      <div class="input-group">
-        <label for="forgot-username">Benutzername</label>
-        <input type="text" id="forgot-username" placeholder="vorname.nachname" autocomplete="username">
-      </div>
-
-      <button id="forgot-send-btn" onclick="sendPasswordReset()">Link senden</button>
-      <button type="button" class="link-btn" onclick="showLogin()">Zurück zum Login</button>
-    </div>
-
-    <!-- BEREICH 1d: LINK AUS DER E-MAIL BESTÄTIGEN (erst der Tipp auf den Knopf verbraucht den Link; Mail-Scanner klicken keine Knöpfe) -->
-    <div id="link-confirm-bereich" class="card" style="display: none;">
-      <h2 id="link-confirm-title">Willkommen!</h2>
-      <p id="link-confirm-text">Tippe auf den Knopf und lege dein Passwort fest.</p>
-      <button id="link-confirm-btn" onclick="confirmEmailLink()">Passwort festlegen</button>
-    </div>
-
-    <!-- BEREICH 2: NEUES PASSWORT SETZEN (nach Klick auf den Link aus der E-Mail) -->
-    <div id="reset-bereich" class="card" style="display: none;">
-      <div class="reset-top">
-        <button type="button" class="back-btn back-btn-text" onclick="cancelPasswordSetup()">← Abbrechen</button>
-      </div>
-      <h2 id="reset-heading">Neues Passwort setzen</h2>
-      <p id="reset-subtext">Bitte vergib ein neues Passwort, bevor es weitergeht.</p>
-
-      <!-- Als echtes Formular, damit der Browser/Passwortmanager Benutzername + neues Passwort zusammen speichern kann -->
-      <form id="reset-form" onsubmit="event.preventDefault(); completePasswordReset()">
-      <div class="input-group">
-        <label for="reset-username">Benutzername</label>
-        <input type="text" id="reset-username" autocomplete="username" readonly>
-        <p id="reset-username-hint" class="reset-username-hint" style="display: none;">Damit meldest du dich später an.</p>
-      </div>
-
-      <div class="input-group">
-        <label for="reset-password">Neues Passwort</label>
-        <div class="password-field">
-          <input type="password" id="reset-password" autocomplete="new-password">
-          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('reset-password', this)" aria-label="Passwort anzeigen"></button>
-        </div>
-        <ul class="pw-rules" data-rules-for="reset-password" style="display: none;">
-          <li data-rule="length">Mindestens 8 Zeichen</li>
-          <li data-rule="letter">Mindestens ein Buchstabe</li>
-          <li data-rule="digit">Mindestens eine Zahl</li>
-        </ul>
-      </div>
-
-      <div class="input-group">
-        <label for="reset-repeat-password">Neues Passwort wiederholen</label>
-        <div class="password-field">
-          <input type="password" id="reset-repeat-password" data-repeat-for="reset-password" autocomplete="new-password">
-          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('reset-repeat-password', this)" aria-label="Passwort anzeigen"></button>
-        </div>
-        <p class="pw-match" data-match-for="reset-password" style="display: none;"></p>
-      </div>
-
-      <button type="submit" id="reset-password-btn">Passwort setzen</button>
-      </form>
-    </div>
-
-    <!-- BEREICH 3: CHATLISTE (Startbildschirm nach dem Login) -->
-    <div id="list-bereich" class="card" style="display: none;">
-
-      <header class="chat-header">
-        <div class="user-info user-info-link" role="button" tabindex="0" title="Meine Daten" onclick="openProfile(currentUser && currentUser.id)" onkeydown="if (event.key === 'Enter') openProfile(currentUser && currentUser.id)">
-          <span id="user-display-name">Nutzer</span>
-        </div>
-        <div class="header-actions">
-          <button id="settings-toggle-btn" class="settings-btn" onclick="openSettings()">Einstellungen</button>
-          <button class="logout-btn" onclick="logout()">Abmelden</button>
-        </div>
-      </header>
-
-      <!-- Suchleiste, Reiter und Chatliste scrollen zusammen (nur dieser Bereich unter der Linie scrollt) -->
-      <div class="list-scroll" id="list-scroll">
-
-      <!-- Suchleiste: filtert die Chatliste nach Namen, wirkt zusammen mit den Reitern darunter -->
-      <div class="chat-search-wrap">
-        <input type="text" id="chat-search" placeholder="Chats und Nachrichten suchen" oninput="applyChatTabFilter(); scheduleMessageSearch()">
-      </div>
-
-      <!-- Reiter: Alle Chats, Gruppen, Jungs, Mädels. Welche davon zu sehen sind, hängt davon ab,
-           ob man Admin ist oder zu welcher Gruppe man gehört - genau wie bei den Chats selbst. -->
-      <div id="chat-tabs" class="chat-tabs">
-        <button type="button" class="chat-tab active" data-tab="alle">Alle Chats</button>
-        <button type="button" class="chat-tab" data-tab="gruppen">Gruppen</button>
-        <button type="button" class="chat-tab" data-tab="junge">Jungs</button>
-        <button type="button" class="chat-tab" data-tab="maedchen">Mädels</button>
-      </div>
-
-      <!-- Gruppe + Einzelchats -->
-      <ul id="chat-list"></ul>
-
-      </div>
-
-    </div>
-
-    <!-- BEREICH 3b: EINSTELLUNGEN (eigener Bildschirm, nicht mehr ausklappbar) -->
-    <div id="settings-bereich" class="card" style="display: none;">
-
-      <header class="chat-header">
-        <button class="back-btn" onclick="showList()" aria-label="Zurück zur Übersicht"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-        <div class="user-info">
-          <span>Einstellungen</span>
-        </div>
-      </header>
-
-      <div class="settings-groups">
-
-        <section class="settings-group">
-          <h3 class="settings-group-title">Konto &amp; Sicherheit</h3>
-          <div class="settings-group-body">
-            <ul class="settings-menu">
-              <li onclick="openEmailChange()">
-                <span>E-Mail-Adresse ändern</span>
-                <span class="settings-arrow">›</span>
-              </li>
-              <li onclick="openPasswordChange()">
-                <span>Passwort ändern</span>
-                <span class="settings-arrow">›</span>
-              </li>
-              <li onclick="openDevices()">
-                <span>Angemeldete Geräte</span>
-                <span class="settings-arrow">›</span>
-              </li>
-            </ul>
-          </div>
-        </section>
-
-        <section class="settings-group" id="feedback-settings-group" style="display: none;">
-          <h3 class="settings-group-title">Rückmeldung</h3>
-          <div class="settings-group-body">
-            <ul class="settings-menu">
-              <li id="menu-feedback-person" onclick="openFeedbackModal('person')">
-                <span>Vermisst du jemanden?</span>
-                <span class="settings-arrow">›</span>
-              </li>
-              <li id="menu-feedback-problem" onclick="openFeedbackModal('problem')">
-                <span>Hast du ein Problem?</span>
-                <span class="settings-arrow">›</span>
-              </li>
-              <li id="menu-feedback-idee" onclick="openFeedbackModal('idee')">
-                <span>Verbesserungsvorschlag</span>
-                <span class="settings-arrow">›</span>
-              </li>
-              <li id="menu-feedback-mine" onclick="openMyFeedbackList()">
-                <span>Meine Rückmeldungen</span>
-                <span class="settings-arrow"><span class="reports-badge" id="feedback-mine-badge" style="display: none;"></span>›</span>
-              </li>
-            </ul>
-          </div>
-        </section>
-
-        <section class="settings-group" id="members-group" style="display: none;">
-          <h3 class="settings-group-title">Mitglieder</h3>
-          <div class="settings-group-body">
-            <ul class="settings-menu">
-              <li id="menu-pending-invites" onclick="openPendingInvites()">
-                <span>Wer ist noch eingeladen?</span>
-                <span class="settings-arrow"><span class="reports-badge" id="pending-invites-badge"></span>›</span>
-              </li>
-            </ul>
-          </div>
-        </section>
-
-        <section class="settings-group" id="group-settings-group" style="display: none;">
-          <h3 class="settings-group-title">Gruppen</h3>
-          <div class="settings-group-body">
-            <ul class="settings-menu">
-              <li id="menu-new-group" onclick="openGroupCreatorFromSettings()">
-                <span>Neue Gruppe erstellen</span>
-                <span class="settings-arrow">›</span>
-              </li>
-            </ul>
-          </div>
-        </section>
-
-        <section class="settings-group" id="push-group">
-          <h3 class="settings-group-title">Mitteilungen</h3>
-          <div class="settings-group-body">
-            <div class="toggle-row" id="push-toggle-row">
-              <span>Benachrichtigungen</span>
-              <label class="switch">
-                <input type="checkbox" id="push-toggle" onchange="onPushToggleChanged()">
-                <span class="switch-slider"></span>
-              </label>
-            </div>
-            <div class="toggle-row" id="sound-toggle-row">
-              <span>Ton bei neuen Nachrichten</span>
-              <label class="switch">
-                <input type="checkbox" id="sound-toggle" onchange="onSoundToggleChanged()">
-                <span class="switch-slider"></span>
-              </label>
-            </div>
-            <div class="toggle-row volume-row" id="sound-volume-row">
-              <span>Lautstärke</span>
-              <div class="volume-control">
-                <input type="range" id="sound-volume" min="0" max="100" step="5" aria-label="Lautstärke des Tons" oninput="onSoundVolumeInput()" onchange="onSoundVolumeChange()">
-                <span id="sound-volume-value">70 %</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section class="settings-group">
-          <h3 class="settings-group-title">Darstellung</h3>
-          <div class="settings-group-body">
-            <div class="toggle-row">
-              <span>Dunkler Modus</span>
-              <label class="switch">
-                <input type="checkbox" id="dark-mode-toggle" onchange="toggleDarkMode()">
-                <span class="switch-slider"></span>
-              </label>
-            </div>
-          </div>
-        </section>
-
-        <section class="settings-group">
-          <h3 class="settings-group-title">App</h3>
-          <div class="settings-group-body">
-            <ul class="settings-menu">
-              <li id="menu-install" onclick="onInstallMenuClick()">
-                <span id="menu-install-label">Als App installieren</span>
-                <span class="settings-arrow" id="menu-install-state">›</span>
-              </li>
-            </ul>
-          </div>
-        </section>
-
-        <section class="settings-group" id="admin-group" style="display: none;">
-          <h3 class="settings-group-title">Verwaltung</h3>
-          <div class="settings-group-body">
-            <ul class="settings-menu">
-              <li id="menu-users" onclick="openUserManagement()">
-                <span>Nutzer verwalten</span>
-                <span class="settings-arrow">›</span>
-              </li>
-              <li id="menu-new-user" onclick="openNewUser()">
-                <span>Neuen Nutzer hinzufügen</span>
-                <span class="settings-arrow">›</span>
-              </li>
-              <li id="menu-invite-requests" onclick="openInviteRequestsModal()">
-                <span>Einladungs-Anfragen</span>
-                <span class="settings-arrow"><span class="reports-badge" id="invite-requests-badge" style="display: none;"></span>›</span>
-              </li>
-              <li id="menu-feedback-admin" onclick="openFeedbackListModal()">
-                <span>Rückmeldungen</span>
-                <span class="settings-arrow"><span class="reports-badge" id="feedback-badge" style="display: none;"></span>›</span>
-              </li>
-              <li id="menu-reports" onclick="openReportsModal()">
-                <span>Meldungen</span>
-                <span class="settings-arrow"><span class="reports-badge" id="reports-badge" style="display: none;"></span>›</span>
-              </li>
-            </ul>
-          </div>
-        </section>
-
-      </div>
-
-    </div>
-
-    <!-- BEREICH 3b: NUTZER VERWALTEN (Liste, A bis Z) -->
-    <div id="users-bereich" class="card" style="display: none;">
-
-      <header class="chat-header">
-        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-        <div class="user-info">
-          <span>Nutzer verwalten</span>
-        </div>
-      </header>
-
-      <div class="user-filter-bar">
-        <input type="search" id="user-search" placeholder="Nutzer suchen" autocomplete="off" oninput="renderUserList()">
-        <div class="user-filter" id="user-filter">
-          <button type="button" class="filter-btn active" data-value="all" onclick="setUserFilter('all')">Alle</button>
-          <button type="button" class="filter-btn" data-value="junge" onclick="setUserFilter('junge')">Jungs</button>
-          <button type="button" class="filter-btn" data-value="maedchen" onclick="setUserFilter('maedchen')">Mädchen</button>
-          <button type="button" class="filter-btn" data-value="invited" onclick="setUserFilter('invited')" style="display: none;">Offen</button>
-        </div>
-      </div>
-      <ul id="user-list"></ul>
-
-    </div>
-
-    <!-- BEREICH 3b2: EINZELNER NUTZER (öffnet sich rechts) -->
-    <div id="user-detail-bereich" class="card subpage" style="display: none;">
-      <div class="form-card">
-
-      <header class="chat-header">
-        <button class="back-btn" onclick="openUserManagement()" aria-label="Zurück zur Nutzerliste"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-        <div class="user-info">
-          <span id="user-detail-title">Nutzer</span>
-        </div>
-      </header>
-
-      <div id="user-detail-content"></div>
-
-      </div>
-    </div>
-
-    <!-- BEREICH 3b3: NEUEN NUTZER EINLADEN (öffnet sich rechts) -->
-    <div id="new-user-bereich" class="card subpage" style="display: none;">
-      <div class="form-card">
-
-      <header class="chat-header">
-        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-        <div class="user-info">
-          <span>Neuen Nutzer hinzufügen</span>
-        </div>
-      </header>
-
-      <div class="input-group">
-        <label for="new-user-email">E-Mail-Adresse</label>
-        <input type="email" id="new-user-email" placeholder="name@adresse.de" autocomplete="off" autocapitalize="none" oninput="lowercaseEmailInput(this); updateInviteButton()">
-      </div>
-
-      <div class="input-group">
-        <label>Geschlecht</label>
-        <div class="gender-choice" id="new-user-gender">
-          <button type="button" class="gender-btn junge" data-value="junge" onclick="selectNewUserGender('junge')">Junge</button>
-          <button type="button" class="gender-btn maedchen" data-value="maedchen" onclick="selectNewUserGender('maedchen')">Mädchen</button>
-        </div>
-      </div>
-
-      <button id="invite-user-btn" onclick="inviteUser()" disabled>Einladung senden</button>
-      <p class="settings-hint">Die Person bekommt einen Link per E-Mail und vergibt darüber ihr eigenes Passwort.</p>
-      </div>
-    </div>
-
-    <!-- BEREICH 3d: ANGEMELDETE GERÄTE (eigene Unterseite) -->
-    <div id="devices-bereich" class="card subpage" style="display: none;">
-      <div class="form-card">
-
-      <header class="chat-header">
-        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-        <div class="user-info">
-          <span>Angemeldete Geräte</span>
-        </div>
-      </header>
-
-      <ul id="device-list" class="device-list"></ul>
-
-      <button type="button" id="logout-others-btn" onclick="logoutOtherDevices()">Alle anderen Geräte abmelden</button>
-      <button type="button" id="logout-all-btn" class="logout-all-btn" onclick="logoutAllDevices()">Auf allen Geräten abmelden</button>
-      <p class="settings-hint">Ein abgemeldetes Gerät kann noch bis zu einer Stunde offen bleiben, danach landet es im Login. Wenn du dein Passwort änderst, werden alle anderen Geräte automatisch abgemeldet.</p>
-      </div>
-    </div>
-
-    <!-- BEREICH 3c: E-MAIL ÄNDERN (eigene Unterseite) -->
-    <div id="email-change-bereich" class="card subpage" style="display: none;">
-      <div class="form-card">
-
-      <header class="chat-header">
-        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-        <div class="user-info">
-          <span>E-Mail-Adresse ändern</span>
-        </div>
-      </header>
-
-      <div class="input-group">
-        <label>Aktuelle E-Mail-Adresse</label>
-        <input type="email" id="current-email-display" disabled>
-      </div>
-
-      <div class="input-group">
-        <label for="new-email">Neue E-Mail-Adresse</label>
-        <input type="email" id="new-email" placeholder="neue@adresse.de" autocomplete="email">
-      </div>
-
-      <button id="change-email-btn" onclick="changeEmail()">E-Mail ändern</button>
-      <p class="settings-hint">Du bekommst einen Bestätigungslink an die neue Adresse. Erst danach gilt die Änderung.</p>
-      </div>
-    </div>
-
-    <!-- BEREICH 3d: PASSWORT ÄNDERN (eigene Unterseite) -->
-    <div id="password-change-bereich" class="card subpage" style="display: none;">
-      <div class="form-card">
-
-      <header class="chat-header">
-        <button class="back-btn" onclick="openSettings()" aria-label="Zurück zu Einstellungen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-        <div class="user-info">
-          <span>Passwort ändern</span>
-        </div>
-      </header>
-
-      <div class="input-group">
-        <label for="old-password">Aktuelles Passwort</label>
-        <div class="password-field">
-          <input type="password" id="old-password" autocomplete="current-password">
-          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('old-password', this)" aria-label="Passwort anzeigen"></button>
-        </div>
-      </div>
-
-      <div class="input-group">
-        <label for="new-password">Neues Passwort</label>
-        <div class="password-field">
-          <input type="password" id="new-password" autocomplete="new-password">
-          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('new-password', this)" aria-label="Passwort anzeigen"></button>
-        </div>
-        <ul class="pw-rules" data-rules-for="new-password" style="display: none;">
-          <li data-rule="length">Mindestens 8 Zeichen</li>
-          <li data-rule="letter">Mindestens ein Buchstabe</li>
-          <li data-rule="digit">Mindestens eine Zahl</li>
-        </ul>
-      </div>
-
-      <div class="input-group">
-        <label for="repeat-password">Neues Passwort wiederholen</label>
-        <div class="password-field">
-          <input type="password" id="repeat-password" data-repeat-for="new-password" autocomplete="new-password">
-          <button type="button" class="toggle-password" onclick="toggleFieldVisibility('repeat-password', this)" aria-label="Passwort anzeigen"></button>
-        </div>
-        <p class="pw-match" data-match-for="new-password" style="display: none;"></p>
-      </div>
-
-      <button id="change-password-btn" onclick="changePassword()">Passwort ändern</button>
-      </div>
-    </div>
-
-    <!-- BEREICH 3e: ADMIN-EINBLICK - Einzelchat-Partner einer Person (rein lesend) -->
-    <div id="admin-contacts-bereich" class="card" style="display: none;">
-
-      <header class="chat-header">
-        <button class="back-btn" onclick="showList()" aria-label="Zurück zur Übersicht"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-        <div class="user-info">
-          <span id="admin-contacts-title">Chats von …</span>
-        </div>
-      </header>
-
-      <ul id="admin-contacts-list"></ul>
-
-    </div>
-
-    <!-- BEREICH 4: GEÖFFNETER CHAT (Gruppe oder Einzelchat) -->
-    <div id="conversation-bereich" class="card" style="display: none;">
-
-      <header class="chat-header">
-        <button class="back-btn" onclick="showList()" aria-label="Zurück zur Übersicht"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-        <div class="user-info">
-          <span id="conversation-title" onclick="onConversationTitleClick()">JungscharChat</span>
-          <span id="online-status" class="online-status" style="display: none;" onclick="openOnlineList()"></span>
-        </div>
-        <button type="button" class="chat-search-toggle" id="chat-search-toggle" onclick="toggleChatSearch()" aria-label="Im Chat suchen" title="Im Chat suchen">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        </button>
-      </header>
-
-      <!-- Suche im geöffneten Chat (nur sichtbar nach Tipp auf die Lupe) -->
-      <div id="chat-search-bar" class="chat-search-bar" style="display: none;">
-        <input type="search" id="chat-search-input" placeholder="Im Chat suchen" autocomplete="off" aria-label="Im Chat suchen" oninput="onChatSearchInput()" onkeydown="onChatSearchKey(event)">
-        <span id="chat-search-count" class="chat-search-count" aria-live="polite"></span>
-        <button type="button" class="chat-search-nav" onclick="stepChatSearch(-1)" aria-label="Älterer Treffer">▲</button>
-        <button type="button" class="chat-search-nav" onclick="stepChatSearch(1)" aria-label="Neuerer Treffer">▼</button>
-        <button type="button" class="chat-search-nav" onclick="toggleChatSearch()" aria-label="Suche schließen">✕</button>
-      </div>
-
-      <!-- Angepinnte Nachricht (nur sichtbar, wenn in diesem Chat eine angepinnt ist) -->
-      <div id="pin-bar" class="pin-bar" style="display: none;" onclick="onPinBarClick()" role="button" tabindex="0">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v6l-2 4v2h10v-2l-2-4V4"/><path d="M12 16v5"/><path d="M8 4h8"/></svg>
-        <div class="pin-bar-info">
-          <span class="pin-bar-label" id="pin-bar-label">Angepinnt</span>
-          <span class="pin-bar-text" id="pin-bar-text"></span>
-        </div>
-        <button type="button" class="pin-bar-close" id="pin-bar-close" style="display: none;" onclick="event.stopPropagation(); unpinFromBar()" aria-label="Anpinnen aufheben">✕</button>
-      </div>
-
-      <!-- Nachrichtenverlauf -->
-      <div id="chat-box">
-        <!-- Hier werden die Nachrichten aus Supabase geladen -->
-      </div>
-
-      <!-- Zeigt an, wenn man gerade auf eine bestimmte Nachricht antwortet -->
-      <div id="reply-bar" style="display: none;">
-        <div class="reply-bar-info">
-          <span class="reply-bar-label">Antwort an <span id="reply-bar-author"></span></span>
-          <span id="reply-bar-snippet" class="reply-bar-snippet"></span>
-        </div>
-        <button type="button" class="edit-bar-cancel" onclick="cancelReplyingTo()" aria-label="Antworten abbrechen">✕</button>
-      </div>
-
-      <!-- Zeigt an, wenn gerade eine Nachricht bearbeitet wird -->
-      <div id="edit-bar" style="display: none;">
-        <span>Nachricht bearbeiten</span>
-        <button type="button" class="edit-bar-cancel" onclick="cancelEditingMessage()" aria-label="Bearbeiten abbrechen">✕</button>
-      </div>
-
-      <!-- Weiterleiten: der Chat ist offen, die Nachricht(en) warten auf "Senden" -->
-      <div id="forward-bar" style="display: none;">
-        <div class="forward-bar-info">
-          <span class="forward-bar-label">Weiterleiten an <span id="forward-bar-target"></span></span>
-          <span id="forward-bar-snippet" class="forward-bar-snippet"></span>
-        </div>
-        <div class="forward-bar-actions">
-          <button type="button" class="forward-bar-cancel" onclick="cancelPendingForward()">Abbrechen</button>
-          <button type="button" id="forward-bar-send" class="forward-bar-send" onclick="confirmPendingForward()">Senden</button>
-        </div>
-      </div>
-
-      <!-- Eingabefeld -->
-      <div class="chat-input-area">
-        <button type="button" id="emoji-toggle-btn" class="input-round-btn" onclick="toggleTextEmojiPicker(this, event)" aria-label="Emoji einfügen">😊</button>
-        <div class="message-field">
-          <!-- Kein normales Textfeld, damit Emojis hier als schöne Bilder erscheinen können (siehe script.js) -->
-          <div id="message-input" class="message-input" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Nachricht" data-placeholder="Nachricht" enterkeyhint="send" autocapitalize="sentences"></div>
-          <!-- Eigener Scroll-Balken: sitzt mit Abstand INNERHALB des Feldes (der eingebaute Balken ließ sich nicht verschieben) -->
-          <div class="field-scrollbar" id="message-scrollbar" aria-hidden="true"><div class="field-scrollbar-thumb"></div></div>
-        </div>
-        <button type="button" id="attach-btn" class="input-round-btn" onclick="toggleAttachMenu(this, event)" aria-label="Anhängen">+</button>
-        <button type="button" id="send-btn" class="input-round-btn send" onclick="sendMessage()" aria-label="Senden" disabled>➤</button>
-      </div>
-
-      <!-- Auswahl-Leiste: ersetzt das Eingabefeld, solange mehrere Nachrichten zum Löschen oder Weiterleiten ausgewählt werden -->
-      <div id="select-bar" style="display: none;">
-        <button type="button" class="select-bar-cancel" onclick="exitSelectMode()">Abbrechen</button>
-        <span id="select-bar-count">0 ausgewählt</span>
-        <div class="select-bar-actions">
-          <button type="button" id="select-bar-forward" class="select-bar-forward" onclick="forwardSelectedMessages()" disabled>Weiterleiten</button>
-          <button type="button" id="select-bar-delete" class="select-bar-delete" onclick="deleteSelectedMessages()" disabled>Löschen</button>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- Platzhalter rechts in der großen PC-Ansicht, solange kein Chat offen ist (wie bei Telegram) -->
-    <div id="chat-placeholder">
-      <span class="placeholder-pill">Chat auswählen, um zu schreiben</span>
-    </div>
-
-  </div>
-
-  <!-- Eigenes Bestätigungs-Pop-up, ersetzt die Browser-eigene Meldung -->
-  <!-- Fenster "Reaktionen": wer hat wie auf eine Nachricht reagiert -->
-  <div id="reactions-modal" class="modal-overlay" style="display: none;" onclick="closeReactionsModal()">
-    <div class="modal-box reactions-box" onclick="event.stopPropagation()">
-      <p class="install-title" id="reactions-title">Reaktionen</p>
-      <div id="reactions-tabs" class="reactions-tabs"></div>
-      <ul id="reactions-list" class="reactions-list"></ul>
-      <div class="modal-actions">
-        <button type="button" class="modal-cancel" onclick="closeReactionsModal()">Schließen</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Pop-up: wer in dieser Gruppe gerade online ist -->
-  <div id="online-modal" class="modal-overlay" style="display: none;" onclick="closeOnlineList()">
-    <div class="modal-box" onclick="event.stopPropagation()">
-      <p class="install-title">Gerade online</p>
-      <ul id="online-list" class="online-list"></ul>
-      <div class="modal-actions">
-        <button type="button" class="modal-cancel" onclick="closeOnlineList()">Schließen</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Pop-up "Als App installieren" (erscheint beim ersten Besuch auf jedem Gerät, danach in den Einstellungen) -->
-  <div id="install-modal" class="modal-overlay" style="display: none;">
-    <div class="modal-box">
-      <p class="install-title">Als App installieren</p>
-      <p id="install-modal-text"></p>
-      <ol id="install-steps" class="install-steps" style="display: none;"></ol>
-      <div class="modal-actions">
-        <button type="button" id="install-close-btn" class="modal-cancel" onclick="dismissInstallPopup()">Nicht jetzt</button>
-        <button type="button" id="install-confirm-btn" onclick="confirmInstall()">Installieren</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="confirm-modal" class="modal-overlay" style="display: none;">
-    <div class="modal-box">
-      <p id="confirm-modal-text"></p>
-      <div class="modal-actions">
-        <button type="button" class="modal-cancel" onclick="confirmModalNo()">Abbrechen</button>
-        <button type="button" class="modal-confirm" onclick="confirmModalYes()">Ja, löschen</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Pop-up "Nachrichten-Info": wer hat die Nachricht gelesen, wem wurde sie zugestellt -->
-  <div id="info-modal" class="modal-overlay" style="display: none;" onclick="closeInfoModal()">
-    <div class="modal-box" onclick="event.stopPropagation()">
-      <p class="info-title">Nachrichten-Info</p>
-      <p id="info-sent" class="info-sub"></p>
-      <div id="info-sections"></div>
-      <div class="modal-actions">
-        <button type="button" class="modal-cancel" onclick="closeInfoModal()">Schließen</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Pop-up: neue Umfrage erstellen -->
-  <div id="poll-modal" class="modal-overlay" style="display: none;" onclick="closePollModal()">
-    <div class="modal-box" onclick="event.stopPropagation()">
-      <div class="poll-modal-head">
-        <p class="info-title" id="poll-modal-title">Umfrage erstellen</p>
-      </div>
-
-      <div class="input-group">
-        <label for="poll-question">Frage</label>
-        <input type="text" id="poll-question" placeholder="Worüber wird abgestimmt?" maxlength="200">
-      </div>
-
-      <div id="poll-options"></div>
-      <button type="button" id="poll-add-option-btn" class="link-btn" onclick="addPollOption()">+ Option hinzufügen</button>
-
-      <div class="toggle-row">
-        <span>Mehrfachauswahl erlauben</span>
-        <label class="switch">
-          <input type="checkbox" id="poll-multiple">
-          <span class="switch-slider"></span>
-        </label>
-      </div>
-
-      <p id="poll-error" class="settings-hint" style="display: none;"></p>
-
-      <div class="modal-actions">
-        <button type="button" class="modal-cancel" onclick="closePollModal()">Abbrechen</button>
-        <button type="button" class="modal-confirm poll-confirm" id="poll-submit-btn" onclick="submitPoll()">Erstellen</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Pop-up: Sprachnachricht aufnehmen, anhören und senden (schließt nicht durch Tippen daneben, damit keine Aufnahme verloren geht) -->
-  <div id="voice-modal" class="modal-overlay" style="display: none;">
-    <div class="modal-box">
-      <p id="voice-status" class="voice-status"></p>
-      <div class="voice-visual">
-        <button type="button" id="voice-play" class="voice-play" style="display: none;" aria-label="Anhören" onclick="toggleVoicePlayback()"></button>
-        <canvas id="voice-wave" class="voice-wave"></canvas>
-        <span id="voice-time" class="voice-time"></span>
-      </div>
-      <div id="voice-actions" class="modal-actions"></div>
-    </div>
-  </div>
-
-  <!-- Pop-up: Hilfe zur Textformatierung (Beispiele, Ausprobier-Feld, Tasten) -->
-  <div id="format-modal" class="modal-overlay" style="display: none;" onclick="closeFormatHelp()">
-    <div class="modal-box format-help-box" onclick="event.stopPropagation()">
-      <div class="poll-modal-head">
-        <p class="info-title">Textformatierung</p>
-      </div>
-
-      <p class="settings-hint">Links steht, was du tippst, rechts, wie es in der Nachricht aussieht. Das Zeichen muss direkt am Text kleben: *fett* geht, * fett * nicht.</p>
-      <div id="format-help-list"></div>
-
-      <p class="format-help-title">Zum Ausprobieren</p>
-      <textarea id="format-try" rows="3" maxlength="500" placeholder="Hier tippen, z. B. *fett* oder _kursiv_"></textarea>
-      <div id="format-try-preview" class="format-shown"></div>
-
-      <p class="format-help-title">Tasten</p>
-      <div id="format-help-keys"></div>
-      <p class="settings-hint">Am PC erst Text markieren, dann die Tasten drücken.</p>
-
-      <div class="modal-actions">
-        <button type="button" class="modal-confirm" onclick="closeFormatHelp()">Schließen</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Pop-up: Einladung (z. B. zum Geburtstag) senden -->
-  <div id="invite-modal" class="modal-overlay" style="display: none;" onclick="closeInviteModal()">
-    <div class="modal-box" onclick="event.stopPropagation()">
-      <div class="poll-modal-head">
-        <p class="info-title">Einladung erstellen</p>
-      </div>
-
-      <div class="input-group">
-        <label for="invite-card-name">Titel</label>
-        <input type="text" id="invite-card-name" placeholder="Worum geht's?" maxlength="80">
-      </div>
-
-      <div class="input-group">
-        <label for="invite-date">Datum</label>
-        <input type="date" id="invite-date">
-      </div>
-
-      <div class="invite-fields">
-        <div class="input-group">
-          <label for="invite-time">Von (optional)</label>
-          <input type="time" id="invite-time">
-        </div>
-        <div class="input-group">
-          <label for="invite-time-end">Bis (optional)</label>
-          <input type="time" id="invite-time-end">
-        </div>
-      </div>
-
-      <div class="input-group">
-        <label for="invite-where">Wo (optional)</label>
-        <input type="text" id="invite-where" placeholder="Ort oder Adresse" maxlength="120">
-      </div>
-
-      <div class="input-group">
-        <label for="invite-note">Hinweis (optional)</label>
-        <textarea id="invite-note" placeholder="Was sollen die Gäste noch wissen?" maxlength="300"></textarea>
-      </div>
-
-      <p id="invite-error" class="settings-hint" style="display: none;"></p>
-
-      <div class="modal-actions">
-        <button type="button" class="modal-cancel" onclick="closeInviteModal()">Abbrechen</button>
-        <button type="button" class="modal-confirm poll-confirm" id="invite-submit-btn" onclick="submitInvitation()">Senden</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Pop-up: wer hat für eine Umfrage-Option gestimmt -->
-  <div id="poll-voters-modal" class="modal-overlay" style="display: none;" onclick="closePollVotersModal()">
-    <div class="modal-box" onclick="event.stopPropagation()">
-      <p id="poll-voters-title" class="info-title">Stimmen für …</p>
-      <ul id="poll-voters-list" class="info-list"></ul>
-      <div class="modal-actions">
-        <button type="button" class="modal-cancel" onclick="closePollVotersModal()">Schließen</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Pop-up: Mitglieder der Gruppe (Tipp auf den Gruppennamen oben im Chat) -->
-  <div id="members-modal" class="modal-overlay" style="display: none;" onclick="closeMembersModal()">
-    <div class="modal-box" onclick="event.stopPropagation()">
-      <div class="popup-head">
-        <span class="popup-title" id="members-title">Mitglieder</span>
-        <span class="popup-count" id="members-count"></span>
-      </div>
-      <ul id="members-list" class="reactions-list"></ul>
-      <div class="modal-actions">
-        <button type="button" id="members-edit-btn" onclick="openGroupEditor()" style="display: none;">Gruppe bearbeiten</button>
-        <button type="button" id="members-leave-btn" class="modal-cancel" onclick="leaveCurrentGroup()" style="display: none;">Gruppe verlassen</button>
-        <button type="button" class="modal-cancel" onclick="closeMembersModal()">Schließen</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Pop-up: Gruppe erstellen oder bearbeiten (Name + Mitglieder zum Anhaken) -->
-  <div id="group-modal" class="modal-overlay" style="display: none;" onclick="closeGroupModal()">
-    <div class="modal-box group-box" onclick="event.stopPropagation()">
-      <p class="install-title" id="group-modal-title">Neue Gruppe</p>
-      <div class="input-group">
-        <label for="group-name-input">Gruppenname</label>
-        <input type="text" id="group-name-input" maxlength="40" placeholder="Name der Gruppe" autocomplete="off" oninput="updateGroupModalButton()">
-      </div>
-      <div class="input-group">
-        <label>Farbe</label>
-        <div id="group-color-row" class="group-color-row"></div>
-      </div>
-      <div class="group-pick-head">
-        <span>Mitglieder</span>
-        <span id="group-members-count">0 ausgewählt</span>
-      </div>
-      <ul id="group-members-pick" class="group-pick-list"></ul>
-      <div class="modal-actions">
-        <button type="button" class="modal-cancel" onclick="closeGroupModal()">Abbrechen</button>
-        <button type="button" id="group-save-btn" onclick="saveGroup()" disabled>Erstellen</button>
-        <button type="button" id="group-delete-btn" class="modal-confirm" onclick="deleteGroup()" style="display: none;">Gruppe löschen</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Pop-up: Profil einer Person (Tipp auf den Namen im Einzelchat oder auf ein Mitglied in der Liste) -->
-  <div id="profile-modal" class="modal-overlay" style="display: none;" onclick="closeProfileModal()">
-    <div class="modal-box profile-box" onclick="event.stopPropagation()">
-      <div id="profile-avatar" class="profile-avatar"></div>
-      <p id="profile-name" class="profile-name"></p>
-      <p id="profile-birthday" class="profile-birthday" style="display: none;"></p>
-      <div id="profile-rows" class="profile-rows"></div>
-      <div class="modal-actions">
-        <button type="button" class="modal-cancel" onclick="closeProfileModal()">Schließen</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Pop-up: Heute hat jemand Geburtstag (einmal pro Tag und Gerät, mit Konfetti) -->
-  <div id="birthday-modal" class="modal-overlay" style="display: none;" onclick="closeBirthdayModal()">
-    <div class="modal-box birthday-box" onclick="event.stopPropagation()">
-      <button type="button" id="birthday-x-btn" class="birthday-x" onclick="closeBirthdayModal()" aria-label="Schließen" title="Schließen">×</button>
-      <div id="birthday-body"></div>
-    </div>
-  </div>
-
-  <!-- Pop-up: Geburtsdatum eintragen. Lässt sich nicht wegklicken und erscheint nur, solange noch keins gespeichert ist. -->
-  <div id="birthdate-modal" class="modal-overlay" style="display: none;">
-    <form class="modal-box" onsubmit="event.preventDefault(); saveBirthdate()" novalidate>
-      <div class="poll-modal-head">
-        <span class="poll-modal-icon">🎂</span>
-        <p class="info-title">Dein Geburtsdatum</p>
-      </div>
-      <p class="birthdate-text">Bitte trage dein richtiges Geburtsdatum ein. Die anderen Mitglieder sehen es in deinem Profil.</p>
-      <div class="input-group">
-        <label for="birthdate-day">Geburtsdatum</label>
-        <input type="hidden" id="birthdate-input">
-        <div class="birthdate-fields">
-          <input type="text" id="birthdate-day" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="Tag" autocomplete="off" aria-label="Tag" oninput="onBirthdatePartInput('day')">
-          <span class="birthdate-sep">.</span>
-          <input type="text" id="birthdate-month" inputmode="numeric" pattern="[0-9]*" maxlength="2" placeholder="Monat" autocomplete="off" aria-label="Monat" oninput="onBirthdatePartInput('month')" onkeydown="onBirthdateKey(event, 'month')">
-          <span class="birthdate-sep">.</span>
-          <input type="text" id="birthdate-year" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Jahr" autocomplete="off" aria-label="Jahr" oninput="onBirthdatePartInput('year')" onkeydown="onBirthdateKey(event, 'year')">
-        </div>
-        <div class="birthdate-years" id="birthdate-years"></div>
-        <p class="field-error" id="birthdate-error" style="display: none;"></p>
-      </div>
-      <button type="submit" id="birthdate-save-btn" disabled>Speichern</button>
-      <button type="button" class="link-btn" onclick="logout()">Abmelden</button>
-    </form>
-  </div>
-
-  <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261103-2"></script>
-</body>
-</html>
+
+  .app-container {
+    max-width: none;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+  }
+
+  .card {
+    height: 100%;
+    min-height: 0;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    overflow-y: auto;
+  }
+
+  .chat-header,
+  #edit-bar,
+  #reply-bar,
+  .chat-input-area {
+    flex-shrink: 0;
+  }
+
+  #chat-list,
+  #admin-contacts-list,
+  #user-list {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+
+  #chat-box {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+  }
+
+  /* Ausnahme: Login/Passwort-Bildschirme bleiben eine kleine Karte in der Mitte, wie am PC */
+  body.auth-screen {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  body.auth-screen .app-container {
+    max-width: 460px;
+    width: 100%;
+    height: auto;
+    padding: 15px;
+  }
+
+  body.auth-screen .card {
+    height: auto;
+    min-height: 0;
+    border-radius: var(--radius-card);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-card);
+    overflow-y: visible;
+  }
+}
+
+body.split-view {
+  display: block;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body.split-view .app-container {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  padding: 0;
+}
+
+body.split-view .card {
+  grid-row: 1;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  border-radius: 0;
+  box-shadow: none;
+  overflow-y: auto;
+}
+
+body.split-view #list-bereich,
+body.split-view #settings-bereich,
+body.split-view #users-bereich,
+body.split-view #admin-contacts-bereich {
+  grid-column: 1;
+  border-width: 0 1px 0 0;
+}
+
+body.split-view #conversation-bereich,
+body.split-view #email-change-bereich,
+body.split-view #password-change-bereich,
+body.split-view #devices-bereich,
+body.split-view #user-detail-bereich,
+body.split-view #new-user-bereich {
+  grid-column: 2;
+  border-width: 0;
+}
+
+/* Unterseiten der Einstellungen rechts: Inhalt nicht endlos breit, Zurück-Pfeil unnötig */
+body.split-view #email-change-bereich .back-btn,
+body.split-view #password-change-bereich .back-btn,
+body.split-view #devices-bereich .back-btn,
+body.split-view #user-detail-bereich .back-btn,
+body.split-view #new-user-bereich .back-btn {
+  display: none;
+}
+
+body.split-view .chat-header,
+body.split-view #edit-bar,
+body.split-view .chat-input-area {
+  flex-shrink: 0;
+}
+
+/* Listen und Nachrichtenverlauf füllen die volle Höhe und scrollen für sich */
+body.split-view #chat-list,
+body.split-view #user-list,
+body.split-view #admin-contacts-list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+body.split-view #chat-box {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+
+/* Die Liste ist immer da, der Zurück-Pfeil im Chat wird nicht gebraucht */
+body.split-view #conversation-bereich .back-btn {
+  display: none;
+}
+
+/* Auf der breiten Fläche sollen Sprechblasen nicht endlos lang werden */
+body.split-view .msg {
+  max-width: min(78%, 640px);
+}
+
+body.split-view #chat-placeholder {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+body.split-view.chat-open #chat-placeholder {
+  display: none;
+}
+
+.placeholder-icon {
+  font-size: 42px;
+  margin-bottom: 10px;
+  opacity: 0.6;
+}
+
+/* ===== Reiter über der Chatliste (Alle Chats / Gruppen / Jungs / Mädels) ===== */
+/* ===== Suchleiste über der Chatliste ===== */
+.chat-search-wrap {
+  margin-top: 10px;
+}
+
+.chat-search-wrap input {
+  width: 100%;
+  padding: 9px 14px;
+  background: var(--bg-input);
+  border: none;
+  border-radius: 20px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.chat-tabs {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  /* Links/rechts bündig mit dem Chat-Kopf und der Chatliste (kein extra Einrücken);
+     oben/unten so bemessen, dass der Abstand zur Linie und zum ersten Chat gleich groß ist */
+  padding: 10px 0 14px;
+}
+
+.chat-tab {
+  width: auto;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 7px 8px;
+  background: var(--bg-input);
+  border: none;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-tab {
+  /* Am Handy kein Aufblitzen beim Antippen: kein graues Tipp-Highlight, kein weiches Überblenden */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: none;
+}
+
+/* Das allgemeine "button:hover" färbt Knöpfe in der Akzentfarbe - am Handy bleibt dieser Zustand nach dem
+   Tippen kleben und blinkte beim Wechsel des Reiters. Reiter behalten deshalb immer ihre eigene Farbe. */
+.chat-tab:hover {
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+
+.chat-tab.active,
+.chat-tab.active:hover {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+@media (hover: none) {
+  .chat-tab:hover {
+    color: var(--text-secondary);
+  }
+
+  .chat-tab.active:hover {
+    color: var(--text-on-accent);
+  }
+}
+
+/* ===== Platzhalter rechts in der PC-Ansicht (Telegram-Stil: Pille in der Mitte) ===== */
+.placeholder-pill {
+  padding: 10px 20px;
+  background: var(--bg-panel-raised);
+  border-radius: 999px;
+  font-size: 14px;
+}
+
+/* ===== Umfrage-Karte im Chat ===== */
+.poll-msg {
+  min-width: 240px;
+  max-width: 340px;
+}
+
+.poll-label {
+  margin: 0 0 2px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.65;
+}
+
+.poll-question {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.poll-option {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 9px 12px;
+  background: var(--bg-input);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 400;
+  text-align: left;
+  color: var(--text-primary);
+  transition: border-color 0.15s ease;
+}
+
+.poll-option:not(:disabled):hover {
+  border-color: var(--border-subtle);
+}
+
+.poll-option:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.poll-option.mine {
+  border-color: var(--accent);
+}
+
+.poll-option.leading .poll-option-fill {
+  background: var(--accent-soft);
+  opacity: 1;
+}
+
+.poll-option.leading .poll-option-label {
+  font-weight: 600;
+}
+
+.poll-option-check {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  width: 0;
+  overflow: hidden;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  transition: width 0.15s ease;
+}
+
+.poll-option.mine .poll-option-check {
+  width: 14px;
+}
+
+.poll-option-fill {
+  position: absolute;
+  inset: 0;
+  width: 0;
+  background: var(--accent-soft);
+  transition: width 0.25s ease;
+}
+
+.poll-option-label,
+.poll-option-stat {
+  position: relative;
+  z-index: 1;
+}
+
+.poll-option-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.poll-option-stat {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.poll-option {
+  cursor: pointer;
+}
+
+.poll-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.poll-foot-voted {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.poll-footer {
+  margin-top: 6px;
+  float: none;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Eigene (blaue) Umfragen: die Optionen bekamen sonst die normale Eingabefeld-Farbe, die auf Blau
+   wie ein Fremdkörper wirkt - hier stattdessen ein durchscheinendes Weiß, passend zur Blase */
+.msg.own .poll-option {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--bubble-own-text);
+}
+
+.msg.own .poll-option:not(:disabled):hover {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.msg.own .poll-option.mine {
+  border-color: rgba(255, 255, 255, 0.85);
+}
+
+.msg.own .poll-option-fill {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.msg.own .poll-option.leading .poll-option-fill {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.msg.own .poll-option-check {
+  color: var(--bubble-own-text);
+}
+
+.msg.own .poll-option-stat,
+.msg.own .poll-foot {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* ===== Umfrage erstellen: Optionsfelder im Pop-up ===== */
+.poll-option-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.poll-option-input input {
+  flex: 1;
+}
+
+.poll-option-remove {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.poll-option-remove:hover {
+  background: var(--bg-input);
+  color: var(--danger);
+}
+
+#poll-add-option-btn {
+  display: inline-block;
+  margin-bottom: 14px;
+}
+
+/* Das Icon gibt es nur noch im Geburtstags-Pop-up (die Umfrage hat keins mehr) */
+.poll-modal-icon {
+  font-size: 20px;
+}
+
+.poll-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.poll-option-number {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.modal-confirm.poll-confirm {
+  width: auto;
+  background: var(--accent);
+}
+
+.modal-confirm.poll-confirm:hover {
+  background: var(--accent-hover);
+}
+
+/* ===== Unterseiten (E-Mail/Passwort ändern, Nutzer): eine Karte in der Mitte, wie beim Login -
+   am PC mittig im rechten Fenster, am Handy mittig auf der Seite ===== */
+.card.subpage {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 15px;
+  overflow-y: auto;
+}
+
+.subpage > .form-card {
+  width: 100%;
+  max-width: 460px;
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 22px;
+}
+
+/* ===== Einstellungen: ruhige Liste ohne Trennlinien, Überschrift oben links, Einträge darunter ===== */
+.settings-group {
+  padding: 14px 0 6px;
+}
+
+.settings-group-title {
+  margin: 0 0 4px;
+  padding: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+/* Die Einträge stehen ein Stück weiter rechts als die Überschrift */
+.settings-group-body {
+  min-width: 0;
+  padding-left: 4px;
+}
+
+/* Zeilen: nur Text, keine Linien. Beim Antippen/Darüberfahren kommt eine weiche Fläche */
+#settings-bereich .settings-menu li,
+#settings-bereich .toggle-row {
+  margin: 0;
+  padding: 12px 10px;
+  border: 0;
+  border-radius: 12px;
+  font-size: 15px;
+  color: var(--text-primary);
+  transition: background 0.15s ease;
+}
+
+#settings-bereich .settings-menu li:active {
+  background: var(--bg-input);
+}
+
+@media (hover: hover) {
+  #settings-bereich .settings-menu li:hover {
+    background: var(--bg-input);
+    color: var(--text-primary);
+  }
+}
+
+/* Passwort-Regeln und Übereinstimmung unter den Feldern */
+.pw-rules {
+  list-style: none;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.pw-rules li::before {
+  content: '○ ';
+}
+
+.pw-rules li.ok {
+  color: var(--success);
+}
+
+.pw-rules li.ok::before {
+  content: '✓ ';
+}
+
+.pw-match {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.pw-match.ok {
+  color: var(--success);
+}
+
+.pw-match.bad {
+  color: var(--danger);
+}
+
+/* Nutzer-Karte: Junge/Mädchen wählen, Sperren und Löschen nebeneinander */
+.gender-choice,
+.user-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.gender-btn {
+  flex: 1;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+}
+
+.gender-btn.junge.active {
+  background: #4a90e2;
+  border-color: #4a90e2;
+  color: #fff;
+}
+
+.gender-btn.maedchen.active {
+  background: #e0526f;
+  border-color: #e0526f;
+  color: #fff;
+}
+
+.user-actions {
+  margin-top: 6px;
+}
+
+.user-actions button {
+  flex: 1;
+}
+
+.user-actions .block-btn {
+  background: transparent;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.user-actions .unblock-btn {
+  background: transparent;
+  border: 1px solid var(--success);
+  color: var(--success);
+}
+
+.user-actions .delete-btn {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* ===== Profilfarbe wählen: ein Kreis je Farbe, der aktive hat einen Ring ===== */
+.color-picker {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.color-swatches {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.color-swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.color-swatch:hover:not(:disabled) {
+  transform: scale(1.1);
+}
+
+.color-swatch.active {
+  box-shadow: 0 0 0 2px var(--bg-panel), 0 0 0 4px var(--text-primary);
+}
+
+.color-swatch:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.admin-section-dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+
+/* ===== Weichere Übergänge: Einstellungs-Seiten und Pop-ups blenden sanft ein statt "zack" aufzugehen ===== */
+@keyframes screen-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-pop {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Die Animation startet jedes Mal, wenn die Seite von "versteckt" auf "sichtbar" wechselt */
+#settings-bereich,
+#users-bereich,
+#admin-contacts-bereich,
+.card.subpage {
+  animation: screen-in 0.22s ease-out backwards;
+}
+
+.modal-overlay {
+  animation: overlay-in 0.18s ease-out backwards;
+}
+
+.modal-overlay > .modal-box {
+  animation: modal-pop 0.22s ease-out backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #settings-bereich,
+  #users-bereich,
+  #admin-contacts-bereich,
+  .card.subpage,
+  .modal-overlay,
+  .modal-overlay > .modal-box {
+    animation: none;
+  }
+}
+
+/* ===== Seite einer Person im Admin-Menü: Ausklapp-Bereiche ===== */
+.admin-section {
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+
+.admin-section > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 14px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.admin-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-section-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.admin-section-meta {
+  min-width: 0;
+  max-width: 62%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.admin-section-chevron {
+  flex-shrink: 0;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-secondary);
+  transition: transform 0.15s ease;
+}
+
+.admin-section[open] > summary .admin-section-chevron {
+  transform: rotate(90deg);
+}
+
+.admin-section-body {
+  padding: 2px 14px 14px;
+  overflow: hidden; /* beim Auf-/Zuklappen wird die Höhe animiert */
+}
+
+.admin-section-body > :last-child {
+  margin-bottom: 0;
+}
+
+
+/* ===== Eigene Pop-ups (Meldungen und Bestätigungsfenster) ===== */
+#toast-container {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(92vw, 420px);
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  font-size: 14px;
+  line-height: 1.4;
+  cursor: pointer;
+  pointer-events: auto;
+  animation: toast-in 0.2s ease-out;
+}
+
+.toast-success {
+  border-color: var(--success);
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+
+.toast-success .toast-icon {
+  background: var(--success);
+}
+
+.toast-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.toast-out {
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 15px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.confirm-dialog {
+  width: 100%;
+  max-width: 380px;
+  padding: 22px;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  animation: toast-in 0.15s ease-out;
+}
+
+.confirm-dialog p {
+  margin-bottom: 18px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.confirm-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.confirm-buttons button {
+  flex: 1;
+  width: auto;
+}
+
+.confirm-cancel {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+}
+
+.confirm-ok.danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* Windows/Edge blendet bei Passwortfeldern von sich aus ein Augen-Symbol ein - das gibt es
+   sonst doppelt neben unserem eigenen. Hier ausgeblendet. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+
+
+/* ===== Meldung bei fehlender Internetverbindung ===== */
+#offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10003;
+  padding: 8px 12px;
+  padding-top: calc(8px + env(safe-area-inset-top, 0px));
+  background: var(--danger);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* ===== Mehrere Nachrichten auswählen und löschen ===== */
+#chat-box.select-mode {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.msg-row.selectable {
+  position: relative;
+  padding-left: 34px; /* Platz für den Auswahl-Punkt */
+  cursor: pointer;
+  border-radius: 12px;
+}
+
+.msg-row.selected {
+  background: var(--accent-soft);
+}
+
+.select-dot {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  border: 2px solid var(--text-secondary);
+  border-radius: 50%;
+}
+
+.msg-row.selected .select-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.msg-row.selected .select-dot::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 5px;
+  height: 10px;
+  border: solid var(--text-on-accent);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+#select-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-panel-raised);
+  border-radius: 12px;
+}
+
+#select-bar-count {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.select-bar-cancel {
+  width: auto;
+  padding: 8px 14px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.select-bar-cancel:hover {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.select-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.select-bar-forward {
+  width: auto;
+  padding: 8px 18px;
+  background: var(--accent);
+  font-size: 14px;
+}
+
+.select-bar-forward:hover {
+  background: var(--accent-hover);
+}
+
+.select-bar-forward:disabled,
+.select-bar-delete:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Leiste im Chat: weitergeleitete Nachricht(en) warten auf "Senden" */
+#forward-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.forward-bar-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.forward-bar-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.forward-bar-snippet {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.forward-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.forward-bar-cancel {
+  width: auto;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.forward-bar-cancel:hover {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.forward-bar-send {
+  width: auto;
+  padding: 8px 16px;
+  background: var(--accent);
+  font-size: 14px;
+}
+
+.forward-bar-send:hover {
+  background: var(--accent-hover);
+}
+
+.forward-bar-send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.select-bar-delete {
+  width: auto;
+  padding: 8px 18px;
+  background: var(--danger);
+  font-size: 14px;
+}
+
+.select-bar-delete:hover {
+  background: var(--danger-hover);
+}
+
+/* ===== Pop-up "Als App installieren" ===== */
+.modal-box .install-title {
+  margin-bottom: 10px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.install-steps {
+  margin: -6px 0 18px;
+  padding-left: 20px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.install-steps li {
+  margin-bottom: 6px;
+}
+
+/* ===== Angemeldete Geräte ===== */
+.device-list {
+  list-style: none;
+  margin-bottom: 16px;
+}
+
+.device-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.device-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.device-name {
+  font-size: 15px;
+}
+
+.device-meta {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.device-empty {
+  padding: 14px 4px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.device-logout-btn {
+  width: auto;
+  flex-shrink: 0;
+  padding: 7px 14px;
+  background: var(--bg-input);
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.device-logout-btn:hover {
+  background: var(--bg-panel-raised);
+}
+
+.logout-all-btn {
+  margin-top: 10px;
+  background: var(--danger);
+}
+
+.logout-all-btn:hover {
+  background: var(--danger-hover);
+}
+
+/* ===== Online-Anzeige neben dem Namen ===== */
+.online-status {
+  --online-color: #34d399;
+  --online-bg: rgba(52, 211, 153, 0.14);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px 2px 8px;
+  border-radius: 999px;
+  background: var(--online-bg);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.2px;
+  color: var(--online-color);
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+body.light-theme .online-status {
+  --online-color: #0f8a5f;
+  --online-bg: rgba(15, 138, 95, 0.12);
+}
+
+/* Der pulsierende grüne Punkt vor dem Text */
+.online-status::before {
+  content: '';
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--online-color);
+  box-shadow: 0 0 0 0 var(--online-bg);
+  animation: online-pulse 2s ease-out infinite;
+}
+
+@keyframes online-pulse {
+  0%   { box-shadow: 0 0 0 0 var(--online-color); opacity: 1; }
+  70%  { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .online-status::before { animation: none; }
+}
+
+.online-status.clickable {
+  cursor: pointer;
+}
+
+.online-status.clickable:hover {
+  background: rgba(52, 211, 153, 0.24);
+}
+
+body.light-theme .online-status.clickable:hover {
+  background: rgba(15, 138, 95, 0.2);
+}
+
+.online-status.clickable:active {
+  transform: scale(0.96);
+}
+
+.online-list {
+  list-style: none;
+  margin: 0 0 14px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.online-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  font-size: 15px;
+}
+
+/* Grüner Punkt vor jedem Namen in der Online-Liste */
+.online-list li::before {
+  content: '';
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #34d399;
+}
+
+body.light-theme .online-list li::before {
+  background: #0f8a5f;
+}
+
+/* Abbrechen oben auf dem Passwort-setzen-Bildschirm */
+.reset-top {
+  display: flex;
+  margin: -6px 0 8px -10px;
+}
+
+/* Hinweis auf dem Login-Bildschirm: angefangene Einladung fortsetzen */
+.pending-invite {
+  margin-top: 18px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--bg-input);
+}
+
+.pending-invite p {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+/* ===== Emoji-Auswahl: Suchleiste, Reiter und Raster ===== */
+.input-emoji-picker.emoji-panel {
+  display: block;
+  padding: 0;
+  width: min(340px, calc(100vw - 24px));
+  max-width: none;
+}
+
+.emoji-search {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 8px 8px 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 14px;
+}
+
+.emoji-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 6px 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-subtle);
+  scrollbar-width: none;
+}
+
+.emoji-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.emoji-tab {
+  width: auto;
+  flex-shrink: 0;
+  padding: 6px 8px;
+  background: transparent;
+  border-radius: 8px 8px 0 0;
+  border-bottom: 2px solid transparent;
+  opacity: 0.6;
+}
+
+.emoji-tab:hover {
+  background: var(--bg-input);
+}
+
+.emoji-tab.active,
+.emoji-tab.active:hover {
+  background: transparent;
+  border-bottom-color: var(--accent);
+  opacity: 1;
+}
+
+.emoji-tab img.emoji {
+  display: block;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+}
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  padding: 8px;
+  height: 240px;
+  overflow-y: auto;
+  align-content: start;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.emoji-grid .emoji-picker-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+}
+
+.emoji-grid .emoji-picker-btn img.emoji {
+  width: 26px;
+  height: 26px;
+}
+
+.emoji-grid .emoji-empty {
+  grid-column: 1 / -1;
+  margin: 12px 4px;
+  line-height: 1.4;
+}
+
+/* ===== Scroll-Balken: im Ruhezustand unsichtbar, beim Scrollen ein schlanker, runder Balken, der danach weich ausblendet =====
+   Das Skript setzt am scrollenden Element --sb-alpha (1 = voll sichtbar) und blendet den Wert nach dem Scrollen
+   Bild für Bild auf 0 herunter. Der Browser kann Scrollbalken nicht selbst überblenden, deshalb läuft das über das Skript. */
+:root {
+  --scrollbar-rgb: 78, 163, 224;
+  --scrollbar-max: 0.45;
+}
+
+:root {
+  color-scheme: dark; /* sagt dem Browser: die Seite macht ihr Dunkel/Hell selbst - kein automatisches Umfärben (Chrome-Dunkelmodus) */
+}
+
+html:has(body.light-theme) {
+  color-scheme: light;
+}
+
+/* Gerät steht auf Dunkel: die Seite zeigt ihr eigenes Dunkel (dieselben Farben wie der Schalter in der App) und sagt das
+   dem Browser auch über die Abfrage. Damit schaltet ein Browser-Dunkelmodus (z. B. Samsung Internet) nicht noch einmal
+   eigenmächtig darüber. Die Hell-Wahl in der App gewinnt weiterhin (html:has(body.light-theme)). */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+  }
+}
+
+body.light-theme,
+html:has(body.light-theme) {
+  --scrollbar-rgb: 0, 136, 204;
+  --scrollbar-max: 0.4;
+}
+
+* {
+  --sb-alpha: 0; /* gilt je Element für sich, damit verschachtelte Scrollbereiche nicht mitleuchten */
+}
+
+/* Firefox kennt nur die Standard-Eigenschaften: dünn und ohne Pfeile */
+@supports (-moz-appearance: none) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(var(--scrollbar-rgb), calc(var(--sb-alpha) * var(--scrollbar-max))) transparent;
+  }
+}
+
+/* Chrome, Edge, Safari: schlanker, runder Balken ganz ohne Pfeile.
+   9 px Platz: der Balken ist 3 px breit und sitzt mittig, links und rechts bleiben je 3 px Luft.
+   Die Ränder links und rechts sind gleich groß, sonst werden die Enden des Balkens eckig angeschnitten. */
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track-piece {
+  background: transparent;
+  border-radius: 9999px;
+}
+
+/* Abstand oben und unten: der Balken endet mit weich abgerundeten Enden und wird auch von runden Kartenecken nicht angeschnitten */
+*::-webkit-scrollbar-track {
+  margin: 2px 0;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: rgba(var(--scrollbar-rgb), calc(var(--sb-alpha) * var(--scrollbar-max)));
+  border-style: solid;
+  border-color: transparent;
+  border-width: 3px;
+  border-radius: 9999px;
+  min-height: 36px;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Die Listen ragen ein Stück in den Kartenrand hinein: so rückt der Balken weiter nach rechts, der Inhalt bleibt gleich breit */
+#admin-contacts-list {
+  margin-right: -10px;
+}
+
+/* Emoji-Auswahl: kein Bild-Menü oder Markieren beim langen Drücken, Hinweis unter "Häufig genutzt" */
+.emoji-picker-btn,
+.emoji-picker-btn img {
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.emoji-grid .emoji-hint {
+  grid-column: 1 / -1;
+  margin: 8px 4px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Pop-up "Junge oder Mädchen?": Auswahl über den Knöpfen "Abbrechen" */
+.confirm-dialog .gender-choice {
+  margin-bottom: 14px;
+}
+
+.confirm-dialog .gender-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-input);
+}
+
+/* ===== Reaktionen: Chip, Emoji-Leiste, Fenster ===== */
+.reaction-btn.reaction-chip,
+.msg.other .reaction-btn.reaction-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 9px 3px 7px;
+  background: #1f2a36;
+  border: 1px solid #33414f;
+  border-radius: 999px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  line-height: 1;
+  color: #e6edf3;
+}
+
+.reaction-btn.reaction-chip:hover,
+.reaction-btn.reaction-chip.active {
+  border-color: var(--accent);
+  background: #1f2a36;
+  color: #fff;
+}
+
+.reaction-chip img.emoji {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  vertical-align: middle;
+}
+
+.reaction-chip .reaction-count {
+  margin-left: 2px;
+  font-weight: 600;
+}
+
+/* Emoji-Leiste: eigenständige schwebende Pille, getrennt vom Menü (PC beim Hovern, Handy beim langen Drücken) */
+.reaction-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  box-shadow: var(--shadow-card);
+}
+
+.reaction-bar.floating {
+  position: fixed;
+  z-index: 10001;
+}
+
+.reaction-bar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: transparent;
+  border-radius: 50%;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text-primary);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.reaction-bar-btn:hover {
+  background: var(--bg-input);
+  transform: scale(1.15);
+}
+
+.reaction-bar-btn.active {
+  background: var(--accent-soft);
+}
+
+.reaction-bar-btn img.emoji {
+  display: block;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+}
+
+.reaction-plus {
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* Volle Emoji-Auswahl für eine Reaktion */
+.reaction-full-picker.emoji-panel {
+  position: fixed;
+  z-index: 10002;
+  display: block;
+  padding: 0;
+  width: min(340px, calc(100vw - 24px));
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+}
+
+/* Fenster "Reaktionen" */
+.reactions-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.reactions-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.reactions-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  width: auto;
+  padding: 6px 12px;
+  background: var(--bg-input);
+  border-radius: 999px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.reactions-tab:hover {
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+
+.reactions-tab.active,
+.reactions-tab.active:hover {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--text-primary);
+}
+
+.reactions-tab img.emoji {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.reactions-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.reactions-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 6px;
+  border-radius: 10px;
+}
+
+.reactions-item.mine {
+  cursor: pointer;
+}
+
+.reactions-item.mine:hover {
+  background: var(--bg-input);
+}
+
+.reaction-avatar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-on-accent);
+}
+
+.reactions-item-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.reactions-item-name {
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reactions-item-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.reactions-item img.emoji {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+}
+/* ===== Angepinnte Nachricht ===== */
+#pin-bar {
+  flex-shrink: 0;
+}
+
+.pin-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 8px 10px 8px 12px;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: #3498db;
+  cursor: pointer;
+}
+
+.pin-bar svg {
+  flex-shrink: 0;
+}
+
+.pin-bar-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+
+.pin-bar-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #3498db;
+}
+
+.pin-bar-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.pin-bar-close {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border-radius: 50%;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.pin-bar-close:hover {
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+
+/* Hinweis mitten im Chat: "<Name> hat eine Nachricht angepinnt" */
+.pin-notice {
+  display: flex;
+  justify-content: center;
+  margin: 10px 0;
+}
+
+.pin-notice-pill {
+  padding: 4px 12px;
+  background: var(--bg-panel-raised);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+
+/* ===== Nutzerverwaltung: Suche, Filter, Schalter ===== */
+.user-filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+.user-filter {
+  display: flex;
+  gap: 8px;
+}
+
+.filter-btn {
+  flex: 1;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: 14px;
+}
+
+.filter-btn.active {
+  background: #3498db;
+  border-color: #3498db;
+  color: #fff;
+}
+
+/* Das allgemeine "button:hover" färbte die Fläche blau, die Schrift blieb grau. Jetzt: unscheinbar hinterlegt,
+   der aktive Filter bleibt blau mit weißer Schrift. */
+.filter-btn:hover:not(.active) {
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+
+.filter-btn.active:hover {
+  background: #3498db;
+  color: #fff;
+}
+
+.rights-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-input);
+  border-radius: 10px;
+}
+
+.rights-row-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+
+.rights-row-title {
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.rights-row-state {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.rights-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 46px;
+  height: 28px;
+  padding: 0;
+  background: var(--border-subtle);
+  border-radius: 999px;
+  transition: background 0.15s ease;
+}
+
+.rights-switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+}
+
+.rights-switch.on {
+  background: #3498db;
+}
+
+.rights-switch.on::after {
+  transform: translateX(18px);
+}
+
+/* Benutzername auf dem Passwort-setzen-Bildschirm (nur zur Anzeige, damit der Browser ihn mit speichert) */
+#reset-username[readonly] {
+  opacity: 0.75;
+  cursor: default;
+}
+
+/* Fenster "Reaktionen": Knopf "Emoji hinzufügen" ganz links */
+.reactions-tab.reactions-add {
+  justify-content: center;
+  padding: 6px 10px;
+  color: var(--text-secondary);
+}
+
+.reactions-tab.reactions-add:hover {
+  color: var(--text-primary);
+}
+
+/* Nachricht nur aus 1-3 Emojis: groß darstellen (je weniger, desto größer) */
+.msg-text.emoji-big {
+  line-height: 1.15;
+}
+
+.msg-text.emoji-big img.emoji {
+  margin: 0 0.06em;
+  vertical-align: -0.12em;
+}
+
+.msg-text.emoji-big-1 img.emoji {
+  width: 3.4em;
+  height: 3.4em;
+}
+
+.msg-text.emoji-big-2 img.emoji {
+  width: 2.7em;
+  height: 2.7em;
+}
+
+.msg-text.emoji-big-3 img.emoji {
+  width: 2.2em;
+  height: 2.2em;
+}
+
+/* ===== Fotos im Chat ===== */
+.msg.has-photo {
+  width: 300px;
+  max-width: 78%;
+  padding: 4px 4px 6px 4px;
+}
+
+.msg.has-photo .msg-meta,
+.msg.has-photo .msg-reply-quote {
+  margin-left: 6px;
+  margin-right: 6px;
+}
+
+.msg.has-photo .msg-text {
+  padding: 0 8px;
+}
+
+.msg.has-photo .msg-text.photo-only {
+  min-height: 0;
+}
+
+.msg-photo {
+  position: relative;
+  display: block;
+  width: 100%;
+  max-height: 380px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(127, 127, 127, 0.2);
+  cursor: zoom-in;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.msg-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.msg-photo img:not([src]) {
+  visibility: hidden;
+}
+
+.msg-photo.loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border: 3px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: photo-spin 0.8s linear infinite;
+}
+
+.msg-photo.gone {
+  cursor: default;
+}
+
+.msg-photo.gone::after {
+  content: 'Foto nicht mehr vorhanden';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.msg-photo.failed {
+  cursor: pointer;
+}
+
+.msg-photo.failed::after {
+  content: 'Foto nicht verfügbar – tippen zum Neuladen';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+@keyframes photo-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Hinweis-Pop-up (SwissTransfer) */
+.photo-hint-dialog {
+  max-width: 340px;
+  text-align: center;
+}
+
+.photo-hint-dialog .photo-hint-title {
+  margin: 0 0 6px 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.photo-hint-dialog .photo-hint-text {
+  margin: 0 0 12px 0;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.photo-hint-link {
+  display: inline-block;
+  margin: 0 0 18px 0;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.confirm-ok:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Vorschau vor dem Senden: Fenster und Bildfeld passen sich der Bildgröße an */
+.photo-dialog {
+  width: fit-content;
+  min-width: 250px;
+  max-width: 92vw;
+  max-height: 92vh;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.photo-dialog-preview {
+  position: relative;
+  display: block;
+  width: fit-content;
+  min-width: 200px;
+  min-height: 140px;
+  margin: 0 auto;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-input);
+  line-height: 0;
+}
+
+.photo-dialog-preview img {
+  display: block;
+  max-width: min(calc(92vw - 74px), 380px);
+  max-height: 50vh;
+  width: auto;
+  height: auto;
+}
+
+.photo-dialog-preview img:not([src]) {
+  visibility: hidden;
+  width: 200px;
+  height: 140px;
+}
+
+.photo-dialog-preview.loading img {
+  opacity: 0.45;
+}
+
+.photo-dialog-preview.loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border: 3px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: photo-spin 0.8s linear infinite;
+}
+
+/* Kleiner grauer "HD"-Knopf oben rechts im Bild; an = weiß */
+.photo-hd-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(60, 60, 60, 0.6);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+}
+
+.photo-hd-btn.active {
+  background: rgba(255, 255, 255, 0.92);
+  color: #222;
+}
+
+.photo-hd-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Nachrichtenfeld unter dem Foto: sieht aus wie das normale Feld im Chat */
+.photo-caption {
+  display: block;
+  width: 100%;
+  margin: 10px 0 12px 0;
+  padding: 9px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.35;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.photo-caption::placeholder {
+  color: #55636f;
+}
+
+.photo-caption:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Großansicht */
+.photo-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.94);
+}
+
+.photo-viewer img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.photo-viewer img:not([src]) {
+  visibility: hidden;
+}
+
+.photo-viewer.loading img[src] {
+  filter: blur(2px);
+}
+
+.photo-viewer-buttons {
+  position: absolute;
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  right: calc(10px + env(safe-area-inset-right, 0px));
+  display: flex;
+  gap: 8px;
+}
+
+.photo-viewer-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  cursor: pointer;
+}
+
+.photo-viewer-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.photo-viewer-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.photo-viewer-status {
+  position: absolute;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.photo-viewer:not(.loading) .photo-viewer-status {
+  display: none;
+}
+
+/* ===== Profil, Mitgliederliste, Geburtsdatum ===== */
+
+/* Name oben im Chat ist antippbar (Einzelchat: Profil, Gruppe: Mitglieder) */
+#conversation-title.tappable {
+  cursor: pointer;
+}
+
+#conversation-title.tappable:hover {
+  color: var(--accent);
+}
+
+.members-item {
+  cursor: pointer;
+}
+
+.members-item:hover {
+  background: var(--bg-input);
+}
+
+.profile-box {
+  text-align: center;
+}
+
+.profile-avatar {
+  width: 80px;
+  height: 80px;
+  margin: 4px auto 12px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-on-accent);
+}
+
+.modal-box .profile-name {
+  margin-bottom: 18px;
+  font-size: 20px;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.profile-rows {
+  margin-bottom: 18px;
+  padding: 2px 14px;
+  text-align: left;
+  background: var(--bg-input);
+  border-radius: 12px;
+}
+
+.profile-row {
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.profile-row:last-child {
+  border-bottom: none;
+}
+
+.profile-row-label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.profile-row-value {
+  display: block;
+  font-size: 15px;
+  word-break: break-all;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.profile-row-value.empty {
+  color: var(--text-secondary);
+}
+
+/* Geburtsdatum-Fenster: liegt über allem anderen (auch über dem Installations-Hinweis) */
+#birthdate-modal {
+  z-index: 5000;
+}
+
+.modal-box .birthdate-text {
+  margin-bottom: 14px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.modal-box .field-error {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--danger);
+}
+
+input[type="date"] {
+  min-height: 44px;
+  text-align: left;
+  color-scheme: dark;
+}
+
+body.light-theme input[type="date"] {
+  color-scheme: light;
+}
+
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+}
+
+/* Kopf der Mitgliederliste: Titel links, Anzahl als kleine Pille */
+.popup-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.popup-title {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.popup-count {
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+#members-list {
+  margin-bottom: 16px;
+}
+
+.members-item {
+  padding: 9px 8px;
+}
+
+.members-item::after {
+  content: '›';
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 18px;
+}
+
+/* ===== Ausgegraute Knöpfe, solange nichts Gültiges eingegeben ist ===== */
+.input-round-btn.send:disabled,
+.input-round-btn.send:disabled:hover,
+#invite-user-btn:disabled,
+#invite-user-btn:disabled:hover,
+#birthdate-save-btn:disabled,
+#birthdate-save-btn:disabled:hover {
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* ===== Admin: Junge / Mädchen ===== */
+.gender-btn.junge:hover,
+.gender-btn.junge.active {
+  background: #007bff;
+  border-color: #007bff;
+  color: #fff;
+}
+
+.gender-btn.maedchen:hover,
+.gender-btn.maedchen.active {
+  background: #e83e8c;
+  border-color: #e83e8c;
+  color: #fff;
+}
+
+/* Beim Darüberfahren sofort umschalten, ohne weiches Einblenden */
+.gender-btn.junge:hover,
+.gender-btn.maedchen:hover {
+  transition: none;
+}
+
+/* ===== Admin: kompakte Nutzerliste mit begrenzter Höhe ===== */
+#user-list {
+  max-height: min(60vh, 460px);
+  padding-right: 2px;
+}
+
+/* Am Handy (eigene volle Seite) soll die Liste bis ganz nach unten reichen, nicht bei 60 % der Höhe aufhören */
+@media (max-width: 899.98px) {
+  #user-list {
+    max-height: none;
+  }
+
+  /* Die Seite lässt unten keinen Rand mehr: die Liste reicht bis zum Bildschirmrand. Die Luft für die letzte Zeile
+     (über Handy-Leisten hinweg) steckt im Innenabstand der Liste selbst. */
+  #users-bereich {
+    padding-bottom: 0;
+  }
+}
+
+#user-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Zeilen der Nutzerliste sehen aus wie die der Chatliste (Profilbild in der Profilfarbe, Name, kleine Angabe darunter) */
+#user-list .chat-list-item.blocked .chat-list-name {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+}
+
+.user-filter-bar {
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+/* ===== Einstellungen: Lautstärkeregler ===== */
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.volume-control span {
+  min-width: 40px;
+  text-align: right;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.volume-row.disabled {
+  opacity: 0.5;
+}
+
+#sound-volume {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 130px;
+  height: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--accent) var(--fill, 70%), var(--bg-input) var(--fill, 70%));
+  cursor: pointer;
+}
+
+#sound-volume:disabled {
+  cursor: default;
+}
+
+#sound-volume::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+#sound-volume::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg-input);
+}
+
+#sound-volume::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+#sound-volume::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* Startseite: weniger Abstand zwischen der Linie unter dem Kopf und der Suchleiste */
+#list-bereich .chat-header {
+  margin-bottom: 0;
+}
+
+#list-bereich .chat-search-wrap {
+  margin-top: 10px;
+}
+
+/* ===== Geburtstag ===== */
+
+/* goldener Ring um den Avatar */
+.chat-list-avatar.birthday,
+.reaction-avatar.birthday,
+.profile-avatar.birthday {
+  box-shadow: 0 0 0 2px #ffc83d, 0 0 10px rgba(255, 200, 61, 0.55);
+}
+
+.modal-box .profile-birthday {
+  margin: -8px 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffc83d;
+}
+
+#birthday-modal {
+  overflow: hidden;
+}
+
+/* Haben viele Leute Geburtstag, ist der Inhalt höher als der Bildschirm: dann scrollt nur der Text im Pop-up, das Kreuz
+   oben rechts bleibt immer an seinem Platz sichtbar (früher rutschte es aus dem Bild und ließ sich nicht mehr antippen) */
+#birthday-body {
+  max-height: calc(100vh - 90px);
+  max-height: calc(100dvh - 90px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Das Emoji hüpft nach oben: ohne diesen Platz würde es oben abgeschnitten (sah aus wie "größer und kleiner").
+     Das Minus-margin gleicht den Platz wieder aus, damit sich am Aussehen nichts verschiebt. */
+  padding-top: 20px;
+  margin-top: -20px;
+}
+
+.birthday-box {
+  text-align: center;
+  position: relative;
+  background-image: radial-gradient(circle at 50% 0%, rgba(255, 200, 61, 0.18), transparent 62%);
+}
+
+.birthday-emoji {
+  margin-bottom: 8px;
+  font-size: 56px;
+  line-height: 1;
+  animation: birthday-bounce 1.3s ease-in-out infinite;
+}
+
+.modal-box .birthday-label {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #ffc83d;
+}
+
+.modal-box .birthday-name {
+  margin-bottom: 12px;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+.modal-box .birthday-name-strong {
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.modal-box .birthday-sub {
+  margin-bottom: 14px;
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+
+.modal-box .birthday-age {
+  font-size: 17px;
+  line-height: 1.4;
+}
+
+.modal-box .birthday-age strong {
+  color: #ffc83d;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.birthday-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 6px 12px;
+  text-align: left;
+  background: var(--bg-input);
+  border-radius: 12px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.birthday-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  font-size: 15px;
+}
+
+.birthday-list-name {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.birthday-age-pill {
+  flex-shrink: 0;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(255, 200, 61, 0.18);
+  color: #ffc83d;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.confetti-piece {
+  position: absolute;
+  top: -16px;
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  pointer-events: none;
+  animation: confetti-fall linear forwards;
+}
+
+/* Konfetti von den Seiten (Geburtstags-Fenster): fliegt erst ein Stück nach oben/innen, dann fällt es */
+.confetti-piece.confetti-side {
+  top: 20%;
+  animation: confetti-side ease-in forwards;
+}
+
+.confetti-piece.confetti-side.left { left: -12px; }
+.confetti-piece.confetti-side.right { right: -12px; }
+
+@keyframes confetti-side {
+  0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  35% { transform: translate(calc(var(--dx) * 0.7), calc(var(--dy) * -0.3)) rotate(calc(var(--rot) * 0.4)); }
+  100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); opacity: 0.85; }
+}
+
+#birthday-modal {
+  overflow: hidden;
+}
+
+.modal-box .birthday-person {
+  margin-bottom: 6px;
+}
+
+.modal-box .birthday-age strong.birthday-person-name {
+  color: var(--text-primary);
+  font-weight: 700;
+  white-space: normal;
+}
+
+@keyframes confetti-fall {
+  to {
+    transform: translate(var(--drift, 0px), 110vh) rotate(600deg);
+    opacity: 0.9;
+  }
+}
+
+@keyframes birthday-bounce {
+  0%, 100% { transform: translateY(0) rotate(-4deg); }
+  50% { transform: translateY(-8px) rotate(4deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .birthday-emoji { animation: none; }
+  .confetti-piece { display: none; }
+}
+
+/* ===== Eigene Gruppen ===== */
+.group-box {
+  max-width: 360px;
+}
+
+.group-pick-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.group-pick-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  max-height: 34vh;
+  overflow-y: auto;
+  background: var(--bg-input);
+  border-radius: 12px;
+}
+
+.group-pick-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.group-pick-item:hover {
+  background: rgba(127, 127, 127, 0.12);
+}
+
+.group-pick-check {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--text-secondary);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1;
+  color: transparent;
+}
+
+.group-pick-item.on .group-pick-check {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
+}
+
+#group-modal .modal-actions,
+#members-modal .modal-actions {
+  flex-wrap: wrap;
+}
+
+#group-delete-btn,
+#members-edit-btn,
+#members-leave-btn {
+  flex: 1 1 100%;
+}
+
+#group-save-btn:disabled,
+#group-save-btn:disabled:hover {
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+/* ===== Audio-Nachrichten: schlanker Player ===== */
+.msg.has-audio {
+  min-width: 250px;
+  --audio-fill: var(--accent);
+  --audio-rest: rgba(127, 127, 127, 0.35);
+  --audio-btn: var(--accent);
+}
+
+/* In den eigenen (blauen) Blasen ist nur der Knopf ein dunkleres Blau, damit er sich abhebt; die Blase bleibt einfarbig */
+.msg.own.has-audio {
+  --audio-fill: #ffffff;
+  --audio-rest: rgba(255, 255, 255, 0.35);
+  --audio-btn: #16385c;
+}
+
+body.light-theme .msg.own.has-audio {
+  --audio-btn: #005a87;
+}
+
+.msg.has-audio .msg-text {
+  min-height: 0;
+}
+
+.msg-audio {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 42px;
+  margin: 0;
+  background: none;
+}
+
+/* Die Uhrzeit sitzt unten rechts in der Ecke der Blase (wie bei Telegram) statt in einer eigenen Zeile darunter.
+   Die Zeilen mit Länge/Größe und Zeiten lassen deshalb rechts Platz dafür. */
+.msg.has-audio {
+  padding-bottom: 6px;
+}
+
+/* Platzhalter-Blase einer Sprachnachricht beim Senden: genau so groß wie die fertige, damit beim Ersetzen nichts springt */
+.msg-row.pending-voice .msg.has-audio {
+  width: 250px;
+}
+
+.msg-row.pending-voice .msg-audio-meta {
+  white-space: nowrap;
+}
+
+.msg.has-audio > .msg-text {
+  position: absolute;
+  right: 10px;
+  bottom: 5px;
+  min-height: 0;
+}
+
+.msg.has-audio .msg-footer {
+  margin: 0;
+}
+
+/* Mit Reaktionen darunter bekommt die Uhrzeit wieder eine eigene Zeile, damit nichts übereinanderliegt */
+.msg.has-audio.has-reactions > .msg-text {
+  position: static;
+}
+
+.msg.has-audio.has-reactions .msg-footer {
+  margin: 3px 0 0 4px;
+}
+
+.msg-audio-play {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--audio-btn);
+  color: #ffffff;
+  cursor: pointer;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.msg-audio-play:hover:not(:disabled),
+.msg-audio-play:focus-visible {
+  background: var(--audio-btn);
+  filter: brightness(1.15);
+  outline: none;
+}
+
+.msg-audio-play:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.msg-audio-play svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+.msg-audio-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 42px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+}
+
+.msg-audio-title {
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Vor dem Start: "Länge, Größe" unter dem Titel */
+.msg-audio-meta {
+  padding-right: 66px;
+  font-size: 12px;
+  line-height: 1.25;
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+.msg-audio-meta:empty {
+  display: none;
+}
+
+.msg-audio.started .msg-audio-meta {
+  display: none;
+}
+
+/* Ab dem Start: Leiste und Zeiten statt der Zeile "Länge, Größe" */
+.msg-audio:not(.started) .msg-audio-seek,
+.msg-audio:not(.started) .msg-audio-times {
+  display: none;
+}
+
+.msg-audio-seek {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 10px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+  transition: none;
+  cursor: pointer;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+  --p: 0%;
+}
+
+.msg-audio-seek:focus,
+.msg-audio-seek:focus-visible {
+  border: none;
+  outline: none;
+  box-shadow: none;
+}
+
+.msg-audio-seek:disabled {
+  cursor: default;
+}
+
+.msg-audio-seek::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--audio-fill) var(--p), var(--audio-rest) var(--p));
+}
+
+.msg-audio-seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  margin-top: -4px;
+  border: none;
+  border-radius: 50%;
+  background: var(--audio-fill);
+}
+
+.msg-audio-seek::-moz-range-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--audio-rest);
+}
+
+.msg-audio-seek::-moz-range-progress {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--audio-fill);
+}
+
+.msg-audio-seek::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border: none;
+  border-radius: 50%;
+  background: var(--audio-fill);
+}
+
+.msg-audio-times {
+  display: block;
+  padding-right: 66px;
+  font-size: 11px;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+/* ===== Stummgeschaltete Gruppen und Kontextmenü der Chatliste ===== */
+.chat-list-item {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.chat-list-item.menu-open {
+  background: var(--bg-input);
+}
+
+.chat-list-item.muted .chat-list-name {
+  color: var(--text-secondary);
+}
+
+.chat-list-item.muted .unread-badge {
+  background: var(--text-secondary);
+}
+
+.mute-icon {
+  margin-left: 6px;
+  vertical-align: -1px;
+  color: var(--text-secondary);
+}
+
+.chat-menu {
+  min-width: 190px;
+}
+
+/* ===== Admin: Profilfarbe und Geburtsdatum ===== */
+.user-color-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-color-row .user-color-btn {
+  flex: 1;
+}
+
+.user-color-btn {
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+}
+
+.user-color-btn:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+
+.birth-select-row {
+  display: flex;
+  gap: 8px;
+}
+
+.birth-select-row select {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+#user-birth-save-btn {
+  margin-top: 10px;
+}
+
+#user-birth-error {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--danger);
+}
+
+select {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 15px;
+  color-scheme: dark;
+}
+
+body.light-theme select {
+  color-scheme: light;
+}
+
+select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.group-pick-title {
+  padding: 10px 10px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: default;
+}
+
+/* ===== Startseite und Einstellungen =====
+   Startseite: Suchleiste und Reiter bleiben oben stehen, nur die Chatliste darunter scrollt - bis ganz an den unteren Rand.
+   Einstellungen: nur der Bereich unter der Kopfzeile scrollt. Die Scroll-Bereiche ragen 9 px (so breit wie der Balken) in den Kartenrand, damit
+   die Einträge genauso breit sind wie die Linie oben (der Balken liegt im Rand). */
+.list-scroll {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: min(70vh, 560px);
+}
+
+#list-bereich #chat-list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  margin-right: -9px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+#settings-bereich .settings-group:last-child {
+  padding-bottom: 0;
+}
+
+@media (max-width: 899.98px) {
+  #list-bereich,
+  #settings-bereich {
+    overflow: hidden;
+    padding-bottom: 0;
+  }
+
+  #list-bereich .list-scroll {
+    flex: 1;
+    max-height: none;
+  }
+
+  #settings-bereich .settings-groups {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    margin-right: -9px;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+body.split-view #list-bereich,
+body.split-view #settings-bereich {
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+body.split-view #list-bereich .list-scroll {
+  flex: 1;
+  max-height: none;
+}
+
+body.split-view #settings-bereich .settings-groups {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-right: -9px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Admin: Namen und E-Mail ändern */
+.user-edit-label {
+  display: block;
+  margin-top: 10px;
+}
+
+#user-identity-save-btn {
+  margin-top: 10px;
+}
+
+#user-identity-error {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--danger);
+}
+
+/* Drehender Kreis im Audio-Knopf (beim Hochladen und beim ersten Laden) */
+.audio-spinner {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border: 2.5px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: audio-spin 0.8s linear infinite;
+}
+
+@keyframes audio-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.msg-audio-play:has(.audio-spinner):disabled {
+  opacity: 1;
+}
+
+.pending-audio .msg-audio-play {
+  cursor: default;
+}
+
+/* Fenster "Audio senden": Dateiname ändern, die Endung bleibt fest dahinter */
+.audio-name-dialog {
+  text-align: left;
+}
+
+.audio-name-heading {
+  margin: 0 0 10px;
+  font-weight: 600;
+}
+
+.audio-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.audio-name-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.audio-name-ext {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+/* Linie "N neue Nachrichten" vor der ersten ungelesenen Nachricht */
+.unread-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.unread-divider::before,
+.unread-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.45;
+}
+
+/* Knopf "nach unten" über dem Chatfenster */
+.scroll-down-btn {
+  position: fixed;
+  z-index: 60;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 50%;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.scroll-down-btn.visible {
+  display: flex;
+}
+
+.scroll-down-btn:hover {
+  background: var(--bg-input);
+}
+
+.scroll-down-badge {
+  position: absolute;
+  top: -7px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* ===== Suche im Chat ===== */
+.chat-search-toggle {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 34px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-secondary);
+}
+
+.chat-search-toggle:hover {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.chat-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.chat-search-bar input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.chat-search-count {
+  flex-shrink: 0;
+  min-width: 52px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-search-nav {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.chat-search-nav:hover {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.msg-row.search-hit .msg {
+  outline: 1px dashed var(--accent);
+  outline-offset: 2px;
+}
+
+.msg-row.search-current .msg {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ===== Meldungen (Admin) ===== */
+.reports-dialog {
+  text-align: left;
+  max-width: 460px;
+  width: calc(100% - 32px);
+}
+
+.reports-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 55vh;
+  overflow-y: auto;
+  margin-bottom: 14px;
+}
+
+.report-item {
+  padding: 12px;
+  background: var(--bg-input);
+  border-radius: 12px;
+}
+
+.report-head {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.report-text {
+  margin: 6px 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.report-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.report-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.report-actions button {
+  flex: 1;
+  margin: 0;
+}
+
+.reports-badge {
+  display: inline-block;
+  min-width: 20px;
+  margin-right: 8px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--danger);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+
+/* Doppeltipp zum Antworten: kein Zoomen durch Doppeltippen auf Nachrichten */
+.msg-row {
+  touch-action: manipulation;
+}
+
+/* ===== Weiterleiten ===== */
+.msg-forwarded {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-style: italic;
+  opacity: 0.75;
+}
+
+.forward-dialog {
+  text-align: left;
+  max-width: 420px;
+  width: calc(100% - 32px);
+}
+
+.forward-snippet {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.forward-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 40vh;
+  overflow-y: auto;
+  margin: 10px 0 14px;
+}
+
+.forward-target {
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 15px;
+  text-align: left;
+}
+
+.forward-target:hover {
+  background: var(--bg-input);
+}
+
+/* ===== Platzhalter beim Laden: graue Einträge in der Form der echten (grauer Rahmen, Kreis, Balken; nichts klickbar) ===== */
+.chat-list-placeholder {
+  --skel: #2d3b4a;
+  --skel-hi: #3b4c5f;
+  pointer-events: none;
+  /* Weiches Ausblenden nach unten (Werte setzt script.js je Eintrag): unten keine klare Kante */
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, var(--fade-top, 1)), rgba(0, 0, 0, var(--fade-bottom, 1)));
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, var(--fade-top, 1)), rgba(0, 0, 0, var(--fade-bottom, 1)));
+  border: 1px solid var(--border-subtle);
+  padding: 9px 7px; /* 1px weniger, damit der Rahmen die Höhe nicht verändert */
+}
+
+body.light-theme .chat-list-placeholder {
+  --skel: #d3dae1;
+  --skel-hi: #e7ecf1;
+}
+
+/* Kreis und Balken: grau mit einem weichen helleren Streifen, der von links nach rechts darüber läuft */
+.chat-list-placeholder .chat-list-avatar,
+.skel-bar {
+  background: linear-gradient(90deg, var(--skel) 0%, var(--skel) 35%, var(--skel-hi) 50%, var(--skel) 65%, var(--skel) 100%);
+  background-size: 250% 100%;
+  animation: skel-shimmer 1.6s ease-in-out infinite;
+  animation-delay: var(--skel-delay, 0s);
+}
+
+@keyframes skel-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+/* Wer Bewegung am Gerät reduziert hat: ruhig grau, ohne Streifen */
+@media (prefers-reduced-motion: reduce) {
+  .chat-list-placeholder .chat-list-avatar,
+  .skel-bar {
+    animation: none;
+    background: var(--skel);
+  }
+}
+
+.chat-list-placeholder .chat-list-name,
+.chat-list-placeholder .chat-list-preview,
+.chat-list-placeholder .chat-list-time {
+  display: flex;
+  align-items: center;
+}
+
+.chat-list-placeholder .chat-list-name {
+  height: 20px;
+}
+
+.chat-list-placeholder .chat-list-preview {
+  height: 17px;
+}
+
+.chat-list-placeholder .chat-list-time {
+  height: 15px;
+  justify-content: flex-end;
+}
+
+.skel-bar {
+  display: block;
+  height: 10px;
+  border-radius: 6px;
+}
+
+.chat-list-placeholder .chat-list-name .skel-bar {
+  height: 12px;
+}
+
+/* ===== Nachrichten-Treffer in der Chatliste ===== */
+.message-results-heading {
+  padding: 12px 6px 4px;
+  list-style: none;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.message-result {
+  padding: 9px 10px;
+  list-style: none;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.message-result:hover {
+  background: var(--bg-input);
+}
+
+.message-result-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.message-result-chat {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-result-time {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.message-result-text {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-result-author {
+  color: var(--text-primary);
+}
+
+.message-result-text mark {
+  background: transparent;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ===== Login-Karte: zwei gespiegelt ausgeschnittene Karten hintereinander =====
+   Hintergrund, Rand und Schatten kommen von den SVG-Formen (script.js, drawLoginShape), die Karte selbst
+   hat keinen eigenen Hintergrund. Die vordere Karte hat eine freie obere Ecke, dort schaut die "Zunge"
+   der hinteren Karte heraus. Die Zunge sitzt immer oben rechts: "Neu hier?" beim Login, "Login" bei der Einladung. */
+#login-bereich {
+  background: none;
+  border: none;
+  box-shadow: none;
+  isolation: isolate;
+}
+
+.login-shape {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.login-shape path {
+  stroke: var(--border-subtle);
+  stroke-width: 1;
+}
+
+/* vorne: normale Kartenfarbe mit Schatten; hinten: etwas anders getönt, damit man die Zunge erkennt */
+#login-bereich:not(.invite-open) #shape-login,
+#login-bereich.invite-open #shape-invite {
+  z-index: -1;
+  filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.35));
+}
+
+#login-bereich:not(.invite-open) #shape-login path,
+#login-bereich.invite-open #shape-invite path {
+  fill: var(--bg-panel);
+}
+
+#login-bereich:not(.invite-open) #shape-invite,
+#login-bereich.invite-open #shape-login {
+  z-index: -2;
+}
+
+#login-bereich:not(.invite-open) #shape-invite path,
+#login-bereich.invite-open #shape-login path {
+  fill: var(--bg-panel-raised);
+}
+
+body.light-theme #login-bereich:not(.invite-open) #shape-login,
+body.light-theme #login-bereich.invite-open #shape-invite {
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.08));
+}
+
+/* Die Zunge der hinteren Karte: Tippfläche genau im Ausschnitt (Breite = TONGUE_W in script.js) */
+.card-tongue {
+  position: absolute;
+  top: 0;
+  width: 100px;
+  height: 38px; /* so tief wie der Ausschnitt (NOTCH_DEPTH in script.js) */
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.card-tongue:hover {
+  background: transparent;
+  color: var(--accent-hover);
+}
+
+.card-tongue svg {
+  flex-shrink: 0;
+}
+
+.tongue-right {
+  right: 0;
+}
+
+.tongue-left {
+  right: 0; /* auch die Zurück-Zunge sitzt rechts, genau dort, wo vorher "Neu hier?" war */
+}
+
+#login-bereich.invite-open .tongue-right,
+#login-bereich:not(.invite-open) .tongue-left {
+  display: none;
+}
+
+/* Beide Überschriften liegen übereinander, nur die der vorderen Karte ist sichtbar.
+   Beide stehen links oben, die Zunge sitzt rechts im Ausschnitt. */
+.login-heading-row {
+  display: grid;
+}
+
+.card-title {
+  grid-area: 1 / 1;
+  width: fit-content;
+}
+
+#login-bereich:not(.invite-open) #invite-title,
+#login-bereich.invite-open #login-title {
+  visibility: hidden;
+}
+
+/* Die Hell/Dunkel-Pille sitzt unter dem Ausschnitt, auf Höhe von "Melde dich an …" */
+#login-bereich .theme-switch {
+  position: absolute;
+  top: 46px;
+  right: 22px;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+/* Bei "Einladung anfragen" gibt es die Pille nicht: sie blendet aus und lässt sich nicht antippen */
+#login-bereich.invite-open .theme-switch {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Sehr schmale Handys: Überschrift und Pille rutschen unter den Ausschnitt (siehe drawLoginShape) */
+#login-bereich.title-low .login-heading-row {
+  padding-top: 22px;
+}
+
+#login-bereich.title-low .theme-switch {
+  top: 68px;
+}
+
+/* Text neben der Pille darf nicht darunterlaufen */
+.login-pane > p:first-child {
+  padding-right: 56px;
+}
+
+#invite-pane > p:first-child {
+  padding-right: 0;
+}
+
+/* In "Einladung anfragen" braucht man das "i" nicht */
+#login-bereich.invite-open .info-corner-btn {
+  display: none;
+}
+
+@media (max-width: 360px) {
+  #login-bereich h2 {
+    font-size: 17px;
+  }
+}
+
+/* Beide Flächen liegen übereinander: die Karte ist immer so hoch wie die höhere, also springt nichts beim Wechseln */
+.login-panes {
+  display: grid;
+}
+
+.login-pane {
+  grid-area: 1 / 1;
+  min-width: 0;
+  transition: opacity 0.2s ease;
+}
+
+#login-bereich:not(.invite-open) #invite-pane,
+#login-bereich.invite-open #login-pane {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.invite-message {
+  height: 72px;
+  resize: none;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+/* Hinweis unter dem Benutzernamen auf dem Passwort-setzen-Bildschirm (Einladung) */
+.reset-username-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Nachricht einer Einladungs-Anfrage in der Admin-Liste */
+.invite-request-message {
+  margin: 4px 0 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ===== Einladungs-Karte (Nachricht "Einladung" aus dem Plus-Menü) ===== */
+.invite-card {
+  max-width: 100%;
+  margin: 2px 0 4px;
+}
+
+.invite-card-label {
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+.invite-card-title {
+  margin: 3px 0 12px;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.invite-card-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+/* Emoji in einem runden, leicht abgesetzten Kreis (Hintergrund der Karte = Farbe der Sprechblase) */
+.invite-card-icon {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(127, 127, 127, 0.22);
+  font-size: 17px;
+}
+
+.invite-card-value {
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.invite-card-key {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.invite-card-note {
+  margin-top: 16px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.invite-fields {
+  display: flex;
+  gap: 10px;
+}
+
+.invite-fields .input-group {
+  flex: 1;
+  min-width: 0;
+}
+
+#invite-note {
+  min-height: 70px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+#invite-error {
+  color: var(--danger);
+}
+
+/* Das Pop-up hat mehrere Felder: auf kleinen Handys scrollt es, statt unten abgeschnitten zu werden */
+#invite-modal .modal-box {
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+}
+
+/* ===== Textformatierung in Nachrichten (*fett*, _kursiv_, ~durchgestrichen~, `Code`, Listen, Zitat) ===== */
+.msg-text strong { font-weight: 700; }
+.msg-text em { font-style: italic; }
+.msg-text s { text-decoration: line-through; }
+
+.msg-code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(127, 127, 127, 0.22);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+
+.msg-code-block {
+  max-width: 100%;
+  margin: 4px 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.22);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  line-height: 1.35;
+  white-space: pre;
+}
+
+.msg-quote {
+  margin: 4px 0;
+  padding: 4px 10px;
+  background: rgba(127, 127, 127, 0.18);
+  border-radius: 6px;
+  opacity: 0.9;
+}
+
+.msg-list {
+  margin: 4px 0;
+  padding-left: 22px;
+}
+
+/* Pop-up "Einladung senden" mit Benutzername */
+.confirm-dialog .confirm-label {
+  display: block;
+  margin: 0 0 6px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.confirm-dialog .confirm-hint {
+  margin: 8px 0 14px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.confirm-dialog .confirm-error {
+  margin: -6px 0 14px 0;
+  font-size: 13px;
+  color: var(--danger);
+}
+
+/* ===== Geburtstag in der Chatliste: Zeile hervorgehoben, Pille neben dem Namen ===== */
+.chat-list-item.birthday-row {
+  background: linear-gradient(90deg, rgba(255, 200, 61, 0.10), rgba(255, 200, 61, 0) 70%);
+  box-shadow: inset 2px 0 0 rgba(255, 200, 61, 0.7);
+}
+
+.chat-list-item.birthday-row:hover {
+  background: linear-gradient(90deg, rgba(255, 200, 61, 0.18), rgba(255, 200, 61, 0.03) 70%);
+}
+
+.chat-list-item.birthday-row .chat-list-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-list-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.birthday-pill {
+  flex-shrink: 0;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(255, 200, 61, 0.2);
+  color: #ffc83d;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* Hellmodus: das Gold braucht dunklere Schrift, sonst ist es kaum lesbar */
+body.light-theme .birthday-pill,
+body.light-theme .modal-box .birthday-label,
+body.light-theme .modal-box .birthday-age strong,
+body.light-theme .birthday-age-pill {
+  color: #946500;
+}
+
+body.light-theme .birthday-pill,
+body.light-theme .birthday-age-pill {
+  background: rgba(255, 200, 61, 0.35);
+}
+
+/* Der eigene Name oben ist antippbar (öffnet "Meine Daten") */
+.user-info-link {
+  cursor: pointer;
+}
+
+#user-display-name {
+  transition: color 0.12s ease;
+}
+
+.user-info-link:hover #user-display-name {
+  color: var(--accent);
+}
+
+/* ===== Hilfe zur Textformatierung (Plus-Menü -> Formatierung) ===== */
+.format-help-box {
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.format-help-title {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.format-help-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.format-typed {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+
+.format-shown {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+}
+
+#format-try {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 15px;
+  resize: vertical;
+}
+
+#format-try:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+#format-try-preview {
+  min-height: 1.35em;
+  padding: 8px 2px;
+}
+
+.format-keys-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.format-keys-row kbd {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+/* ===== Sprachnachricht (Plus-Menü -> Sprachnachricht): Pop-up in der Mitte, Wellenform, eigener Abspiel-Knopf ===== */
+.voice-status {
+  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.voice-visual {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0 16px;
+}
+
+.voice-wave {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  display: block;
+}
+
+.voice-time {
+  flex: none;
+  min-width: 70px;
+  text-align: right;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.voice-time.recording {
+  color: var(--danger);
+}
+
+.voice-play {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.voice-play:hover {
+  background: var(--accent-hover);
+}
+
+.voice-play:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+#voice-modal .modal-actions {
+  flex-wrap: wrap;
+}
+
+/* ===== Handy: Seite so hoch wie der sichtbare Bereich, Chat über die ganze Breite (wie bei WhatsApp), unten Platz ===== */
+@media (max-width: 899.98px) {
+  /* Manche Handys und Browser haben unten eine Leiste, die in die Seite hineinragt, ohne dass die Seite es merkt. Damit
+     die Eingabezeile und das Ende der Listen nicht dahinter verschwinden, bleibt unten so viel Platz frei (nach Bedarf ändern). */
+  :root {
+    --bottom-lift: 28px;
+  }
+
+  body {
+    height: var(--app-height, 100dvh);
+  }
+
+  /* Alle scrollbaren Seiten (Formulare, Nutzerdaten, ...): unten Platz, damit man das Letzte ganz hochscrollen kann */
+  .card {
+    padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px) + var(--bottom-lift));
+  }
+
+  /* Chat: kein Kartenrand mehr, die Sprechblasen reichen fast bis an den Bildschirmrand */
+  #conversation-bereich {
+    padding: 0;
+  }
+
+  #conversation-bereich .chat-header {
+    padding: 6px 8px;
+    margin-bottom: 0;
+  }
+
+  #conversation-bereich #chat-box {
+    border: none;
+    border-radius: 0;
+    padding: 8px 3px;
+    margin-bottom: 0;
+  }
+
+  /* Admin: ohne Eingabefeld klebten die Sprechblasen am Rand - hier etwas Luft links und rechts */
+  body.is-admin #conversation-bereich #chat-box {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  #conversation-bereich #edit-bar,
+  #conversation-bereich #reply-bar {
+    margin: 6px 8px 0;
+  }
+
+  /* Eingabezeile: unten nur ein kleiner Abstand (plus Sicherheitszone des Geräts), egal ob die Tastatur offen ist oder nicht */
+  #conversation-bereich .chat-input-area {
+    padding: 8px 8px calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Listen und Einstellungen: unten Luft, damit das Letzte nicht hinter der Leiste hängt */
+  #list-bereich #chat-list,
+  #user-list,
+  #settings-bereich .settings-groups {
+    padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px) + var(--bottom-lift));
+  }
+}
+
+/* PDF-Karte in der Nachricht: gleicher Aufbau wie Audio, aber eckiges rotes Icon statt rundem Play-Knopf; ganze Karte antippbar */
+.msg-pdf {
+  cursor: pointer;
+}
+
+.msg-pdf .msg-audio-play {
+  border-radius: 10px;
+  background: #e2665f;
+}
+
+.msg-pdf .msg-audio-play svg {
+  width: 28px;
+  height: 28px;
+  fill: #ffffff;
+}
+
+/* PDF-Vorschau: Bild der ersten Seite über Icon und Name */
+.msg.has-pdf.has-preview {
+  width: 280px;
+  max-width: 78%;
+}
+
+.msg-pdf.with-preview {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.msg-pdf-preview {
+  flex: 0 0 100%;
+  height: 180px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(127, 127, 127, 0.2);
+}
+
+.msg-pdf-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.msg-pdf-preview img:not([src]) {
+  visibility: hidden;
+}
+
+/* Chatliste am Handy: unten genau so viel Luft wie zwischen zwei Chats (4 px Abstand + 10 px Innenabstand des nächsten Eintrags),
+   plus die Sicherheitszone des Geräts. Der Scrollbalken endet damit am letzten Chat. */
+@media (max-width: 899.98px) {
+  #list-bereich #chat-list {
+    padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Uhrzeit bei Nachrichten, die nur aus 1 bis 3 Emojis bestehen: ganz unten rechts neben dem Emoji statt oben */
+.msg-text.emoji-big {
+  display: flex;
+  align-items: flex-end;
+}
+
+.msg-text.emoji-big .msg-footer {
+  float: none;
+  margin: 0 0 3px auto;
+  padding-left: 8px;
+}
+
+/* PDF-Viewer in der App */
+.pdf-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  background: #1d2127;
+  color: #fff;
+}
+
+.pdf-viewer-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px)) 8px calc(10px + env(safe-area-inset-left, 0px));
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.pdf-viewer-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.pdf-viewer-title-name {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pdf-viewer-title-page {
+  margin-top: 1px;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.pdf-viewer-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px 0 calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.pdf-viewer-pages {
+  --pdf-zoom: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+  width: calc(100% * var(--pdf-zoom));
+  max-width: calc(900px * var(--pdf-zoom));
+  margin: 0 auto;
+  padding: 0 8px;
+}
+
+.pdf-viewer-page {
+  width: 100%;
+  background: #ffffff;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+
+.pdf-viewer-page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Gruppen: Farbauswahl, Admin-Schalter bei den Mitgliedern, Admin-Übergabe beim Verlassen */
+.group-color-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.group-color-swatch {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.group-color-swatch.selected {
+  border-color: var(--text-primary);
+}
+
+.group-color-swatch.auto {
+  width: auto;
+  padding: 0 12px;
+  border-radius: 15px;
+  border-color: var(--border-subtle);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.group-color-swatch.auto.selected {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+}
+
+.group-pick-admin {
+  margin-left: auto;
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.group-pick-admin.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.group-pick-item:not(.on) .group-pick-admin {
+  display: none;
+}
+
+.group-handover-list {
+  max-height: 40vh;
+  margin: 10px 0 14px;
+  overflow-y: auto;
+}
+
+/* Plus-Menü: "Datei" öffnet daneben ein eigenes Feld mit Foto / Audio / Dokument (jeweils mit kleiner grauer Zeile, was geht) */
+.attach-menu {
+  max-width: min(270px, 86vw);
+}
+
+.msg-menu-item .menu-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text-secondary);
+  white-space: normal;
+}
+
+.msg-menu-item.has-sub.open {
+  background: var(--bg-input);
+}
+
+.attach-flyout {
+  position: absolute;
+  z-index: 21;
+  min-width: 0;
+}
+
+/* Geburtstags-Pop-up: Kreuz oben rechts (grau, beim Darüberfahren rot); beim ersten automatischen Öffnen erscheint es nach 3 Sekunden */
+.birthday-x {
+  position: absolute;
+  z-index: 2; /* über dem Emoji und dem Text, sonst fängt dieser den Tipp ab und das Kreuz reagiert nicht zuverlässig */
+  top: 8px;
+  right: 8px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s, color 0.15s, background 0.15s;
+}
+
+.birthday-x.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+.birthday-x:hover,
+.birthday-x:focus-visible {
+  color: #e2665f;
+  background: rgba(226, 102, 95, 0.14);
+}
+
+/* Rückmeldung an den Admin */
+.feedback-dialog {
+  max-width: 420px;
+}
+
+.feedback-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.feedback-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 15px;
+}
+
+.feedback-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.feedback-textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+.feedback-kind-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.feedback-kind-person {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.feedback-kind-problem {
+  background: rgba(226, 102, 95, 0.16);
+  color: #e2665f;
+}
+
+.feedback-kind-idee {
+  background: rgba(63, 185, 140, 0.16);
+  color: #3fb98c;
+}
+
+/* Handy: Nachrichten lassen sich nicht mehr per langem Drücken "markieren". Sonst wählt der Browser (Chrome) das Wort aus und zeigt
+   "Suchen" / Google an, noch bevor oder während das Nachrichten-Menü aufgeht. Kopieren geht weiter über das Menü ("Kopieren"). */
+@media (hover: none) and (pointer: coarse) {
+  .msg,
+  .msg * {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
+/* Einstellungen: Gruppen lassen sich über die Überschrift zuklappen */
+.settings-group-title {
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.settings-group.collapsed .settings-group-body {
+  display: none;
+}
+
+/* Kein waagerechter Scrollbalken unten in den Einstellungen (er entstand durch den negativen Rand rechts, wenn die Liste kurz ist) */
+#settings-bereich .settings-groups {
+  overflow-x: hidden;
+}
+
+/* Geburtsdatum: drei Zahlenfelder (Tag, Monat, Jahr) und Schnellwahl fürs Jahr */
+#birthdate-modal .birthdate-fields {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#birthdate-modal .birthdate-fields input {
+  flex: 0 0 auto;
+  width: 4.4em;
+  padding: 12px 6px;
+  text-align: center;
+  font-size: 20px;
+}
+
+#birthdate-modal .birthdate-fields #birthdate-year {
+  width: 5.8em;
+}
+
+#birthdate-modal .birthdate-sep {
+  font-size: 22px;
+  color: var(--text-secondary);
+}
+
+#birthdate-modal .birthdate-years {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+#birthdate-modal .birthdate-year-chip {
+  width: auto;
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+#birthdate-modal .birthdate-year-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Kleine Knöpfe: die allgemeine Button-Regel macht sonst jeden Knopf 100 % breit und färbt ihn beim Darüberfahren um */
+.photo-hd-btn {
+  width: auto;
+  margin: 0;
+  left: auto;
+}
+
+.photo-hd-btn:hover {
+  background: rgba(60, 60, 60, 0.8);
+}
+
+.photo-hd-btn.active:hover {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.group-pick-item .group-pick-admin {
+  width: auto;
+  margin: 0 0 0 auto;
+  flex: 0 0 auto;
+}
+
+.group-pick-item .group-pick-admin:hover {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.group-pick-item .group-pick-admin.on:hover {
+  background: var(--accent-soft);
+}
+
+/* Geburtsdatum in der Verwaltung: Abstand zwischen "Geburtsdatum speichern" und "Neu abfragen" */
+#user-birth-save-btn + #user-birth-reset-btn {
+  margin-top: 12px;
+}
+/* ===== Unterhaltung zu einer Rückmeldung ===== */
+.fb-thread-dialog {
+  text-align: left;
+  max-width: 460px;
+  width: calc(100% - 32px);
+}
+
+.fb-thread-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 120px;
+  max-height: 50vh;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.fb-msg {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: var(--radius-bubble);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fb-msg.mine {
+  align-self: flex-end;
+  background: var(--bubble-own);
+  color: var(--bubble-own-text);
+  border-bottom-right-radius: 4px;
+}
+
+.fb-msg.other {
+  align-self: flex-start;
+  background: var(--bubble-other);
+  color: var(--bubble-other-text);
+  border-bottom-left-radius: 4px;
+}
+
+.fb-msg-who {
+  margin-bottom: 2px;
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+.fb-msg-time {
+  margin-top: 2px;
+  font-size: 11px;
+  text-align: right;
+  opacity: 0.7;
+}
+
+.fb-thread-send {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  margin-bottom: 10px;
+}
+
+.fb-thread-send .fb-thread-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  margin-bottom: 0;
+  resize: none;
+}
+
+/* Die allgemeine button-Regel macht Knöpfe 100 % breit: hier bewusst klein und mit eigener Farbe */
+.fb-thread-send button {
+  width: auto;
+  margin: 0;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fb-thread-send button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.fb-thread-send button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.feedback-new-tag {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.fb-clickable {
+  cursor: pointer;
+}
+
+/* Nutzerliste: Einladung verschickt, aber noch nicht angenommen */
+.user-invite-pill {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 170, 60, 0.18);
+  color: #ffb454;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+body.light-theme .user-invite-pill {
+  background: rgba(214, 120, 0, 0.14);
+  color: #b86a00;
+}
+
+#user-list .chat-list-item.invited .chat-list-avatar {
+  opacity: 0.55;
+}
+
+/* Wer ist noch eingeladen? (Liste für alle Mitglieder) */
+.pending-invites-hint {
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.pending-invites-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 50vh;
+  margin-bottom: 14px;
+  overflow-y: auto;
+}
+
+.pending-invite-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pending-invite-row .chat-list-avatar {
+  opacity: 0.6;
+}
+
+.pending-invite-text {
+  min-width: 0;
+  text-align: left;
+}

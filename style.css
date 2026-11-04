@@ -851,8 +851,17 @@ img.emoji {
   white-space: nowrap;
 }
 
-.msg-row.highlight .msg {
-  outline: 2px solid var(--accent);
+/* Markierte Nachricht (Menü offen oder Sprung zu einer Antwort): heller, durchsichtiger Streifen über die ganze Breite des Chats.
+   Der Streifen über den Rand der Zeile hinaus kommt aus dem Schatten; #chat-box schneidet ihn am Rand ab. */
+.msg-row {
+  box-shadow: -50vw 0 0 transparent, 50vw 0 0 transparent;
+  transition: background-color 0.3s, box-shadow 0.3s;
+}
+
+.msg-row.menu-open,
+.msg-row.highlight {
+  background: var(--accent-soft);
+  box-shadow: -50vw 0 0 var(--accent-soft), 50vw 0 0 var(--accent-soft);
 }
 
 /* ===== Bearbeiten-Leiste über dem Eingabefeld ===== */
@@ -4302,6 +4311,15 @@ body.light-theme .msg.own.has-audio {
    Die Zeilen mit Länge/Größe und Zeiten lassen deshalb rechts Platz dafür. */
 .msg.has-audio {
   padding-bottom: 6px;
+}
+
+/* Platzhalter-Blase einer Sprachnachricht beim Senden: genau so groß wie die fertige, damit beim Ersetzen nichts springt */
+.msg-row.pending-voice .msg.has-audio {
+  width: 250px;
+}
+
+.msg-row.pending-voice .msg-audio-meta {
+  white-space: nowrap;
 }
 
 .msg.has-audio > .msg-text {

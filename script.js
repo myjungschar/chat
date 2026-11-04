@@ -2246,6 +2246,7 @@ function closeAttachMenu() {
 function toggleAttachMenu(anchorBtn, evt) {
   if (evt) evt.stopPropagation() // sonst schließt der Klick das Menü über den globalen Listener sofort wieder
   if (openAttachMenuEl) { closeAttachMenu(); return }
+  closeMessageMenu() // sonst bleibt ein offenes Nachrichten-Menü (Rechtsklick) hinter dem Plus-Menü stehen
   closeTextEmojiPicker()
 
   const menu = document.createElement('div')
@@ -3527,7 +3528,7 @@ function addPendingAudioBubble(name, size, file) {
   const ext = isDoc ? fileExtOf(file.name) : ''
 
   const row = document.createElement('div')
-  row.className = 'msg-row own pending-audio'
+  row.className = 'msg-row own pending-audio' + (!isDoc && isVoiceName(name) ? ' pending-voice' : '')
   const msgEl = document.createElement('div')
   msgEl.className = 'msg own has-audio' + (isDoc ? ' has-pdf' : '')
 
@@ -3550,9 +3551,16 @@ function addPendingAudioBubble(name, size, file) {
   title.textContent = isVoiceName(name) ? 'Sprachnachricht' : name
   const meta = document.createElement('div')
   meta.className = 'msg-audio-meta'
-  meta.textContent = (isDoc ? ext.toUpperCase() + ' · ' : '') + formatBytes(size) + ' · wird hochgeladen …'
+  // Sprachnachricht: kurzer Text, damit die Blase nicht breiter/höher ist als die fertige (siehe .pending-voice im CSS)
+  meta.textContent = !isDoc && isVoiceName(name) ? 'wird gesendet …' : (isDoc ? ext.toUpperCase() + ' · ' : '') + formatBytes(size) + ' · wird hochgeladen …'
   body.append(title, meta)
   wrap.append(btn, body)
+  // Die fertige Blase hat über dem Inhalt eine (leere) Zeile .msg-meta; bei Sprachnachrichten hier auch, damit die Höhe gleich ist
+  if (!isDoc && isVoiceName(name)) {
+    const metaTop = document.createElement('div')
+    metaTop.className = 'msg-meta'
+    msgEl.appendChild(metaTop)
+  }
   msgEl.appendChild(wrap)
   row.appendChild(msgEl)
 
@@ -5844,6 +5852,7 @@ function scheduleReactionRefresh() {
 let openMenuEl = null
 
 function closeMessageMenu() {
+  document.querySelectorAll('.msg-row.menu-open').forEach(r => r.classList.remove('menu-open'))
   if (openMenuEl) {
     openMenuEl.remove()
     openMenuEl = null
@@ -5933,6 +5942,10 @@ function attachMessageMenuTriggers(msgElement, msg, options) {
 
 function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {}) {
   closeMessageMenu()
+  closeAttachMenu() // ein offenes Plus-Menü schließt sich, das zuletzt geöffnete Menü liegt vorn
+  // Die Nachricht, zu der das Menü gehört, bekommt einen hellen Streifen über die ganze Breite (wie bei WhatsApp)
+  const menuRow = anchorEl && anchorEl.closest ? anchorEl.closest('.msg-row') : null
+  if (menuRow) menuRow.classList.add('menu-open')
 
   // Handy: die Emoji-Leiste ist ein eigenes, freistehendes Element (nicht im Menü-Kasten)
   let bar = null
