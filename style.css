@@ -6302,3 +6302,22 @@ body.light-theme .user-invite-pill {
   min-width: 0;
   text-align: left;
 }
+
+/* Geburtstags-Liste: gleiche Zeilen wie bei den Einladungen, aber mit voller Farbe und dem Zeitpunkt rechts */
+.birthday-list-row .chat-list-avatar {
+  opacity: 1;
+}
+
+.birthday-row-in {
+  margin-left: auto;
+  padding-left: 8px;
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.birthday-list-row.today .birthday-row-in {
+  color: var(--accent);
+  font-weight: 600;
+}

@@ -7587,6 +7587,48 @@ function makeDetailsSmooth(details) {
 let userDetailOpenSections = new Set()
 
 // Einstellungen einer einzelnen Person (Name, Geschlecht, Rechte, Sperren)
+// Knopf in der Nutzer-Ansicht (nur bei offener Einladung): schickt die Einladungs-E-Mail nochmal an dieselbe Person
+async function resendInviteToUser(u, btn) {
+  if (!isAdmin() || btn.disabled) return
+  btn.disabled = true
+  const oldText = btn.textContent
+  try {
+    let email = profileEmailCache[u.id] || ''
+    if (!email) {
+      const { data, error } = await supabaseClient.functions.invoke('get-user-email', { body: { userId: u.id } })
+      if (error || !data || !data.email) {
+        showToast('Die E-Mail-Adresse konnte nicht geladen werden.')
+        return
+      }
+      email = data.email
+      profileEmailCache[u.id] = email
+    }
+    const ok = await askConfirm('Die Einladung nochmal an ' + email + ' senden?', { okText: 'Senden', cancelText: 'Abbrechen' })
+    if (!ok) return
+
+    btn.textContent = 'Wird gesendet …'
+    const { data: { session } } = await supabaseClient.auth.getSession()
+    if (!session) {
+      showToast('Deine Sitzung ist abgelaufen. Bitte melde dich neu an.')
+      return
+    }
+    const res = await invokeWithRetry('invite-user', async () => {
+      const { data: { session: fresh } } = await supabaseClient.auth.getSession()
+      return { body: { email, resend: true }, headers: { Authorization: 'Bearer ' + (fresh || session).access_token } }
+    })
+    const errorText = res.error ? await readFunctionError(res.error) : (res.data && res.data.error ? res.data.error : '')
+    if (errorText) {
+      showToast(errorText)
+      return
+    }
+    await showInfoDialog('Die Einladung wurde nochmal an ' + email + ' gesendet.')
+    loadUsers()
+  } finally {
+    btn.disabled = false
+    btn.textContent = oldText
+  }
+}
+
 function openUserDetail(u) {
   selectedUserId = u.id
   markActiveUserRow()
@@ -7689,6 +7731,7 @@ function renderUserDetail(u) {
     section('rights', 'Rechte', rightsText, rightsBody) +
     section('color', 'Profilfarbe', `<span class="admin-section-dot" style="background:${avatarColorOf(u.id, u)}"></span>`, colorBody) +
     section('birth', 'Geburtsdatum', '', birthBody) +
+    (u.active === false ? `<div class="user-actions"><button type="button" class="user-color-btn" id="user-resend-btn">Einladung nochmal senden</button></div>` : '') +
     `<div class="user-actions">
       <button type="button" class="${u.is_blocked ? 'unblock-btn' : 'block-btn'}" id="user-block-btn">${u.is_blocked ? 'Entsperren' : 'Sperren'}</button>
       <button type="button" class="delete-btn" id="user-delete-btn">Nutzer löschen</button>
@@ -7717,6 +7760,8 @@ function renderUserDetail(u) {
     btn.addEventListener('click', () => setUserColor(u, btn.dataset.color))
   })
   setupAdminBirthdate(u)
+  const resendBtn = document.getElementById('user-resend-btn')
+  if (resendBtn) resendBtn.addEventListener('click', () => resendInviteToUser(u, resendBtn))
   document.getElementById('user-block-btn').addEventListener('click', () => setBlocked(u, !u.is_blocked))
   document.getElementById('user-delete-btn').addEventListener('click', () => deleteUser(u))
 }
@@ -8718,6 +8763,18 @@ async function inviteUser() {
       await showInfoDialog('Die Einladung wurde nochmal an ' + email + ' gesendet.')
       loadUsers()
       return
+    }
+
+    if (choice === 'replace') {
+      // Zweite Sicherheitsfrage: das Konto ist danach endgültig weg
+      const sure = await askConfirm(
+        'Wirklich? ' + (existing.name || 'Der bisherige Nutzer') + ' wird endgültig gelöscht und die Einladung geht danach an ' + email + '. Das lässt sich nicht rückgängig machen.',
+        { okText: 'Ja, löschen und einladen', cancelText: 'Abbrechen', danger: true }
+      )
+      if (!sure) {
+        finishSending()
+        return
+      }
     }
 
     if (choice !== 'replace' || !(await deleteUserById(existing.id))) {
@@ -11156,7 +11213,7 @@ const FEEDBACK_KINDS = {
   idee: { tag: 'Idee' }
 }
 
-// Die drei Formulare (je ein eigener Eintrag in den Einstellungen)
+// Die drei Formulare (ein Eintrag "Rückmeldung senden" in den Einstellungen, der Rest wird dort gewählt)
 const FEEDBACK_FORMS = {
   person: {
     title: 'Vermisst du jemanden?',
@@ -11173,6 +11230,18 @@ const FEEDBACK_FORMS = {
     hint: 'Was kann man hier noch ändern oder besser machen?',
     placeholder: 'Deine Idee …'
   }
+}
+
+// Ein einziger Eintrag in den Einstellungen: erst wählen, worum es geht, dann kommt das passende Formular
+async function openFeedbackChooser() {
+  if (!currentUser || isAdmin()) return
+  const kind = await askChoice('Worum geht es?', [
+    { value: 'problem', label: FEEDBACK_FORMS.problem.title, kind: 'primary' },
+    { value: 'idee', label: FEEDBACK_FORMS.idee.title, kind: 'primary' },
+    { value: 'person', label: FEEDBACK_FORMS.person.title, kind: 'primary' },
+    { value: null, label: 'Abbrechen', kind: 'cancel' }
+  ])
+  if (kind) openFeedbackModal(kind)
 }
 
 function openFeedbackModal(kind = 'problem') {
@@ -11656,9 +11725,95 @@ function updatePendingInvitesEntry() {
   const section = document.getElementById('members-group')
   if (!section) return
   const count = isAdmin() ? 0 : pendingInviteProfiles().length
-  section.style.display = count > 0 ? '' : 'none'
+  // "Mitglieder" gibt es für alle (mit der Geburtstags-Liste); "Wer ist noch eingeladen?" nur, solange es jemanden gibt
+  section.style.display = currentUser ? '' : 'none'
+  const entry = document.getElementById('menu-pending-invites')
+  if (entry) entry.style.display = count > 0 ? '' : 'none'
   const badge = document.getElementById('pending-invites-badge')
   if (badge) badge.textContent = String(count)
+}
+
+// Nächster Geburtstag ab heute (heute zählt mit). Wer am 29. Februar geboren ist, feiert in Jahren ohne Schalttag am 28. Februar
+// (wie bei isBirthdayToday). Gibt das Datum, die Tage bis dahin und das Alter an diesem Tag zurück.
+function nextBirthdayInfo(iso, today) {
+  const [y, m, d] = iso.split('-').map(Number)
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const make = year => {
+    const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
+    return new Date(year, m - 1, m === 2 && d === 29 && !leap ? 28 : d)
+  }
+  let next = make(start.getFullYear())
+  if (next < start) next = make(start.getFullYear() + 1)
+  return { date: next, days: Math.round((next - start) / 86400000), turning: next.getFullYear() - y }
+}
+
+// Liste aller Geburtstage, der nächste zuerst (für alle Mitglieder; das Geburtsdatum ist ohnehin für alle sichtbar)
+async function openBirthdayList() {
+  if (!currentUser) return
+  await loadProfileCache() // frischer Stand: vielleicht hat jemand inzwischen sein Datum eingetragen
+
+  const overlay = document.createElement('div')
+  overlay.className = 'confirm-overlay'
+  const dialog = document.createElement('div')
+  dialog.className = 'confirm-dialog reports-dialog'
+  dialog.setAttribute('role', 'dialog')
+  dialog.setAttribute('aria-modal', 'true')
+  overlay.appendChild(dialog)
+  document.body.appendChild(overlay)
+
+  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove() }
+  const onKey = e => { if (e.key === 'Escape') close() }
+  document.addEventListener('keydown', onKey)
+  overlay.addEventListener('click', e => { if (e.target === overlay) close() })
+
+  const today = new Date()
+  const people = Object.entries(profileCache)
+    .filter(([, p]) => p.role !== 'admin' && !p.blocked && p.active !== false && p.birthdate)
+    .map(([id, p]) => ({ id, info: p, name: p.name || 'Ohne Namen', ...nextBirthdayInfo(p.birthdate, today) }))
+    .sort((a, b) => a.days - b.days || a.name.localeCompare(b.name, 'de', { sensitivity: 'base' }))
+
+  const heading = document.createElement('p')
+  heading.className = 'audio-name-heading'
+  heading.textContent = people.length === 0 ? 'Noch keine Geburtstage eingetragen' : 'Geburtstage (' + people.length + ')'
+  dialog.appendChild(heading)
+
+  if (people.length > 0) {
+    const list = document.createElement('div')
+    list.className = 'pending-invites-list'
+    people.forEach(person => {
+      const row = document.createElement('div')
+      row.className = 'pending-invite-row birthday-list-row' + (person.days === 0 ? ' today' : '')
+      const avatar = document.createElement('div')
+      avatar.className = 'chat-list-avatar'
+      avatar.style.background = avatarColorOf(person.id, person.info)
+      avatar.textContent = initialsOf(person.name)
+
+      const text = document.createElement('div')
+      text.className = 'pending-invite-text'
+      const name = document.createElement('div')
+      name.className = 'chat-list-name'
+      name.textContent = person.name + (person.days === 0 ? ' ' + BIRTHDAY_EMOJI : '')
+      const sub = document.createElement('div')
+      sub.className = 'chat-list-preview'
+      sub.textContent = person.date.toLocaleDateString('de-DE', { day: 'numeric', month: 'long' }) + ' · wird ' + person.turning
+      text.append(name, sub)
+
+      const inDays = document.createElement('div')
+      inDays.className = 'birthday-row-in'
+      inDays.textContent = person.days === 0 ? 'Heute' : person.days === 1 ? 'Morgen' : 'in ' + person.days + ' Tagen'
+
+      row.append(avatar, text, inDays)
+      list.appendChild(row)
+    })
+    dialog.appendChild(list)
+  }
+
+  const closeBtn = document.createElement('button')
+  closeBtn.type = 'button'
+  closeBtn.className = 'confirm-cancel'
+  closeBtn.textContent = 'Schließen'
+  closeBtn.addEventListener('click', close)
+  dialog.appendChild(closeBtn)
 }
 
 async function openPendingInvites() {
