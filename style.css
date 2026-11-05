@@ -851,17 +851,12 @@ img.emoji {
   white-space: nowrap;
 }
 
-/* Markierte Nachricht (Menü offen oder Sprung zu einer Antwort): heller, durchsichtiger Streifen über die ganze Breite des Chats.
-   Der Streifen über den Rand der Zeile hinaus kommt aus dem Schatten; #chat-box schneidet ihn am Rand ab. */
-.msg-row {
-  box-shadow: -50vw 0 0 transparent, 50vw 0 0 transparent;
-  transition: background-color 0.3s, box-shadow 0.3s;
-}
-
-.msg-row.menu-open,
-.msg-row.highlight {
-  background: var(--accent-soft);
-  box-shadow: -50vw 0 0 var(--accent-soft), 50vw 0 0 var(--accent-soft);
+/* Markierte Nachricht (Menü offen oder Sprung zu einer Antwort): Rahmen direkt am Rand der Blase.
+   Der kleine Abstand (outline-offset) sorgt dafür, dass er auch bei blauen eigenen Blasen zu sehen ist. */
+.msg-row.menu-open .msg,
+.msg-row.highlight .msg {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* ===== Bearbeiten-Leiste über dem Eingabefeld ===== */
