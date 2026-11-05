@@ -13170,7 +13170,7 @@ function closeProfileModals() {
 // ----- Tipp auf den Namen oben im Chat -----
 function updateConversationTitleTap() {
   const el = document.getElementById('conversation-title')
-  const tappable = !!currentRoom && (currentRoom.type === 'group' || currentRoom.type === 'dm')
+  const tappable = !!currentRoom && (currentRoom.type === 'group' || currentRoom.type === 'dm' || currentRoom.type === 'dm-view')
   el.classList.toggle('tappable', tappable)
   if (tappable) {
     el.setAttribute('role', 'button')
@@ -13181,10 +13181,24 @@ function updateConversationTitleTap() {
   }
 }
 
+// Admin im Einzelchat zweier anderer Personen: erst wählen, wessen Profil (Geburtsdatum, E-Mail ...) aufgehen soll
+async function openAdminDmViewProfile() {
+  const a = currentRoom.userA
+  const b = currentRoom.userB
+  const nameOf = id => (profileCache[id] && profileCache[id].name) || 'Ohne Namen'
+  const picked = await askChoice('Wessen Profil möchtest du sehen?', [
+    { value: a, label: nameOf(a), kind: 'primary' },
+    { value: b, label: nameOf(b), kind: 'primary' },
+    { value: null, label: 'Abbrechen', kind: 'cancel' }
+  ])
+  if (picked) openProfile(picked)
+}
+
 function onConversationTitleClick() {
   if (!currentRoom) return
   if (currentRoom.type === 'group') openMembersModal()
   else if (currentRoom.type === 'dm') openProfile(currentRoom.userId)
+  else if (currentRoom.type === 'dm-view') openAdminDmViewProfile()
 }
 
 document.getElementById('conversation-title').addEventListener('keydown', (e) => {
@@ -13334,6 +13348,12 @@ function consumePendingPushOpen() {
 const INSTALL_DISMISSED_KEY = 'installPopupDismissed' // '1' = hier nicht mehr automatisch fragen
 const INSTALLED_KEY = 'appInstalled'                   // '1' = auf diesem Gerät schon installiert
 let deferredInstallPrompt = null                       // Chrome/Edge/Android: das echte Installations-Fenster
+
+// Als installierte App gibt es keinen "Neu laden"-Knopf des Browsers: dieser Eintrag in den Einstellungen lädt die Seite neu
+// (holt dabei auch eine neue Version der App, falls es eine gibt)
+function reloadApp() {
+  location.reload()
+}
 
 function isStandaloneApp() {
   return window.matchMedia('(display-mode: standalone)').matches ||
