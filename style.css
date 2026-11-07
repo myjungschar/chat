@@ -2386,6 +2386,16 @@ body.split-view.chat-open #chat-placeholder {
   width: auto;
 }
 
+/* Auswahl-Pop-up mit mehreren Antworten (askChoice): Knöpfe untereinander, jeder über die volle Breite */
+.confirm-buttons.stacked {
+  flex-direction: column;
+}
+
+.confirm-buttons.stacked button {
+  flex: none;
+  width: 100%;
+}
+
 .confirm-cancel {
   background: transparent;
   color: var(--text-primary);
@@ -6038,6 +6048,21 @@ body.light-theme .birthday-age-pill {
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
+  }
+
+  /* Dasselbe für die ganze App: langes Drücken auf eine freie Stelle markiert sonst Text und bietet "Suchen" an.
+     Eingabefelder bleiben markierbar (Text eingeben, kopieren, einfügen). */
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  input,
+  textarea,
+  [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
   }
 }
 

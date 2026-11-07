@@ -8864,10 +8864,11 @@ async function logout() {
   )
   if (!confirmed) return
 
-  await teardownPushSubscription() // vor dem Abmelden, solange die Berechtigung zum Löschen noch da ist
-  await clearPhotoCache()
+  // Jeder Schritt einzeln abgesichert: klappt einer nicht (z. B. Push im iPad-Browser), wird trotzdem abgemeldet
+  try { await teardownPushSubscription() } catch (e) { console.error('Push beim Abmelden:', e) } // vor dem Abmelden, solange die Berechtigung zum Löschen noch da ist
+  try { await clearPhotoCache() } catch (e) { console.error('Foto-Zwischenspeicher beim Abmelden:', e) }
   // scope 'local': nur dieses Gerät melden wir ab, Anmeldungen auf anderen Geräten (z. B. Handy) bleiben unberührt
-  await supabaseClient.auth.signOut({ scope: 'local' })
+  try { await supabaseClient.auth.signOut({ scope: 'local' }) } catch (e) { console.error('Abmelden:', e) }
   showLogin()
 }
 
@@ -9780,7 +9781,7 @@ async function enablePushNotifications({ silent = false } = {}) {
 async function teardownPushSubscription() {
   if (!('serviceWorker' in navigator)) return
   const registration = await navigator.serviceWorker.getRegistration()
-  if (!registration) return
+  if (!registration || !registration.pushManager) return // iPad/iPhone im normalen Browser-Tab: es gibt dort kein Push
 
   const subscription = await registration.pushManager.getSubscription()
   if (!subscription) return
@@ -9816,6 +9817,13 @@ async function refreshPushToggleUI() {
   if (!pushSupported()) {
     toggle.checked = false
     toggle.disabled = true
+    const hint = document.getElementById('push-unsupported-hint')
+    if (hint) {
+      hint.textContent = isIosDevice()
+        ? 'Auf iPhone und iPad gehen Benachrichtigungen nur, wenn der Chat als App auf dem Home-Bildschirm liegt: Teilen-Symbol → „Zum Home-Bildschirm“, dann von dort öffnen.'
+        : 'Dieser Browser unterstützt keine Benachrichtigungen.'
+      hint.style.display = ''
+    }
     return
   }
   const registration = await navigator.serviceWorker.getRegistration()
