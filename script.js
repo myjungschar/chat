@@ -11914,6 +11914,13 @@ async function updateMyFeedbackBadge() {
   const unread = items ? items.filter(fbIsUnread).length : 0
   badge.textContent = String(unread)
   badge.style.display = unread > 0 ? '' : 'none'
+  // Dieselbe Zahl auch oben beim Knopf "Einstellungen" und an der Gruppe "Rückmeldung", damit man sie sieht, ohne zu suchen
+  ;['settings-btn-badge', 'feedback-group-badge'].forEach(id => {
+    const el = document.getElementById(id)
+    if (!el) return
+    el.textContent = String(unread)
+    el.style.display = unread > 0 ? '' : 'none'
+  })
 }
 
 async function openMyFeedbackList() {

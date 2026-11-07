@@ -47,7 +47,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261107-1">
+  <link rel="stylesheet" href="style.css?v=20261107-2">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -222,7 +222,7 @@
           <span id="user-display-name">Nutzer</span>
         </div>
         <div class="header-actions">
-          <button id="settings-toggle-btn" class="settings-btn" onclick="openSettings()">Einstellungen</button>
+          <button id="settings-toggle-btn" class="settings-btn" onclick="openSettings()">Einstellungen<span class="reports-badge" id="settings-btn-badge" style="display: none;"></span></button>
           <button class="logout-btn" onclick="logout()">Abmelden</button>
         </div>
       </header>
@@ -284,7 +284,7 @@
         </section>
 
         <section class="settings-group" id="feedback-settings-group" style="display: none;">
-          <h3 class="settings-group-title">Rückmeldung</h3>
+          <h3 class="settings-group-title">Rückmeldung<span class="reports-badge" id="feedback-group-badge" style="display: none;"></span></h3>
           <div class="settings-group-body">
             <ul class="settings-menu">
               <li id="menu-feedback-send" onclick="openFeedbackChooser()">
@@ -960,6 +960,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261107-1"></script>
+  <script src="script.js?v=20261107-2"></script>
 </body>
 </html>

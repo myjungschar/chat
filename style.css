@@ -4935,6 +4935,15 @@ body.split-view #settings-bereich .settings-groups {
   text-align: center;
 }
 
+.settings-btn .reports-badge,
+.settings-group-title .reports-badge {
+  margin: 0 0 0 7px;
+  min-width: 18px;
+  font-size: 11px;
+  line-height: 18px;
+  vertical-align: 1px;
+}
+
 /* Doppeltipp zum Antworten: kein Zoomen durch Doppeltippen auf Nachrichten */
 .msg-row {
   touch-action: manipulation;
