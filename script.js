@@ -2243,9 +2243,51 @@ function closeAttachMenu() {
   }
 }
 
-function toggleAttachMenu(anchorBtn, evt) {
+// ===== Dateien senden pausiert (Haken des Admins unter Einstellungen -> Verwaltung) =====
+// Gilt für alle: kein Foto, keine Datei, keine Sprachnachricht, solange es z. B. mit Google Drive nicht geht.
+// Gespeichert in der Tabelle app_settings (Schlüssel uploads_disabled, dateien-sperre.sql); upload-photo prüft es ebenfalls.
+var uploadsDisabled = false
+var uploadsFlagAt = 0
+const UPLOADS_PAUSED_TEXT = 'Fotos, Dateien und Sprachnachrichten senden geht leider gerade nicht.'
+
+async function loadUploadsDisabled() {
+  try {
+    const { data, error } = await supabaseClient.from('app_settings').select('value').eq('key', 'uploads_disabled').maybeSingle()
+    if (!error) uploadsDisabled = !!(data && (data.value === true || data.value === 'true'))
+  } catch (e) {
+    // Tabelle fehlt noch oder kein Netz: dann gilt der letzte bekannte Stand
+  }
+  uploadsFlagAt = Date.now()
+  const box = document.getElementById('uploads-paused-toggle')
+  if (box) box.checked = uploadsDisabled
+}
+
+async function onUploadsPausedToggle() {
+  if (!isAdmin()) return
+  const box = document.getElementById('uploads-paused-toggle')
+  const want = box.checked
+  box.checked = !want // bis alles bestätigt und gespeichert ist, bleibt der alte Stand sichtbar
+  if (want) {
+    const first = await askConfirm('Senden von Fotos, Dateien und Sprachnachrichten für alle sperren?', { okText: 'Weiter', cancelText: 'Abbrechen' })
+    if (!first) return
+    const second = await askConfirm('Wirklich? Im Plus-Menü steht dann bei „Datei“, dass es gerade nicht geht, und Sprachnachrichten verschwinden, bis du den Haken wieder entfernst.', { okText: 'Ja, sperren', cancelText: 'Abbrechen', danger: true })
+    if (!second) return
+  }
+  const { error } = await supabaseClient.from('app_settings').upsert({ key: 'uploads_disabled', value: want, updated_at: new Date().toISOString() })
+  if (error) {
+    showToast('Das konnte nicht gespeichert werden: ' + error.message)
+    return
+  }
+  uploadsDisabled = want
+  uploadsFlagAt = Date.now()
+  box.checked = want
+  showToast(want ? 'Dateien senden ist jetzt gesperrt.' : 'Dateien senden ist wieder erlaubt.', 'success')
+}
+
+async function toggleAttachMenu(anchorBtn, evt) {
   if (evt) evt.stopPropagation() // sonst schließt der Klick das Menü über den globalen Listener sofort wieder
   if (openAttachMenuEl) { closeAttachMenu(); return }
+  if (Date.now() - uploadsFlagAt > 20000) await loadUploadsDisabled() // frischer Stand, falls der Admin inzwischen gesperrt hat
   closeMessageMenu() // sonst bleibt ein offenes Nachrichten-Menü (Rechtsklick) hinter dem Plus-Menü stehen
   closeTextEmojiPicker()
 
@@ -2344,8 +2386,13 @@ function toggleAttachMenu(anchorBtn, evt) {
   }
 
   if (!isPhotoBlockedSelf()) { // wer keine Fotos senden darf, bekommt "Datei" und die Sprachnachricht gar nicht erst
-    addFileGroup()
-    addItem('Sprachnachricht', () => { closeAttachMenu(); startVoiceFlow() })
+    if (uploadsDisabled) {
+      // Gesperrt: "Datei" bleibt sichtbar, sagt aber, dass es gerade nicht geht; Sprachnachricht fehlt ganz
+      addItem('Datei', () => showToast(UPLOADS_PAUSED_TEXT), 'Geht leider gerade nicht').classList.add('is-paused')
+    } else {
+      addFileGroup()
+      addItem('Sprachnachricht', () => { closeAttachMenu(); startVoiceFlow() })
+    }
   }
   addItem('Umfrage', () => { closeAttachMenu(); openPollModal() })
   addItem('Einladung', () => { closeAttachMenu(); openInviteModal() })
@@ -2478,6 +2525,7 @@ function voiceSupported() {
 
 function startVoiceFlow() {
   if (!currentUser || isAdmin() || currentRoom.type === 'dm-view') return
+  if (uploadsDisabled) { showToast(UPLOADS_PAUSED_TEXT); return }
   if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos, Audios und Dateien senden.'); return }
   if (editingMessageId) { showToast('Schließe zuerst das Bearbeiten ab.'); return }
   if (!navigator.onLine) { showToast('Keine Internetverbindung.'); return }
@@ -3091,6 +3139,7 @@ function getPhotoInput() {
 
 function startPhotoFlow(pastedFile) {
   if (!currentUser || isAdmin() || currentRoom.type === 'dm-view') return
+  if (uploadsDisabled) { showToast(UPLOADS_PAUSED_TEXT); return }
   if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos senden.'); return }
   if (editingMessageId) { showToast('Schließe zuerst das Bearbeiten ab.'); return }
   if (!navigator.onLine) { showToast('Keine Internetverbindung.'); return }
@@ -3433,6 +3482,7 @@ function getAudioInput() {
 
 function startAudioFlow() {
   if (!currentUser || isAdmin() || currentRoom.type === 'dm-view') return
+  if (uploadsDisabled) { showToast(UPLOADS_PAUSED_TEXT); return }
   if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos, Audios und Dateien senden.'); return }
   if (editingMessageId) { showToast('Schließe zuerst das Bearbeiten ab.'); return }
   if (!navigator.onLine) { showToast('Keine Internetverbindung.'); return }
@@ -3817,6 +3867,7 @@ function getFileInput() {
 // Dokument senden: der Auswahldialog zeigt PDF, Word, Excel, PowerPoint, Text und CSV
 function startFileFlow() {
   if (!currentUser || isAdmin() || currentRoom.type === 'dm-view') return
+  if (uploadsDisabled) { showToast(UPLOADS_PAUSED_TEXT); return }
   if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos, Audios und Dateien senden.'); return }
   if (editingMessageId) { showToast('Schließe zuerst das Bearbeiten ab.'); return }
   if (!navigator.onLine) { showToast('Keine Internetverbindung.'); return }
@@ -5140,7 +5191,7 @@ function renderMessage(msg) {
   const canReply = !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   const canCopy = !!msg.text
   const canDownloadAudio = !!msg.audio_id
-  const canForward = !isAdmin() && (!!msg.text || ((!!msg.photo_id || !!msg.audio_id) && !isPhotoBlockedSelf())) && (currentRoom.type === 'group' || currentRoom.type === 'dm')
+  const canForward = !isAdmin() && (!!msg.text || ((!!msg.photo_id || !!msg.audio_id) && !isPhotoBlockedSelf() && !uploadsDisabled)) && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   const canReport = !isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   // Info (wer hat die Nachricht gelesen/bekommen) und Häkchen: für eigene Nachrichten in Einzelchat und Gruppe.
   // Der Admin sieht sie an allen Nachrichten (Gruppe und Einblick in Einzelchats): wer hat gelesen, wer nicht, und wann
@@ -6519,7 +6570,7 @@ async function forwardSelectedMessages() {
     showToast('Die Auswahl konnte nicht geladen werden: ' + error.message)
     return
   }
-  const blocked = isPhotoBlockedSelf()
+  const blocked = isPhotoBlockedSelf() || uploadsDisabled
   const msgs = (data || []).filter(m => m.text || (!blocked && (m.photo_id || m.audio_id)))
   if (msgs.length === 0) {
     showToast('Diese Nachrichten lassen sich nicht weiterleiten.')
@@ -7148,6 +7199,7 @@ function openSettings() {
   updateNewGroupButton()
   if (isAdmin()) { updateReportsBadge(); updateInviteRequestsBadge(); updateFeedbackBadge() } else updateMyFeedbackBadge()
   updatePendingInvitesEntry()
+  loadUploadsDisabled()
   refreshPushToggleUI()
   updateInstallMenu()
 }
@@ -10909,6 +10961,10 @@ async function forwardMessagesTo(msgs, target) {
   let sent = 0
   while (msgs.length > 0) {
     const msg = msgs[0]
+    if ((msg.photo_id || msg.audio_id) && uploadsDisabled) {
+      showToast(UPLOADS_PAUSED_TEXT)
+      return false
+    }
     if ((msg.photo_id || msg.audio_id) && isPhotoBlockedSelf()) {
       showToast('Du darfst im Moment keine Fotos, Audios und Dateien senden.')
       return false

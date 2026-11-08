@@ -133,6 +133,12 @@ Deno.serve(async (req) => {
     if (!profile || profile.is_blocked) return json({ error: 'Zugang gesperrt' }, 403)
     if (profile.role === 'admin') return json({ error: 'Der Admin schreibt nicht' }, 403)
 
+    // Hat der Admin das Senden von Dateien für alle gesperrt (Haken in den Einstellungen, Tabelle app_settings)?
+    const { data: paused } = await admin.from('app_settings').select('value').eq('key', 'uploads_disabled').maybeSingle()
+    if (paused && (paused.value === true || paused.value === 'true')) {
+      return json({ error: 'Fotos, Dateien und Sprachnachrichten senden geht leider gerade nicht' }, 503)
+    }
+
     // Hat der Admin dieser Person das Foto-Senden weggenommen? (Tabelle photo_blocked_users) Gilt auch für Audio und Dateien.
     const { data: photoBlock } = await admin
       .from('photo_blocked_users')

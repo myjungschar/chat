@@ -725,6 +725,10 @@ input:focus-visible {
   overflow: hidden;
 }
 
+.msg-menu-item.is-paused {
+  opacity: 0.55;
+}
+
 .msg-menu-item {
   display: block;
   width: 100%;

@@ -47,7 +47,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261107-3">
+  <link rel="stylesheet" href="style.css?v=20261107-4">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -409,6 +409,14 @@
                 <span class="settings-arrow"><span class="reports-badge" id="reports-badge" style="display: none;"></span>›</span>
               </li>
             </ul>
+            <div class="toggle-row" id="uploads-paused-row">
+              <span>Dateien senden sperren</span>
+              <label class="switch">
+                <input type="checkbox" id="uploads-paused-toggle" onchange="onUploadsPausedToggle()">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+            <p class="settings-hint">Haken setzen, wenn Google Drive gerade nicht geht. Dann kann niemand Fotos, Dateien oder Sprachnachrichten senden.</p>
           </div>
         </section>
 
@@ -960,6 +968,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261107-3"></script>
+  <script src="script.js?v=20261107-4"></script>
 </body>
 </html>
