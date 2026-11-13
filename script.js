@@ -335,7 +335,7 @@ async function init() {
 // und rechts steht der geöffnete Chat. Login-Bildschirme bleiben immer einspaltig.
 const desktopQuery = window.matchMedia('(min-width: 900px)')
 const AUTH_SCREENS = ['login-bereich', 'forgot-bereich', 'link-confirm-bereich', 'reset-bereich']
-const LEFT_SCREENS = ['list-bereich', 'settings-bereich', 'users-bereich', 'admin-contacts-bereich']
+const LEFT_SCREENS = ['list-bereich', 'settings-bereich', 'users-bereich']
 // Rechts: Chat oder die Unterseiten der Einstellungen (am Handy sind das eigene volle Seiten)
 const RIGHT_SCREENS = ['conversation-bereich', 'email-change-bereich', 'password-change-bereich', 'devices-bereich', 'user-detail-bereich', 'new-user-bereich']
 
@@ -352,6 +352,8 @@ function isRightVisible() {
 }
 
 function isListVisible() {
+  // Der Admin hat keine Chatliste: seine Startseite ("Home") ist die Verwaltung
+  if (isAdmin() && document.getElementById('settings-bereich').style.display !== 'none') return true
   return document.getElementById('list-bereich').style.display !== 'none'
 }
 
@@ -393,7 +395,8 @@ let ignorePops = 0 // so viele popstate-Ereignisse stammen von der App selbst un
 
 function syncBackHistory(id) {
   if (desktopQuery.matches) return
-  const leavesList = id !== 'list-bereich' && !AUTH_SCREENS.includes(id)
+  const adminHome = isAdmin() && id === 'settings-bereich' // die Verwaltung ist die Startseite des Admins
+  const leavesList = id !== 'list-bereich' && !adminHome && !AUTH_SCREENS.includes(id)
   if (leavesList && !backSentinel) {
     history.pushState({ jungscharBack: true }, '')
     backSentinel = true
@@ -494,7 +497,6 @@ function hideAllScreens() {
   document.getElementById('email-change-bereich').style.display = 'none'
   document.getElementById('password-change-bereich').style.display = 'none'
   document.getElementById('devices-bereich').style.display = 'none'
-  document.getElementById('admin-contacts-bereich').style.display = 'none'
   document.getElementById('users-bereich').style.display = 'none'
   document.getElementById('user-detail-bereich').style.display = 'none'
   document.getElementById('new-user-bereich').style.display = 'none'
@@ -719,9 +721,14 @@ async function enterApp(user) {
 
   await loadProfileCache()
   await loadVipIds()
-  await renderChatList()
-  listenForListUpdates()
-  startInboxChannel()
+  if (isAdmin()) {
+    // Der Admin hat keine Chatliste und liest nichts mit: er landet direkt in der Verwaltung
+    openSettings()
+  } else {
+    await renderChatList()
+    listenForListUpdates()
+    startInboxChannel()
+  }
 
   if (isAdmin()) {
     // Der Admin bekommt nie Benachrichtigungen: Push-Abo dieses Geräts kündigen, Zahl auf dem App-Symbol entfernen
@@ -1071,6 +1078,7 @@ function showChatListSkeleton(list) {
 }
 
 async function renderChatList() {
+  if (isAdmin()) return // der Admin hat keine Chatliste
   const myRenderId = ++chatListRenderId
   const listForSkeleton = document.getElementById('chat-list')
   if (listForSkeleton && listForSkeleton.children.length === 0) showChatListSkeleton(listForSkeleton)
@@ -1175,8 +1183,7 @@ async function renderChatList() {
         showBirthdayAnnouncement(true)
         return
       }
-      if (isAdmin()) openAdminContactsFor(id, name)
-      else openDirectChat(id, name)
+      openDirectChat(id, name)
     })
     normalRows.push({ item, time: dmPreviews[id] ? new Date(dmPreviews[id].created_at).getTime() : 0 })
   })
@@ -1301,63 +1308,6 @@ function openDirectChat(userId, name) {
   openConversation(name || 'Ohne Namen')
 }
 
-// Admin: Liste der Einzelchat-Partner einer bestimmten Person laden (rein lesend)
-async function openAdminContactsFor(userId, name) {
-  if (!desktopQuery.matches) stopListening() // am PC bleibt der Chat rechts offen
-  document.getElementById('admin-contacts-title').textContent = name || 'Ohne Namen'
-  showScreen('admin-contacts-bereich')
-
-  const list = document.getElementById('admin-contacts-list')
-  list.innerHTML = '<p class="chat-empty">Lädt …</p>'
-
-  const { data: rows, error } = await supabaseClient
-    .from('direct_messages')
-    .select('sender_id, recipient_id, text, photo_id, audio_id, audio_mime, created_at')
-    .or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
-    .order('created_at', { ascending: false })
-
-  list.innerHTML = ''
-
-  if (error) {
-    list.textContent = 'Fehler beim Laden: ' + error.message
-    return
-  }
-
-  // Pro Gesprächspartner nur die jeweils neueste Nachricht merken
-  // (rows ist schon neu -> alt sortiert, also zählt der erste Treffer)
-  const partners = {}
-  rows.forEach(r => {
-    const partnerId = r.sender_id === userId ? r.recipient_id : r.sender_id
-    if (!partners[partnerId]) partners[partnerId] = r
-  })
-
-  const entries = Object.entries(partners)
-
-  if (entries.length === 0) {
-    list.innerHTML = '<p class="chat-empty">Noch keine Einzelchats.</p>'
-    return
-  }
-
-  entries.forEach(([partnerId, preview]) => {
-    const partnerName = (profileCache[partnerId] && profileCache[partnerId].name) || 'Unbekannt'
-    const item = document.createElement('li')
-    item.className = 'chat-list-item'
-    item.innerHTML = chatListItemHTML(
-      `<div class="chat-list-avatar" style="background:${avatarColor(partnerId)}">${initialsOf(partnerName)}</div>`,
-      partnerName,
-      preview
-    )
-    item.addEventListener('click', () => openAdminDmView(userId, partnerId, name, partnerName))
-    list.appendChild(item)
-  })
-}
-
-// Admin: den Einzelchat zwischen zwei anderen Personen rein lesend öffnen
-function openAdminDmView(userA, userB, nameA, nameB) {
-  switchRoom({ type: 'dm-view', userA: userA, userB: userB })
-  openConversation(nameA + ' ↔ ' + nameB)
-}
-
 async function openConversation(title) {
   document.getElementById('conversation-title').textContent = title + (currentRoom && currentRoom.type === 'dm' ? birthdayMark(currentRoom.userId) : '')
   updateConversationTitleTap()
@@ -1402,6 +1352,7 @@ function closeSettingsPanels() {
 
 // Zurück zur Chatliste (wird vom Zurück-Pfeil im HTML als showList() aufgerufen)
 function showList() {
+  if (isAdmin()) { openSettings(); return } // der Admin hat keine Chatliste, seine Startseite ist die Verwaltung
   // Am Handy verlässt man dabei den Chat; am PC bleibt er rechts einfach offen
   saveDraftNow() // angefangener Text soll gleich als Entwurf in der Liste stehen
   if (!desktopQuery.matches) stopListening()
@@ -5353,16 +5304,7 @@ async function loadPeerMarks() {
     deliveredQuery = deliveredQuery.eq('user_id', roomAtStart.userId)
   }
 
-  // Der Admin bekommt zusätzlich den Verlauf der Lese-Markierungen (Tabelle read_log, braucht lesezeit.sql): daraus ergibt sich,
-  // wann eine Nachricht wirklich gelesen wurde. Fehlt die Tabelle noch, gibt es einfach keine Uhrzeit.
-  let logQuery = null
-  if (isAdmin()) {
-    logQuery = supabaseClient.from('read_log').select('user_id, last_read_at, seen_at')
-    logQuery = adminPair ? logQuery.or(adminPairFilter(roomAtStart)) : logQuery.eq('chat_key', key)
-    logQuery = logQuery.order('seen_at', { ascending: false }).limit(5000)
-  }
-
-  const [readRes, deliveredRes, logRes] = await Promise.all([readQuery, deliveredQuery, logQuery || Promise.resolve(null)])
+  const [readRes, deliveredRes] = await Promise.all([readQuery, deliveredQuery])
   // Zwischenzeitlich in einen anderen Chat gewechselt? Dann verwerfen
   if (currentRoom !== roomAtStart) return
 
@@ -5373,12 +5315,6 @@ async function loadPeerMarks() {
 
   if (deliveredRes.error) console.error('Zustellmarkierungen konnten nicht geladen werden:', deliveredRes.error)
   else (deliveredRes.data || []).forEach(m => { peerEntry(m.user_id).deliveredAt = new Date(m.delivered_at) })
-
-  if (logRes && !logRes.error) {
-    ;(logRes.data || []).slice().reverse().forEach(m => {
-      (readLogs[m.user_id] || (readLogs[m.user_id] = [])).push({ lastReadAt: new Date(m.last_read_at), seenAt: new Date(m.seen_at) })
-    })
-  }
 
   refreshTicks()
 }
@@ -5405,7 +5341,6 @@ function startPeerListening() {
     const entry = peerEntry(row.user_id)
     if (kind === 'read') {
       entry.readAt = new Date(row.last_read_at)
-      if (isAdmin()) (readLogs[row.user_id] || (readLogs[row.user_id] = [])).push({ lastReadAt: entry.readAt, seenAt: new Date() })
     } else {
       entry.deliveredAt = new Date(row.delivered_at)
     }
@@ -7193,15 +7128,29 @@ function deleteMessage(id) {
 function openSettings() {
   if (!desktopQuery.matches) stopListening() // am PC bleibt der Chat rechts offen
   showScreen('settings-bereich')
-  document.getElementById('admin-group').style.display = isAdmin() ? '' : 'none'
-  document.getElementById('push-group').style.display = isAdmin() ? 'none' : ''
-  document.getElementById('feedback-settings-group').style.display = isAdmin() ? 'none' : ''
+  const admin = isAdmin()
+  document.getElementById('admin-group').style.display = admin ? '' : 'none'
+  document.getElementById('push-group').style.display = admin ? 'none' : ''
+  document.getElementById('feedback-settings-group').style.display = admin ? 'none' : ''
   updateNewGroupButton()
   if (isAdmin()) { updateReportsBadge(); updateInviteRequestsBadge(); updateFeedbackBadge() } else updateMyFeedbackBadge()
   updatePendingInvitesEntry()
   loadUploadsDisabled()
   refreshPushToggleUI()
   updateInstallMenu()
+
+  // Der Admin hat nur die Verwaltung (keine Chats, keine Mitglieder-Liste, keine Gruppen, keine Darstellung)
+  if (admin) {
+    ;['members-group', 'group-settings-group'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none' })
+  }
+  const appearance = document.getElementById('appearance-group')
+  if (appearance) appearance.style.display = admin ? 'none' : ''
+  const backBtn = document.getElementById('settings-back-btn')
+  if (backBtn) backBtn.style.display = admin ? 'none' : ''
+  const title = document.getElementById('settings-title')
+  if (title) title.textContent = admin ? 'Verwaltung' : 'Einstellungen'
+  const logoutBtn = document.getElementById('settings-logout-btn')
+  if (logoutBtn) logoutBtn.style.display = admin ? '' : 'none'
 }
 
 function openEmailChange() {
@@ -10161,7 +10110,7 @@ function stopConfetti() {
 }
 
 function showBirthdayAnnouncement(force) {
-  if (!currentUser || !currentProfile) return
+  if (!currentUser || !currentProfile || isAdmin()) return
   if (document.getElementById('birthdate-modal').style.display === 'flex') return // erst das Pflicht-Fenster
   if (document.getElementById('birthday-modal').style.display === 'flex') return
   const today = toISODate(new Date())
@@ -11647,9 +11596,26 @@ function openFeedbackThread(item) {
     dialog.setAttribute('role', 'dialog')
     dialog.setAttribute('aria-modal', 'true')
 
-    const heading = document.createElement('p')
-    heading.className = 'audio-name-heading'
-    heading.textContent = admin ? kindInfo.tag + ' von ' + personName : kindInfo.tag + ': Unterhaltung mit dem Admin'
+    const heading = document.createElement('div')
+    heading.className = 'fb-thread-head'
+    const headAvatar = document.createElement('div')
+    headAvatar.className = 'fb-thread-avatar'
+    if (admin) {
+      headAvatar.style.background = avatarColor(item.user_id)
+      headAvatar.textContent = initialsOf(personName)
+    } else {
+      headAvatar.textContent = 'A'
+    }
+    const headText = document.createElement('div')
+    headText.className = 'fb-thread-head-text'
+    const headTitle = document.createElement('div')
+    headTitle.className = 'fb-thread-title'
+    headTitle.textContent = admin ? personName : 'Admin'
+    const headSub = document.createElement('div')
+    headSub.className = 'fb-thread-sub'
+    headSub.textContent = kindInfo.tag + (admin ? '' : ' · Unterhaltung')
+    headText.append(headTitle, headSub)
+    heading.append(headAvatar, headText)
 
     const list = document.createElement('div')
     list.className = 'fb-thread-list'
@@ -12175,7 +12141,7 @@ async function markFilePreviews(...previewMaps) {
 function reportContentText(report) {
   const parts = []
   if (report.message_text) parts.push(report.message_text)
-  if (report.has_photo) parts.push('[Foto]')
+  if (report.has_photo && !report.photo_thumb_id) parts.push('[Foto]')
   if (report.has_audio) parts.push('[Audio oder Datei]')
   return parts.join(' ') || '(ohne Text)'
 }
@@ -12196,6 +12162,22 @@ async function openReportsModal() {
   document.addEventListener('keydown', onKey)
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
 
+  // Die Unterhaltung vor der gemeldeten Nachricht: erst 3 Nachrichten, auf Wunsch bis zu 10 (die Datenbankfunktion
+  // admin_report_context liefert sie nur für offene Meldungen). Sonst sieht der Admin keine Chats.
+  const reportContext = {} // Meldungs-ID -> { rows, count, failed }
+  const loadContext = async (report, count) => {
+    const { data, error } = await supabaseClient.rpc('admin_report_context', { p_report_id: report.id, p_count: count })
+    if (error) { console.error('Kontext der Meldung:', error.message); reportContext[report.id] = { rows: [], count: count, failed: true }; return }
+    reportContext[report.id] = { rows: data || [], count: count, failed: false }
+  }
+  const contextLineText = (row) => {
+    const parts = []
+    if (row.msg_text) parts.push(row.msg_text)
+    if (row.msg_has_photo) parts.push('[Foto]')
+    if (row.msg_has_audio) parts.push('[Audio oder Datei]')
+    return parts.join(' ') || '(ohne Text)'
+  }
+
   const render = () => {
     dialog.innerHTML = ''
     const heading = document.createElement('p')
@@ -12214,9 +12196,59 @@ async function openReportsModal() {
       const head = document.createElement('div')
       head.className = 'report-head'
       head.textContent = (sender && sender.name ? sender.name : 'Unbekannt') + ' · ' + reportChatLabel(report)
+      const context = document.createElement('div')
+      context.className = 'report-context'
+      const ctx = reportContext[report.id]
+      if (!ctx) {
+        context.textContent = 'Unterhaltung davor wird geladen …'
+      } else if (ctx.failed) {
+        context.textContent = 'Die Unterhaltung davor konnte nicht geladen werden.'
+      } else if (ctx.rows.length > 0) {
+        const label = document.createElement('div')
+        label.className = 'report-context-label'
+        label.textContent = 'Davor im Chat'
+        context.appendChild(label)
+        ctx.rows.forEach(row => {
+          const line = document.createElement('div')
+          line.className = 'report-context-line'
+          const who = document.createElement('strong')
+          who.textContent = ((profileCache[row.msg_sender_id] && profileCache[row.msg_sender_id].name) || 'Unbekannt') + ': '
+          line.append(who, document.createTextNode(contextLineText(row)))
+          context.appendChild(line)
+        })
+      } else {
+        context.textContent = 'Davor gibt es keine Nachrichten.'
+      }
+      if (ctx && !ctx.failed && ctx.rows.length >= ctx.count && ctx.count < 10) {
+        const more = document.createElement('button')
+        more.type = 'button'
+        more.className = 'report-more'
+        more.textContent = 'Mehr anzeigen (bis 10)'
+        more.addEventListener('click', async () => {
+          more.disabled = true
+          await loadContext(report, 10)
+          render()
+        })
+        context.appendChild(more)
+      }
+
       const text = document.createElement('div')
       text.className = 'report-text'
-      text.textContent = reportContentText(report)
+      const reportedLabel = document.createElement('div')
+      reportedLabel.className = 'report-context-label'
+      reportedLabel.textContent = 'Gemeldet'
+      text.appendChild(reportedLabel)
+      text.appendChild(document.createTextNode(reportContentText(report)))
+      if (report.photo_thumb_id) {
+        const photoWrap = document.createElement('div')
+        photoWrap.className = 'report-photo'
+        const img = document.createElement('img')
+        img.alt = 'Gemeldetes Foto'
+        photoWrap.appendChild(img)
+        getThumbUrl(report.photo_thumb_id).then(url => { img.src = url }).catch(() => { photoWrap.textContent = '[Foto nicht mehr vorhanden]' })
+        img.addEventListener('click', () => openPhotoViewer({ photo_id: report.photo_id, photo_thumb_id: report.photo_thumb_id, created_at: report.message_created_at }))
+        text.appendChild(photoWrap)
+      }
       const meta = document.createElement('div')
       meta.className = 'report-meta'
       meta.textContent = 'Gemeldet von ' + (reporter && reporter.name ? reporter.name : 'Unbekannt') + ', ' + formatTime(report.created_at)
@@ -12235,7 +12267,7 @@ async function openReportsModal() {
       deleteBtn.addEventListener('click', () => resolveReport(report, true))
       actions.append(doneBtn, deleteBtn)
 
-      item.append(head, text, meta, actions)
+      item.append(head, context, text, meta, actions)
       list.appendChild(item)
     })
     dialog.appendChild(list)
@@ -12252,7 +12284,8 @@ async function openReportsModal() {
     if (deleteMessage) {
       const sure = await askConfirm('Die gemeldete Nachricht für alle löschen?', { okText: 'Löschen', danger: true })
       if (!sure) return
-      const { error } = await supabaseClient.from(report.message_table).delete().eq('id', report.message_id)
+      // Der Admin darf Chats nicht lesen, deshalb löscht eine Datenbankfunktion genau die gemeldete Nachricht
+      const { error } = await supabaseClient.rpc('admin_delete_reported_message', { p_report_id: report.id })
       if (error) { showToast('Löschen hat nicht geklappt: ' + error.message); return }
     }
     // Alle Meldungen zu derselben Nachricht gleich mit erledigen
@@ -12264,14 +12297,13 @@ async function openReportsModal() {
     if (error) { showToast('Speichern hat nicht geklappt: ' + error.message); return }
     openReports = openReports.filter(r => !(r.message_table === report.message_table && r.message_id === report.message_id))
     render()
-    renderChatList()
   }
 
   const loaded = await loadOpenReports()
   if (!loaded) {
     dialog.innerHTML = ''
     const info = document.createElement('p')
-    info.textContent = 'Die Meldungen konnten nicht geladen werden (ist das SQL schon ausgeführt?).'
+    info.textContent = '(ist das SQL schon ausgeführt?).'
     const closeBtn = document.createElement('button')
     closeBtn.type = 'button'
     closeBtn.className = 'confirm-cancel'
@@ -12281,6 +12313,10 @@ async function openReportsModal() {
     return
   }
   render()
+  if (openReports.length > 0) {
+    await Promise.all(openReports.map(report => loadContext(report, 3)))
+    if (document.body.contains(overlay)) render()
+  }
 }
 
 // ===== Nachrichten in der Chatliste suchen =====
@@ -12415,8 +12451,6 @@ function openMessageResult(result) {
     else if (key === 'junge') openGenderGroup('junge', 'Jungs')
     else if (key === 'maedchen') openGenderGroup('maedchen', 'Mädels')
     else if (key.startsWith('grp_')) openCustomGroup(key.slice(4))
-  } else if (isAdmin()) {
-    openAdminDmView(result.sender_id, result.recipient_id, nameOfUser(result.sender_id), nameOfUser(result.recipient_id))
   } else {
     const partner = result.sender_id === currentUser.id ? result.recipient_id : result.sender_id
     openDirectChat(partner, nameOfUser(partner))

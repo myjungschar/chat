@@ -1,7 +1,8 @@
 // Edge Function "get-photo": liefert ein Foto oder eine Audio-Datei aus Google Drive aus - aber nur, wenn die Person den Chat sehen darf.
 // Aufruf: GET ...?id=<Drive-ID> mit dem Zugriffs-Token der Person.
 // Regeln wie bei den Chats: Hauptgruppe alle, Jungs/Mädchen nur die jeweilige Gruppe, eigene Gruppen nur deren Mitglieder,
-// Einzelchat nur die zwei (Admin liest mit). Steht die Datei in mehreren Nachrichten (weitergeleitet), reicht eine davon.
+// Einzelchat nur die zwei. Steht die Datei in mehreren Nachrichten (weitergeleitet), reicht eine davon.
+// Der Admin liest keine Chats: er bekommt nur Fotos, die in einer noch offenen Meldung (message_reports) hängen.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const cors = {
@@ -65,35 +66,46 @@ Deno.serve(async (req) => {
     let found = false
     let contentType = 'image/jpeg'
 
-    const { data: groupRows } = await admin.from('messages').select('group_key, audio_id, audio_mime').or(filter).limit(50)
-    for (const row of groupRows ?? []) {
-      found = true
-      if (row.audio_id === id && AUDIO_MIMES.includes(row.audio_mime)) contentType = row.audio_mime
-      if (allowed) continue
-      const key = row.group_key
-      if (isAdmin || key === null || key === profile.gender) {
-        allowed = true
-      } else if (typeof key === 'string' && CUSTOM_GROUP.test(key)) {
-        // Eigene Gruppe: nur wer Mitglied ist
-        const { data: member } = await admin
-          .from('chat_group_members')
-          .select('user_id')
-          .eq('group_id', key.slice(4))
-          .eq('user_id', userId)
-          .maybeSingle()
-        if (member) allowed = true
+    if (isAdmin) {
+      // Nur ein Foto aus einer offenen Meldung (Foto oder Vorschau)
+      const { data: reportRows } = await admin
+        .from('message_reports')
+        .select('id')
+        .eq('resolved', false)
+        .or(`photo_id.eq.${id},photo_thumb_id.eq.${id}`)
+        .limit(1)
+      if (reportRows && reportRows.length > 0) { found = true; allowed = true }
+    } else {
+      const { data: groupRows } = await admin.from('messages').select('group_key, audio_id, audio_mime').or(filter).limit(50)
+      for (const row of groupRows ?? []) {
+        found = true
+        if (row.audio_id === id && AUDIO_MIMES.includes(row.audio_mime)) contentType = row.audio_mime
+        if (allowed) continue
+        const key = row.group_key
+        if (key === null || key === profile.gender) {
+          allowed = true
+        } else if (typeof key === 'string' && CUSTOM_GROUP.test(key)) {
+          // Eigene Gruppe: nur wer Mitglied ist
+          const { data: member } = await admin
+            .from('chat_group_members')
+            .select('user_id')
+            .eq('group_id', key.slice(4))
+            .eq('user_id', userId)
+            .maybeSingle()
+          if (member) allowed = true
+        }
       }
-    }
 
-    const { data: dmRows } = await admin
-      .from('direct_messages')
-      .select('sender_id, recipient_id, audio_id, audio_mime')
-      .or(filter)
-      .limit(50)
-    for (const row of dmRows ?? []) {
-      found = true
-      if (row.audio_id === id && AUDIO_MIMES.includes(row.audio_mime)) contentType = row.audio_mime
-      if (isAdmin || row.sender_id === userId || row.recipient_id === userId) allowed = true
+      const { data: dmRows } = await admin
+        .from('direct_messages')
+        .select('sender_id, recipient_id, audio_id, audio_mime')
+        .or(filter)
+        .limit(50)
+      for (const row of dmRows ?? []) {
+        found = true
+        if (row.audio_id === id && AUDIO_MIMES.includes(row.audio_mime)) contentType = row.audio_mime
+        if (row.sender_id === userId || row.recipient_id === userId) allowed = true
+      }
     }
 
     if (!found) return fail('Datei nicht gefunden', 404)
