@@ -6728,3 +6728,83 @@ body.split-view:not(.admin-home) .admin-sections {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ===== Admin am PC: alle Seiten als Karten auf ruhigem Grund, nichts erinnert mehr an einen Chat ===== */
+body.is-admin.split-view .app-container {
+  gap: 16px;
+  padding: 16px;
+}
+
+body.is-admin.split-view #admin-bereich,
+body.is-admin.split-view #users-bereich,
+body.is-admin.split-view #user-detail-bereich,
+body.is-admin.split-view #new-user-bereich,
+body.is-admin.split-view #email-change-bereich,
+body.is-admin.split-view #password-change-bereich,
+body.is-admin.split-view #devices-bereich {
+  height: 100%;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--bg-panel);
+  box-shadow: none;
+}
+
+/* Die Verwaltungs-Startseite über die ganze Breite: kein Kasten, die Karten darin tragen das Bild */
+body.is-admin.split-view.admin-home #admin-bereich {
+  border: none;
+  background: transparent;
+}
+
+/* Rechts nur die Formulare, ohne zweite Karte in der Karte */
+body.is-admin .subpage > .form-card {
+  width: 100%;
+  max-width: 560px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Rechts noch nichts offen: gestrichelter Rahmen statt leerer Fläche */
+body.is-admin.split-view #chat-placeholder {
+  border: 1.5px dashed var(--border-subtle);
+  border-radius: 14px;
+  background: transparent;
+}
+
+/* Überschriften der Verwaltungsseiten */
+body.is-admin .chat-header .user-info {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.back-btn.admin-back {
+  width: auto;
+  min-width: 0;
+  padding: 0 14px 0 6px;
+  border-radius: 20px;
+  font-weight: 600;
+}
+
+/* Nutzerliste: jede Person eine eigene Karte */
+body.is-admin #user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 2px;
+}
+
+body.is-admin #user-list .chat-list-item {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-panel-raised);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+body.is-admin #user-list .chat-list-item:hover,
+body.is-admin #user-list .chat-list-item.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
