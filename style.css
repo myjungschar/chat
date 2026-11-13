@@ -6364,7 +6364,7 @@ body.light-theme .user-invite-pill {
 .report-context {
   margin: 8px 0 6px;
   padding: 8px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
   font-size: 13px;
   color: var(--text-secondary);
@@ -6385,7 +6385,7 @@ body.light-theme .user-invite-pill {
 }
 
 .report-context-line strong {
-  color: var(--text);
+  color: var(--text-primary);
 }
 
 .report-text {
@@ -6445,7 +6445,7 @@ body.light-theme .user-invite-pill {
   align-items: center;
   gap: 12px;
   padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .fb-thread-avatar {
@@ -6504,7 +6504,7 @@ body.light-theme .user-invite-pill {
 .fb-thread-dialog .fb-thread-send {
   margin: 0;
   padding: 10px 12px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .fb-thread-dialog .fb-thread-send button {
@@ -6518,4 +6518,213 @@ body.light-theme .user-invite-pill {
   border-left: none;
   border-right: none;
   border-bottom: none;
+}
+
+/* ===== Admin: Verwaltung (Startseite des Admins) ===== */
+#admin-bereich {
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+body.split-view #admin-bereich {
+  grid-column: 1;
+  border-width: 0 1px 0 0;
+}
+
+/* Am PC ohne offene Unterseite: die ganze Breite nutzen, kein Chat-Platzhalter */
+body.split-view.admin-home .app-container {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body.split-view.admin-home #admin-bereich {
+  grid-column: 1 / -1;
+  border-width: 0;
+}
+
+body.admin-home #chat-placeholder {
+  display: none !important;
+}
+
+.admin-header {
+  align-items: center;
+}
+
+.admin-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0 auto 0 0;
+}
+
+.admin-title-main {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.admin-title-sub {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.admin-scroll {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 6px 4px calc(28px + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+}
+
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 10px 0 18px;
+}
+
+.admin-stat {
+  padding: 14px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--bg-panel-raised);
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.admin-stat:hover {
+  border-color: var(--accent);
+}
+
+.admin-stat:active {
+  transform: scale(0.98);
+}
+
+.admin-stat-num {
+  display: block;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text-primary);
+}
+
+.admin-stat-label {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.admin-stat.alert {
+  border-color: var(--danger);
+}
+
+.admin-stat.alert .admin-stat-num {
+  color: var(--danger);
+}
+
+.admin-sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.admin-section {
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--bg-panel-raised);
+  overflow: hidden;
+}
+
+.admin-section-title {
+  padding: 12px 16px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.admin-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.admin-row:hover {
+  background: var(--accent-soft);
+}
+
+.admin-row-toggle {
+  cursor: default;
+}
+
+.admin-row-toggle:hover {
+  background: transparent;
+}
+
+.admin-row-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  font-size: 17px;
+}
+
+.admin-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.admin-row-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.admin-row-sub {
+  margin-top: 1px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.admin-arrow {
+  flex: 0 0 auto;
+  font-size: 20px;
+  color: var(--text-secondary);
+}
+
+.admin-row .reports-badge {
+  margin-right: 0;
+}
+
+/* Daneben steht eine Unterseite (PC) oder das Fenster ist schmal: alles untereinander */
+body.split-view:not(.admin-home) .admin-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+body.split-view:not(.admin-home) .admin-sections {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (max-width: 760px) {
+  .admin-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-sections {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

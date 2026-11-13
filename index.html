@@ -47,7 +47,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261113-1">
+  <link rel="stylesheet" href="style.css?v=20261113-2">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -251,16 +251,122 @@
 
     </div>
 
+    <!-- BEREICH 3a: VERWALTUNG (Startseite des Admins: keine Chats, nur Verwaltung) -->
+    <div id="admin-bereich" class="card" style="display: none;">
+
+      <header class="chat-header admin-header">
+        <div class="admin-title">
+          <span class="admin-title-main">Verwaltung</span>
+          <span class="admin-title-sub" id="admin-subtitle">JungscharChat</span>
+        </div>
+        <div class="header-actions">
+          <button class="logout-btn" onclick="logout()">Abmelden</button>
+        </div>
+      </header>
+
+      <div class="admin-scroll">
+
+        <div class="admin-stats">
+          <div class="admin-stat" role="button" tabindex="0" onclick="openUserManagement()" onkeydown="if (event.key === 'Enter') openUserManagement()">
+            <span class="admin-stat-num" id="stat-members">–</span>
+            <span class="admin-stat-label">Mitglieder</span>
+          </div>
+          <div class="admin-stat" role="button" tabindex="0" onclick="openUserManagement()" onkeydown="if (event.key === 'Enter') openUserManagement()">
+            <span class="admin-stat-num" id="stat-invited">–</span>
+            <span class="admin-stat-label">Noch eingeladen</span>
+          </div>
+          <div class="admin-stat" role="button" tabindex="0" onclick="openReportsModal()" onkeydown="if (event.key === 'Enter') openReportsModal()">
+            <span class="admin-stat-num" id="stat-reports">–</span>
+            <span class="admin-stat-label">Offene Meldungen</span>
+          </div>
+          <div class="admin-stat" role="button" tabindex="0" onclick="openFeedbackListModal()" onkeydown="if (event.key === 'Enter') openFeedbackListModal()">
+            <span class="admin-stat-num" id="stat-feedback">–</span>
+            <span class="admin-stat-label">Rückmeldungen</span>
+          </div>
+        </div>
+
+        <div class="admin-sections">
+
+          <section class="admin-section">
+            <h3 class="admin-section-title">Aufgaben</h3>
+            <div class="admin-row" id="menu-reports" onclick="openReportsModal()">
+              <span class="admin-row-icon">🚩</span>
+              <span class="admin-row-text"><span class="admin-row-title">Meldungen</span><span class="admin-row-sub">Gemeldete Nachrichten ansehen und bearbeiten</span></span>
+              <span class="reports-badge" id="reports-badge" style="display: none;"></span><span class="admin-arrow">›</span>
+            </div>
+            <div class="admin-row" id="menu-feedback-admin" onclick="openFeedbackListModal()">
+              <span class="admin-row-icon">💌</span>
+              <span class="admin-row-text"><span class="admin-row-title">Rückmeldungen</span><span class="admin-row-sub">Probleme, Ideen und vermisste Personen</span></span>
+              <span class="reports-badge" id="feedback-badge" style="display: none;"></span><span class="admin-arrow">›</span>
+            </div>
+            <div class="admin-row" id="menu-invite-requests" onclick="openInviteRequestsModal()">
+              <span class="admin-row-icon">📩</span>
+              <span class="admin-row-text"><span class="admin-row-title">Einladungs-Anfragen</span><span class="admin-row-sub">Wer gern dabei sein möchte</span></span>
+              <span class="reports-badge" id="invite-requests-badge" style="display: none;"></span><span class="admin-arrow">›</span>
+            </div>
+          </section>
+
+          <section class="admin-section">
+            <h3 class="admin-section-title">Mitglieder</h3>
+            <div class="admin-row" id="menu-users" onclick="openUserManagement()">
+              <span class="admin-row-icon">👥</span>
+              <span class="admin-row-text"><span class="admin-row-title">Nutzer verwalten</span><span class="admin-row-sub">Rechte, Sperren, Geburtsdatum, Farbe</span></span>
+              <span class="admin-arrow">›</span>
+            </div>
+            <div class="admin-row" id="menu-new-user" onclick="openNewUser()">
+              <span class="admin-row-icon">➕</span>
+              <span class="admin-row-text"><span class="admin-row-title">Neuen Nutzer hinzufügen</span><span class="admin-row-sub">Per E-Mail einladen</span></span>
+              <span class="admin-arrow">›</span>
+            </div>
+          </section>
+
+          <section class="admin-section">
+            <h3 class="admin-section-title">System</h3>
+            <div class="admin-row admin-row-toggle" id="uploads-paused-row">
+              <span class="admin-row-icon">📁</span>
+              <span class="admin-row-text"><span class="admin-row-title">Dateien senden sperren</span><span class="admin-row-sub">Für den Fall, dass Google Drive gerade nicht geht: dann kann niemand Fotos, Dateien oder Sprachnachrichten senden.</span></span>
+              <label class="switch">
+                <input type="checkbox" id="uploads-paused-toggle" onchange="onUploadsPausedToggle()">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          </section>
+
+          <section class="admin-section">
+            <h3 class="admin-section-title">Mein Konto</h3>
+            <div class="admin-row" onclick="openEmailChange()">
+              <span class="admin-row-icon">✉️</span>
+              <span class="admin-row-text"><span class="admin-row-title">E-Mail-Adresse ändern</span></span>
+              <span class="admin-arrow">›</span>
+            </div>
+            <div class="admin-row" onclick="openPasswordChange()">
+              <span class="admin-row-icon">🔑</span>
+              <span class="admin-row-text"><span class="admin-row-title">Passwort ändern</span></span>
+              <span class="admin-arrow">›</span>
+            </div>
+            <div class="admin-row" onclick="openDevices()">
+              <span class="admin-row-icon">📱</span>
+              <span class="admin-row-text"><span class="admin-row-title">Angemeldete Geräte</span></span>
+              <span class="admin-arrow">›</span>
+            </div>
+            <div class="admin-row" onclick="reloadApp()">
+              <span class="admin-row-icon">↻</span>
+              <span class="admin-row-text"><span class="admin-row-title">App neu laden</span></span>
+            </div>
+          </section>
+
+        </div>
+      </div>
+
+    </div>
+
     <!-- BEREICH 3b: EINSTELLUNGEN (eigener Bildschirm, nicht mehr ausklappbar) -->
     <div id="settings-bereich" class="card" style="display: none;">
 
       <header class="chat-header">
-        <button class="back-btn" id="settings-back-btn" onclick="showList()" aria-label="Zurück zur Übersicht"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <button class="back-btn" onclick="showList()" aria-label="Zurück zur Übersicht"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
         <div class="user-info">
-          <span id="settings-title">Einstellungen</span>
-        </div>
-        <div class="header-actions" style="margin-left: auto;">
-          <button class="logout-btn" id="settings-logout-btn" onclick="logout()" style="display: none;">Abmelden</button>
+          <span>Einstellungen</span>
         </div>
       </header>
 
@@ -358,7 +464,7 @@
           </div>
         </section>
 
-        <section class="settings-group" id="appearance-group">
+        <section class="settings-group">
           <h3 class="settings-group-title">Darstellung</h3>
           <div class="settings-group-body">
             <div class="toggle-row">
@@ -384,42 +490,6 @@
                 <span class="settings-arrow">↻</span>
               </li>
             </ul>
-          </div>
-        </section>
-
-        <section class="settings-group" id="admin-group" style="display: none;">
-          <h3 class="settings-group-title">Verwaltung</h3>
-          <div class="settings-group-body">
-            <ul class="settings-menu">
-              <li id="menu-users" onclick="openUserManagement()">
-                <span>Nutzer verwalten</span>
-                <span class="settings-arrow">›</span>
-              </li>
-              <li id="menu-new-user" onclick="openNewUser()">
-                <span>Neuen Nutzer hinzufügen</span>
-                <span class="settings-arrow">›</span>
-              </li>
-              <li id="menu-invite-requests" onclick="openInviteRequestsModal()">
-                <span>Einladungs-Anfragen</span>
-                <span class="settings-arrow"><span class="reports-badge" id="invite-requests-badge" style="display: none;"></span>›</span>
-              </li>
-              <li id="menu-feedback-admin" onclick="openFeedbackListModal()">
-                <span>Rückmeldungen</span>
-                <span class="settings-arrow"><span class="reports-badge" id="feedback-badge" style="display: none;"></span>›</span>
-              </li>
-              <li id="menu-reports" onclick="openReportsModal()">
-                <span>Meldungen</span>
-                <span class="settings-arrow"><span class="reports-badge" id="reports-badge" style="display: none;"></span>›</span>
-              </li>
-            </ul>
-            <div class="toggle-row" id="uploads-paused-row">
-              <span>Dateien senden sperren</span>
-              <label class="switch">
-                <input type="checkbox" id="uploads-paused-toggle" onchange="onUploadsPausedToggle()">
-                <span class="switch-slider"></span>
-              </label>
-            </div>
-            <p class="settings-hint">Haken setzen, wenn Google Drive gerade nicht geht. Dann kann niemand Fotos, Dateien oder Sprachnachrichten senden.</p>
           </div>
         </section>
 
@@ -957,6 +1027,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261113-1"></script>
+  <script src="script.js?v=20261113-2"></script>
 </body>
 </html>

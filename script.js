@@ -335,7 +335,7 @@ async function init() {
 // und rechts steht der geöffnete Chat. Login-Bildschirme bleiben immer einspaltig.
 const desktopQuery = window.matchMedia('(min-width: 900px)')
 const AUTH_SCREENS = ['login-bereich', 'forgot-bereich', 'link-confirm-bereich', 'reset-bereich']
-const LEFT_SCREENS = ['list-bereich', 'settings-bereich', 'users-bereich']
+const LEFT_SCREENS = ['list-bereich', 'admin-bereich', 'settings-bereich', 'users-bereich']
 // Rechts: Chat oder die Unterseiten der Einstellungen (am Handy sind das eigene volle Seiten)
 const RIGHT_SCREENS = ['conversation-bereich', 'email-change-bereich', 'password-change-bereich', 'devices-bereich', 'user-detail-bereich', 'new-user-bereich']
 
@@ -353,8 +353,7 @@ function isRightVisible() {
 
 function isListVisible() {
   // Der Admin hat keine Chatliste: seine Startseite ("Home") ist die Verwaltung
-  if (isAdmin() && document.getElementById('settings-bereich').style.display !== 'none') return true
-  return document.getElementById('list-bereich').style.display !== 'none'
+  return document.getElementById('list-bereich').style.display !== 'none' || document.getElementById('admin-bereich').style.display !== 'none'
 }
 
 function showScreen(id) {
@@ -370,7 +369,12 @@ function showScreen(id) {
     if (aboutCard) aboutCard.classList.remove('open')
   }
 
-  if (split) {
+  // Die Verwaltung des Admins nutzt am PC die ganze Breite (kein Chat rechts)
+  document.body.classList.toggle('admin-home', id === 'admin-bereich')
+  const placeholderPill = document.querySelector('#chat-placeholder .placeholder-pill')
+  if (placeholderPill) placeholderPill.textContent = isAdmin() ? 'Nutzer auswählen, um Details zu sehen' : 'Chat auswählen, um zu schreiben'
+
+  if (split && id !== 'admin-bereich') {
     // Nur die eigene Seite austauschen, die andere bleibt stehen
     AUTH_SCREENS.forEach(s => { document.getElementById(s).style.display = 'none' })
     const side = LEFT_SCREENS.includes(id) ? LEFT_SCREENS : RIGHT_SCREENS
@@ -395,7 +399,7 @@ let ignorePops = 0 // so viele popstate-Ereignisse stammen von der App selbst un
 
 function syncBackHistory(id) {
   if (desktopQuery.matches) return
-  const adminHome = isAdmin() && id === 'settings-bereich' // die Verwaltung ist die Startseite des Admins
+  const adminHome = id === 'admin-bereich' // die Verwaltung ist die Startseite des Admins
   const leavesList = id !== 'list-bereich' && !adminHome && !AUTH_SCREENS.includes(id)
   if (leavesList && !backSentinel) {
     history.pushState({ jungscharBack: true }, '')
@@ -493,6 +497,7 @@ function hideAllScreens() {
   document.getElementById('link-confirm-bereich').style.display = 'none'
   document.getElementById('reset-bereich').style.display = 'none'
   document.getElementById('list-bereich').style.display = 'none'
+  document.getElementById('admin-bereich').style.display = 'none'
   document.getElementById('settings-bereich').style.display = 'none'
   document.getElementById('email-change-bereich').style.display = 'none'
   document.getElementById('password-change-bereich').style.display = 'none'
@@ -669,9 +674,16 @@ async function enterApp(user) {
 
   // Beim Neuladen sofort die Chatliste mit grauen Platzhaltern zeigen, statt erst eine leere Seite, bis Profil und Chats da sind.
   // Schlägt etwas fehl, zeigt showLogin() wieder den Login.
+  // Der Admin hat keine Chatliste: wer beim letzten Mal Admin war, sieht gleich die Verwaltung statt der grauen Chat-Platzhalter
+  let lastRole = null
+  try { lastRole = localStorage.getItem('jcLastRole') } catch (e) { /* egal */ }
   hideAllScreens()
-  showScreen('list-bereich')
-  showChatListSkeleton(document.getElementById('chat-list'))
+  if (lastRole === 'admin') {
+    showScreen('admin-bereich')
+  } else {
+    showScreen('list-bereich')
+    showChatListSkeleton(document.getElementById('chat-list'))
+  }
 
   // Das Profil laden - bei schlechtem Netz bis zu 3 Versuche. Ein Netzwerkfehler darf NIEMALS zum Abmelden
   // führen (früher wurde dabei die Sitzung auf allen Geräten beendet).
@@ -711,6 +723,7 @@ async function enterApp(user) {
 
   currentUser = user
   currentProfile = profile
+  try { localStorage.setItem('jcLastRole', profile.role === 'admin' ? 'admin' : 'user') } catch (e) { /* egal */ }
   document.body.classList.toggle('is-admin', isAdmin())
   startFeedbackListening()
 
@@ -723,8 +736,12 @@ async function enterApp(user) {
   await loadVipIds()
   if (isAdmin()) {
     // Der Admin hat keine Chatliste und liest nichts mit: er landet direkt in der Verwaltung
-    openSettings()
+    const onHome = ['admin-bereich', 'list-bereich'].some(sid => document.getElementById(sid).style.display !== 'none')
+    if (onHome) openAdminHome()
+    else updateAdminStats()
   } else {
+    // Zuletzt war hier der Admin angemeldet, jetzt ist es ein normales Mitglied: zur Chatliste wechseln
+    if (document.getElementById('admin-bereich').style.display !== 'none') showScreen('list-bereich')
     await renderChatList()
     listenForListUpdates()
     startInboxChannel()
@@ -1352,7 +1369,7 @@ function closeSettingsPanels() {
 
 // Zurück zur Chatliste (wird vom Zurück-Pfeil im HTML als showList() aufgerufen)
 function showList() {
-  if (isAdmin()) { openSettings(); return } // der Admin hat keine Chatliste, seine Startseite ist die Verwaltung
+  if (isAdmin()) { openAdminHome(); return } // der Admin hat keine Chatliste, seine Startseite ist die Verwaltung
   // Am Handy verlässt man dabei den Chat; am PC bleibt er rechts einfach offen
   saveDraftNow() // angefangener Text soll gleich als Entwurf in der Liste stehen
   if (!desktopQuery.matches) stopListening()
@@ -7125,32 +7142,46 @@ function deleteMessage(id) {
 
 // 9. Einstellungen: eigener Bildschirm. Eigenes Passwort ändern für alle,
 //    bei Admins zusätzlich die Nutzerverwaltung darunter.
+// Startseite des Admins: Verwaltung mit Überblick (Zahlen), Aufgaben, Mitgliedern, System und eigenem Konto
+function openAdminHome() {
+  if (!desktopQuery.matches) stopListening()
+  showScreen('admin-bereich')
+  const sub = document.getElementById('admin-subtitle')
+  if (sub) sub.textContent = 'Angemeldet als ' + ((currentProfile && currentProfile.display_name) || 'Admin')
+  updateAdminStats()
+  loadUploadsDisabled()
+  updateReportsBadge()
+  updateInviteRequestsBadge()
+  updateFeedbackBadge()
+}
+
+// Die vier Zahlen oben in der Verwaltung
+function updateAdminStats() {
+  const set = (id, value, alert) => {
+    const el = document.getElementById(id)
+    if (!el) return
+    el.textContent = String(value)
+    const tile = el.closest('.admin-stat')
+    if (tile) tile.classList.toggle('alert', !!alert && value > 0)
+  }
+  const members = Object.values(profileCache || {}).filter(p => p.role !== 'admin')
+  set('stat-members', members.filter(p => p.active !== false).length)
+  set('stat-invited', members.filter(p => p.active === false).length)
+  set('stat-reports', openReports.length, true)
+  set('stat-feedback', feedbackItems.length, true)
+}
+
 function openSettings() {
+  if (isAdmin()) { openAdminHome(); return } // der Admin hat keine Einstellungen, nur die Verwaltung
   if (!desktopQuery.matches) stopListening() // am PC bleibt der Chat rechts offen
   showScreen('settings-bereich')
-  const admin = isAdmin()
-  document.getElementById('admin-group').style.display = admin ? '' : 'none'
-  document.getElementById('push-group').style.display = admin ? 'none' : ''
-  document.getElementById('feedback-settings-group').style.display = admin ? 'none' : ''
+  document.getElementById('push-group').style.display = ''
+  document.getElementById('feedback-settings-group').style.display = ''
   updateNewGroupButton()
-  if (isAdmin()) { updateReportsBadge(); updateInviteRequestsBadge(); updateFeedbackBadge() } else updateMyFeedbackBadge()
+  updateMyFeedbackBadge()
   updatePendingInvitesEntry()
-  loadUploadsDisabled()
   refreshPushToggleUI()
   updateInstallMenu()
-
-  // Der Admin hat nur die Verwaltung (keine Chats, keine Mitglieder-Liste, keine Gruppen, keine Darstellung)
-  if (admin) {
-    ;['members-group', 'group-settings-group'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none' })
-  }
-  const appearance = document.getElementById('appearance-group')
-  if (appearance) appearance.style.display = admin ? 'none' : ''
-  const backBtn = document.getElementById('settings-back-btn')
-  if (backBtn) backBtn.style.display = admin ? 'none' : ''
-  const title = document.getElementById('settings-title')
-  if (title) title.textContent = admin ? 'Verwaltung' : 'Einstellungen'
-  const logoutBtn = document.getElementById('settings-logout-btn')
-  if (logoutBtn) logoutBtn.style.display = admin ? '' : 'none'
 }
 
 function openEmailChange() {
@@ -11111,6 +11142,7 @@ async function updateInviteRequestsBadge() {
   await loadInviteRequests()
   badge.textContent = String(inviteRequests.length)
   badge.style.display = inviteRequests.length > 0 ? '' : 'none'
+  updateAdminStats()
 }
 
 async function openInviteRequestsModal() {
@@ -11375,6 +11407,7 @@ async function updateFeedbackBadge() {
   await loadFeedback()
   badge.textContent = String(feedbackItems.length)
   badge.style.display = feedbackItems.length > 0 ? '' : 'none'
+  updateAdminStats()
 }
 
 async function openFeedbackListModal() {
@@ -12096,6 +12129,7 @@ async function updateReportsBadge() {
   await loadOpenReports()
   badge.textContent = String(openReports.length)
   badge.style.display = openReports.length > 0 ? '' : 'none'
+  updateAdminStats()
 }
 
 function reportChatLabel(report) {
