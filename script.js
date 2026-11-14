@@ -1100,6 +1100,7 @@ async function renderChatList() {
   const listForSkeleton = document.getElementById('chat-list')
   if (listForSkeleton && listForSkeleton.children.length === 0) showChatListSkeleton(listForSkeleton)
   await loadMutedChats()
+  if (!profilesLoaded) await loadProfileCache() // die Mitglieder-Liste fehlt noch: erneut versuchen, bevor die Liste gezeichnet wird
   await loadChatPreviews()
   // Zwischenzeitlich ausgeloggt oder schon ein neuerer Ladevorgang gestartet? Dann nichts mehr zeichnen
   if (!currentUser || myRenderId !== chatListRenderId) return
@@ -1209,7 +1210,24 @@ async function renderChatList() {
   normalRows.sort((a, b) => b.time - a.time) // stabil: bei gleicher Zeit bleibt die Reihenfolge wie vorher
   normalRows.forEach(row => list.appendChild(row.item))
 
-  if (others.length === 0) {
+  if (!profilesLoaded) {
+    // Die Mitglieder konnten nicht geladen werden: lieber sagen als eine leere Liste zu zeigen
+    const hint = document.createElement('p')
+    hint.className = 'chat-empty'
+    hint.textContent = 'Die Mitglieder konnten nicht geladen werden. Prüfe dein Internet.'
+    const retry = document.createElement('button')
+    retry.type = 'button'
+    retry.className = 'chat-retry-btn'
+    retry.textContent = 'Nochmal versuchen'
+    retry.addEventListener('click', async () => {
+      retry.disabled = true
+      await loadProfileCache()
+      renderChatList()
+    })
+    hint.appendChild(document.createElement('br'))
+    hint.appendChild(retry)
+    list.appendChild(hint)
+  } else if (others.length === 0) {
     const hint = document.createElement('p')
     hint.className = 'chat-empty'
     hint.textContent = 'Noch keine anderen Mitglieder da.'
@@ -1439,22 +1457,32 @@ function showForgotScreen() {
 }
 
 // 4. Namen aller Profile einmal laden (für die Chatliste und für Realtime-Nachrichten ohne Join)
+// Klappte das Laden der Mitglieder-Liste? Ohne sie bleibt die Chatliste leer (nur Gruppen, keine Personen).
+let profilesLoaded = false
+
 async function loadProfileCache() {
-  // '*' statt Spaltenliste: so läuft die App auch dann, wenn die Spalte "active" noch nicht existiert
-  const { data, error } = await supabaseClient
-    .from('profiles')
-    .select('*')
+  // Bis zu 3 Versuche (schlechtes WLAN, kurzer Aussetzer), statt bei einem Fehler still mit einer leeren Liste weiterzumachen
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    // '*' statt Spaltenliste: so läuft die App auch dann, wenn die Spalte "active" noch nicht existiert
+    const { data, error } = await supabaseClient
+      .from('profiles')
+      .select('*')
 
-  if (error) {
-    console.error('Fehler beim Laden der Profile:', error)
-    return
+    if (!error && data) {
+      profileCache = {}
+      data.forEach(p => {
+        // active = false: eingeladen, aber Einladung noch nicht angenommen / noch kein Passwort gesetzt
+        profileCache[p.id] = { name: p.display_name, role: p.role, blocked: !!p.is_blocked, gender: p.gender, active: p.active !== false, birthdate: p.birthdate || null, color: p.color || null, invitedAt: p.invited_at || null }
+      })
+      profilesLoaded = true
+      return true
+    }
+
+    console.error('Fehler beim Laden der Profile (Versuch ' + attempt + '):', error)
+    if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 700 * attempt))
   }
-
-  profileCache = {}
-  data.forEach(p => {
-    // active = false: eingeladen, aber Einladung noch nicht angenommen / noch kein Passwort gesetzt
-    profileCache[p.id] = { name: p.display_name, role: p.role, blocked: !!p.is_blocked, gender: p.gender, active: p.active !== false, birthdate: p.birthdate || null, color: p.color || null, invitedAt: p.invited_at || null }
-  })
+  profilesLoaded = false
+  return false
 }
 
 async function fetchProfileName(userId) {
@@ -7143,11 +7171,18 @@ function deleteMessage(id) {
 // 9. Einstellungen: eigener Bildschirm. Eigenes Passwort ändern für alle,
 //    bei Admins zusätzlich die Nutzerverwaltung darunter.
 // Startseite des Admins: Verwaltung mit Überblick (Zahlen), Aufgaben, Mitgliedern, System und eigenem Konto
+// Welche Version der App läuft hier? (steht als ?v=... an script.js in index.html)
+function appVersion() {
+  const tag = Array.from(document.scripts).find(el => /script\.js/.test(el.src))
+  const match = tag && tag.src.match(/[?&]v=([^&]+)/)
+  return match ? match[1] : ''
+}
+
 function openAdminHome() {
   if (!desktopQuery.matches) stopListening()
   showScreen('admin-bereich')
   const sub = document.getElementById('admin-subtitle')
-  if (sub) sub.textContent = 'Angemeldet als ' + ((currentProfile && currentProfile.display_name) || 'Admin')
+  if (sub) sub.textContent = 'Angemeldet als ' + ((currentProfile && currentProfile.display_name) || 'Admin') + (appVersion() ? ' · Version ' + appVersion() : '')
   updateAdminStats()
   loadUploadsDisabled()
   updateReportsBadge()
@@ -7169,6 +7204,7 @@ function updateAdminStats() {
   set('stat-invited', members.filter(p => p.active === false).length)
   set('stat-reports', openReports.length, true)
   set('stat-feedback', feedbackItems.length, true)
+  set('stat-requests', inviteRequests.length, true)
 }
 
 function openSettings() {
@@ -7182,6 +7218,8 @@ function openSettings() {
   updatePendingInvitesEntry()
   refreshPushToggleUI()
   updateInstallMenu()
+  const versionEl = document.getElementById('app-version')
+  if (versionEl) versionEl.textContent = appVersion() ? 'Version ' + appVersion() : ''
 }
 
 function openEmailChange() {

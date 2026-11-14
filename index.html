@@ -47,7 +47,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=20261113-3">
+  <link rel="stylesheet" href="style.css?v=20261113-5">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -267,14 +267,6 @@
       <div class="admin-scroll">
 
         <div class="admin-stats">
-          <div class="admin-stat" role="button" tabindex="0" onclick="openUserManagement()" onkeydown="if (event.key === 'Enter') openUserManagement()">
-            <span class="admin-stat-num" id="stat-members">–</span>
-            <span class="admin-stat-label">Mitglieder</span>
-          </div>
-          <div class="admin-stat" role="button" tabindex="0" onclick="openUserManagement()" onkeydown="if (event.key === 'Enter') openUserManagement()">
-            <span class="admin-stat-num" id="stat-invited">–</span>
-            <span class="admin-stat-label">Noch eingeladen</span>
-          </div>
           <div class="admin-stat" role="button" tabindex="0" onclick="openReportsModal()" onkeydown="if (event.key === 'Enter') openReportsModal()">
             <span class="admin-stat-num" id="stat-reports">–</span>
             <span class="admin-stat-label">Offene Meldungen</span>
@@ -283,77 +275,93 @@
             <span class="admin-stat-num" id="stat-feedback">–</span>
             <span class="admin-stat-label">Rückmeldungen</span>
           </div>
+          <div class="admin-stat" role="button" tabindex="0" onclick="openInviteRequestsModal()" onkeydown="if (event.key === 'Enter') openInviteRequestsModal()">
+            <span class="admin-stat-num" id="stat-requests">–</span>
+            <span class="admin-stat-label">Einladungs-Anfragen</span>
+          </div>
+          <div class="admin-stat" role="button" tabindex="0" onclick="openUserManagement()" onkeydown="if (event.key === 'Enter') openUserManagement()">
+            <span class="admin-stat-num" id="stat-members">–</span>
+            <span class="admin-stat-label">Mitglieder</span>
+          </div>
+          <div class="admin-stat" role="button" tabindex="0" onclick="openUserManagement()" onkeydown="if (event.key === 'Enter') openUserManagement()">
+            <span class="admin-stat-num" id="stat-invited">–</span>
+            <span class="admin-stat-label">Noch eingeladen</span>
+          </div>
         </div>
 
         <div class="admin-sections">
 
-          <section class="admin-section">
-            <h3 class="admin-section-title">Aufgaben</h3>
-            <div class="admin-row" id="menu-reports" onclick="openReportsModal()">
-              <span class="admin-row-icon">🚩</span>
-              <span class="admin-row-text"><span class="admin-row-title">Meldungen</span><span class="admin-row-sub">Gemeldete Nachrichten ansehen und bearbeiten</span></span>
-              <span class="reports-badge" id="reports-badge" style="display: none;"></span><span class="admin-arrow">›</span>
-            </div>
-            <div class="admin-row" id="menu-feedback-admin" onclick="openFeedbackListModal()">
-              <span class="admin-row-icon">💌</span>
-              <span class="admin-row-text"><span class="admin-row-title">Rückmeldungen</span><span class="admin-row-sub">Probleme, Ideen und vermisste Personen</span></span>
-              <span class="reports-badge" id="feedback-badge" style="display: none;"></span><span class="admin-arrow">›</span>
-            </div>
-            <div class="admin-row" id="menu-invite-requests" onclick="openInviteRequestsModal()">
-              <span class="admin-row-icon">📩</span>
-              <span class="admin-row-text"><span class="admin-row-title">Einladungs-Anfragen</span><span class="admin-row-sub">Wer gern dabei sein möchte</span></span>
-              <span class="reports-badge" id="invite-requests-badge" style="display: none;"></span><span class="admin-arrow">›</span>
-            </div>
-          </section>
+          <div class="admin-col">
 
-          <section class="admin-section">
-            <h3 class="admin-section-title">Mitglieder</h3>
-            <div class="admin-row" id="menu-users" onclick="openUserManagement()">
-              <span class="admin-row-icon">👥</span>
-              <span class="admin-row-text"><span class="admin-row-title">Nutzer verwalten</span><span class="admin-row-sub">Rechte, Sperren, Geburtsdatum, Farbe</span></span>
-              <span class="admin-arrow">›</span>
-            </div>
-            <div class="admin-row" id="menu-new-user" onclick="openNewUser()">
-              <span class="admin-row-icon">➕</span>
-              <span class="admin-row-text"><span class="admin-row-title">Neuen Nutzer hinzufügen</span><span class="admin-row-sub">Per E-Mail einladen</span></span>
-              <span class="admin-arrow">›</span>
-            </div>
-          </section>
+            <section class="admin-section">
+              <h3 class="admin-section-title">Aufgaben</h3>
+              <div class="admin-row" id="menu-reports" onclick="openReportsModal()">
+                <span class="admin-row-icon">🚩</span>
+                <span class="admin-row-text"><span class="admin-row-title">Meldungen</span><span class="admin-row-sub">Gemeldete Nachrichten ansehen und bearbeiten</span></span>
+                <span class="reports-badge" id="reports-badge" style="display: none;"></span><span class="admin-arrow">›</span>
+              </div>
+              <div class="admin-row" id="menu-feedback-admin" onclick="openFeedbackListModal()">
+                <span class="admin-row-icon">💌</span>
+                <span class="admin-row-text"><span class="admin-row-title">Rückmeldungen</span><span class="admin-row-sub">Probleme, Ideen und vermisste Personen</span></span>
+                <span class="reports-badge" id="feedback-badge" style="display: none;"></span><span class="admin-arrow">›</span>
+              </div>
+              <div class="admin-row" id="menu-invite-requests" onclick="openInviteRequestsModal()">
+                <span class="admin-row-icon">📩</span>
+                <span class="admin-row-text"><span class="admin-row-title">Einladungs-Anfragen</span><span class="admin-row-sub">Wer gern dabei sein möchte</span></span>
+                <span class="reports-badge" id="invite-requests-badge" style="display: none;"></span><span class="admin-arrow">›</span>
+              </div>
+            </section>
 
-          <section class="admin-section">
-            <h3 class="admin-section-title">System</h3>
-            <div class="admin-row admin-row-toggle" id="uploads-paused-row">
-              <span class="admin-row-icon">📁</span>
-              <span class="admin-row-text"><span class="admin-row-title">Dateien senden sperren</span><span class="admin-row-sub">Für den Fall, dass Google Drive gerade nicht geht: dann kann niemand Fotos, Dateien oder Sprachnachrichten senden.</span></span>
-              <label class="switch">
-                <input type="checkbox" id="uploads-paused-toggle" onchange="onUploadsPausedToggle()">
-                <span class="switch-slider"></span>
-              </label>
-            </div>
-          </section>
+            <section class="admin-section">
+              <h3 class="admin-section-title">System</h3>
+              <div class="admin-row admin-row-toggle" id="uploads-paused-row">
+                <span class="admin-row-icon">📁</span>
+                <span class="admin-row-text"><span class="admin-row-title">Dateien senden sperren</span><span class="admin-row-sub">Für den Fall, dass Google Drive gerade nicht geht: dann kann niemand Fotos, Dateien oder Sprachnachrichten senden.</span></span>
+                <label class="switch">
+                  <input type="checkbox" id="uploads-paused-toggle" onchange="onUploadsPausedToggle()">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+            </section>
 
-          <section class="admin-section">
-            <h3 class="admin-section-title">Mein Konto</h3>
-            <div class="admin-row" onclick="openEmailChange()">
-              <span class="admin-row-icon">✉️</span>
-              <span class="admin-row-text"><span class="admin-row-title">E-Mail-Adresse ändern</span></span>
-              <span class="admin-arrow">›</span>
-            </div>
-            <div class="admin-row" onclick="openPasswordChange()">
-              <span class="admin-row-icon">🔑</span>
-              <span class="admin-row-text"><span class="admin-row-title">Passwort ändern</span></span>
-              <span class="admin-arrow">›</span>
-            </div>
-            <div class="admin-row" onclick="openDevices()">
-              <span class="admin-row-icon">📱</span>
-              <span class="admin-row-text"><span class="admin-row-title">Angemeldete Geräte</span></span>
-              <span class="admin-arrow">›</span>
-            </div>
-            <div class="admin-row" onclick="reloadApp()">
-              <span class="admin-row-icon">↻</span>
-              <span class="admin-row-text"><span class="admin-row-title">App neu laden</span></span>
-            </div>
-          </section>
+          </div>
+
+          <div class="admin-col">
+
+            <section class="admin-section">
+              <h3 class="admin-section-title">Mitglieder</h3>
+              <div class="admin-row" id="menu-users" onclick="openUserManagement()">
+                <span class="admin-row-icon">👥</span>
+                <span class="admin-row-text"><span class="admin-row-title">Nutzer verwalten</span><span class="admin-row-sub">Rechte, Sperren, Geburtsdatum, Farbe</span></span>
+                <span class="admin-arrow">›</span>
+              </div>
+              <div class="admin-row" id="menu-new-user" onclick="openNewUser()">
+                <span class="admin-row-icon">➕</span>
+                <span class="admin-row-text"><span class="admin-row-title">Neuen Nutzer hinzufügen</span><span class="admin-row-sub">Per E-Mail einladen</span></span>
+                <span class="admin-arrow">›</span>
+              </div>
+            </section>
+
+            <section class="admin-section">
+              <h3 class="admin-section-title">Mein Konto</h3>
+              <div class="admin-row" onclick="openEmailChange()">
+                <span class="admin-row-icon">✉️</span>
+                <span class="admin-row-text"><span class="admin-row-title">E-Mail-Adresse ändern</span></span>
+                <span class="admin-arrow">›</span>
+              </div>
+              <div class="admin-row" onclick="openPasswordChange()">
+                <span class="admin-row-icon">🔑</span>
+                <span class="admin-row-text"><span class="admin-row-title">Passwort ändern</span></span>
+                <span class="admin-arrow">›</span>
+              </div>
+              <div class="admin-row" onclick="openDevices()">
+                <span class="admin-row-icon">📱</span>
+                <span class="admin-row-text"><span class="admin-row-title">Angemeldete Geräte</span></span>
+                <span class="admin-arrow">›</span>
+              </div>
+            </section>
+
+          </div>
 
         </div>
       </div>
@@ -490,6 +498,7 @@
                 <span class="settings-arrow">↻</span>
               </li>
             </ul>
+            <p class="settings-hint" id="app-version"></p>
           </div>
         </section>
 
@@ -1027,6 +1036,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=20261113-3"></script>
+  <script src="script.js?v=20261113-5"></script>
 </body>
 </html>

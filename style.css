@@ -6545,8 +6545,15 @@ body.admin-home #chat-placeholder {
   display: none !important;
 }
 
+/* Kopf und Inhalt stehen in derselben Spalte, nicht in den Ecken des Fensters */
 .admin-header {
   align-items: center;
+  width: 100%;
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 4px;
+  padding-right: 4px;
 }
 
 .admin-title {
@@ -6571,7 +6578,7 @@ body.admin-home #chat-placeholder {
   flex: 1;
   min-height: 0;
   width: 100%;
-  max-width: 980px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 6px 4px calc(28px + env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
@@ -6579,9 +6586,20 @@ body.admin-home #chat-placeholder {
 
 .admin-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
-  margin: 10px 0 18px;
+  margin: 10px 0 16px;
+}
+
+/* Bleibt bei zwei Spalten eine Kachel übrig, nimmt sie die ganze Zeile */
+.admin-stats .admin-stat:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 900px) {
+  .admin-stats .admin-stat:last-child:nth-child(odd) {
+    grid-column: auto;
+  }
 }
 
 .admin-stat {
@@ -6629,6 +6647,14 @@ body.admin-home #chat-placeholder {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   align-items: start;
+}
+
+/* Zwei Spalten mit etwa gleicher Höhe, damit keine Lücken entstehen */
+.admin-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
 }
 
 .admin-section {
@@ -6715,15 +6741,15 @@ body.split-view:not(.admin-home) .admin-stats {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+body.split-view:not(.admin-home) .admin-stats .admin-stat:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
 body.split-view:not(.admin-home) .admin-sections {
   grid-template-columns: minmax(0, 1fr);
 }
 
 @media (max-width: 760px) {
-  .admin-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .admin-sections {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -6807,4 +6833,53 @@ body.is-admin #user-list .chat-list-item:hover,
 body.is-admin #user-list .chat-list-item.active {
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+/* Admin: auch rechts geöffnete Seiten haben einen Weg zurück zur Verwaltung */
+body.is-admin.split-view #email-change-bereich .back-btn,
+body.is-admin.split-view #password-change-bereich .back-btn,
+body.is-admin.split-view #devices-bereich .back-btn,
+body.is-admin.split-view #new-user-bereich .back-btn {
+  display: inline-flex;
+}
+
+body.is-admin #email-change-bereich .back-btn,
+body.is-admin #password-change-bereich .back-btn,
+body.is-admin #devices-bereich .back-btn,
+body.is-admin #new-user-bereich .back-btn {
+  width: auto;
+  min-width: 0;
+  padding: 0 14px 0 6px;
+  border-radius: 20px;
+  font-weight: 600;
+}
+
+body.is-admin #email-change-bereich .back-btn::after,
+body.is-admin #password-change-bereich .back-btn::after,
+body.is-admin #devices-bereich .back-btn::after,
+body.is-admin #new-user-bereich .back-btn::after {
+  content: 'Verwaltung';
+}
+
+/* "Nochmal versuchen", wenn die Mitglieder nicht geladen werden konnten (die allgemeine button-Regel macht Knöpfe 100 % breit) */
+.chat-retry-btn {
+  width: auto;
+  margin-top: 10px;
+  padding: 8px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chat-retry-btn:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.chat-retry-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
