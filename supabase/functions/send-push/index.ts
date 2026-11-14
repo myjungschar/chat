@@ -118,15 +118,70 @@ async function sendToSubscriptions(subs, notificationPayload: string) {
   )
 }
 
-// Antwort des Admins in der Unterhaltung zu einer Rückmeldung (Tabelle feedback_messages): Meldung nur an die Person,
-// der die Rückmeldung gehört. An den Admin selbst gibt es nie eine Push-Meldung.
+// ===== Benachrichtigungen an den Admin =====
+// Der Admin bekommt nur Meldungen zur Verwaltung (neue Rückmeldung, Einladungs-Anfrage, gemeldete Nachricht, Antwort in einer
+// Rückmeldungs-Unterhaltung) - nie Chat-Nachrichten. Sie gehen nur an Geräte, auf denen er sie selbst eingeschaltet hat
+// (Verwaltung > System > Benachrichtigungen). chatKey "admin:..." sagt der App, welchen Bereich sie öffnen soll.
+async function nameOf(userId) {
+  if (!userId) return "Jemand"
+  const { data } = await supabaseAdmin.from("profiles").select("display_name").eq("id", userId).maybeSingle()
+  return (data && data.display_name) || "Jemand"
+}
+
+async function sendToAdmins(title: string, body: string, chatKey: string) {
+  const { data: admins } = await supabaseAdmin.from("profiles").select("id").eq("role", "admin")
+  const adminIds = (admins || []).map((a) => a.id)
+  if (adminIds.length === 0) return new Response("kein Admin gefunden", { status: 200 })
+  const { data: subs } = await supabaseAdmin.from("push_subscriptions").select("*").in("user_id", adminIds)
+  if (!subs || subs.length === 0) return new Response("Admin hat Push nicht aktiviert", { status: 200 })
+  // Bewusst ohne createdAt: sonst würde der Service Worker die Meldung als "zugestellt" für einen Chat melden
+  const notificationPayload = JSON.stringify({
+    title,
+    body: String(body || "").slice(0, 120),
+    tag: chatKey,
+    chatKey,
+    url: "./"
+  })
+  await sendToSubscriptions(subs, notificationPayload)
+  return new Response("ok", { status: 200 })
+}
+
+// Neue Rückmeldung (Tabelle feedback). "Vermisst du jemanden?" (kind person) zählt bei den Einladungs-Anfragen.
+async function handleFeedback(record) {
+  if (!record) return new Response("kein passender Datensatz", { status: 200 })
+  const who = await nameOf(record.user_id)
+  if (record.kind === "person") {
+    return await sendToAdmins("Neue Einladungs-Anfrage", who + " vermisst: " + (record.person_name || record.person_email || ""), "admin:requests")
+  }
+  const label = record.kind === "idee" ? "Idee" : "Problem"
+  return await sendToAdmins("Neue Rückmeldung", who + " (" + label + "): " + (record.message || ""), "admin:feedback")
+}
+
+// Neue Einladungs-Anfrage von der Login-Seite (Tabelle invite_requests)
+async function handleInviteRequest(record) {
+  if (!record) return new Response("kein passender Datensatz", { status: 200 })
+  return await sendToAdmins("Neue Einladungs-Anfrage", record.email || "", "admin:requests")
+}
+
+// Neue Meldung einer Nachricht (Tabelle message_reports)
+async function handleReport(record) {
+  if (!record) return new Response("kein passender Datensatz", { status: 200 })
+  const reporter = await nameOf(record.reporter_id)
+  const author = await nameOf(record.sender_id)
+  return await sendToAdmins("Neue Meldung", reporter + " hat eine Nachricht von " + author + " gemeldet", "admin:reports")
+}
+
+// Neue Nachricht in der Unterhaltung zu einer Rückmeldung (Tabelle feedback_messages):
+//  - schreibt der Admin: Meldung nur an die Person, der die Rückmeldung gehört
+//  - schreibt die Person: Meldung an den Admin
 async function handleFeedbackMessage(record) {
   if (!record || !record.sender_id || !record.feedback_id) {
     return new Response("kein passender Datensatz", { status: 200 })
   }
-  const { data: sender } = await supabaseAdmin.from("profiles").select("role").eq("id", record.sender_id).single()
-  if (!sender || sender.role !== "admin") {
-    return new Response("keine Push-Meldung an den Admin", { status: 200 })
+  const { data: sender } = await supabaseAdmin.from("profiles").select("role, display_name").eq("id", record.sender_id).single()
+  if (!sender) return new Response("Absender nicht gefunden", { status: 200 })
+  if (sender.role !== "admin") {
+    return await sendToAdmins("Neue Antwort von " + (sender.display_name || "Jemand"), String(record.text || ""), "admin:feedback")
   }
   const { data: feedback } = await supabaseAdmin.from("feedback").select("user_id").eq("id", record.feedback_id).single()
   if (!feedback || !feedback.user_id) {
@@ -157,6 +212,15 @@ Deno.serve(async (req) => {
 
     if (payload.table === "feedback_messages") {
       return await handleFeedbackMessage(record)
+    }
+    if (payload.table === "feedback") {
+      return await handleFeedback(record)
+    }
+    if (payload.table === "invite_requests") {
+      return await handleInviteRequest(record)
+    }
+    if (payload.table === "message_reports") {
+      return await handleReport(record)
     }
 
     if (!record || !record.sender_id) {
@@ -215,6 +279,13 @@ Deno.serve(async (req) => {
 
     // Chat-Schlüssel: "main", "junge", "maedchen", "grp_<id>" oder (Einzelchat) "dm:<Absender>"
     const chatKey = record.group_key || (record.recipient_id ? "dm:" + record.sender_id : "main")
+
+    // Chat-Nachrichten gehen nie an den Admin (auch nicht, falls er irgendwo als Empfänger auftaucht)
+    if (recipientIds.length > 0) {
+      const { data: adminRows } = await supabaseAdmin.from("profiles").select("id").in("id", recipientIds).eq("role", "admin")
+      const adminIdSet = new Set((adminRows || []).map((a) => a.id))
+      recipientIds = recipientIds.filter((id) => !adminIdSet.has(id))
+    }
 
     // Stummgeschaltete Chats: wer den Chat in muted_chats hat, bekommt keine Push-Meldung.
     // Bei Gruppen heißt der Schlüssel "main"/"junge"/"maedchen"/"grp_<id>", bei Einzelchats "dm:<Absender>".

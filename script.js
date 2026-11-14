@@ -335,9 +335,9 @@ async function init() {
 // und rechts steht der geöffnete Chat. Login-Bildschirme bleiben immer einspaltig.
 const desktopQuery = window.matchMedia('(min-width: 900px)')
 const AUTH_SCREENS = ['login-bereich', 'forgot-bereich', 'link-confirm-bereich', 'reset-bereich']
-const LEFT_SCREENS = ['list-bereich', 'admin-bereich', 'settings-bereich', 'users-bereich']
+const LEFT_SCREENS = ['list-bereich', 'admin-bereich', 'admin-nav-bereich', 'settings-bereich', 'users-bereich']
 // Rechts: Chat oder die Unterseiten der Einstellungen (am Handy sind das eigene volle Seiten)
-const RIGHT_SCREENS = ['conversation-bereich', 'email-change-bereich', 'password-change-bereich', 'devices-bereich', 'user-detail-bereich', 'new-user-bereich']
+const RIGHT_SCREENS = ['conversation-bereich', 'email-change-bereich', 'password-change-bereich', 'devices-bereich', 'user-detail-bereich', 'new-user-bereich', 'admin-pane-bereich']
 
 function isSplitView() {
   return document.body.classList.contains('split-view')
@@ -372,7 +372,7 @@ function showScreen(id) {
   // Die Verwaltung des Admins nutzt am PC die ganze Breite (kein Chat rechts)
   document.body.classList.toggle('admin-home', id === 'admin-bereich')
   const placeholderPill = document.querySelector('#chat-placeholder .placeholder-pill')
-  if (placeholderPill) placeholderPill.textContent = isAdmin() ? 'Nutzer auswählen, um Details zu sehen' : 'Chat auswählen, um zu schreiben'
+  if (placeholderPill) placeholderPill.textContent = isAdmin() ? 'Links etwas auswählen, um Details zu sehen' : 'Chat auswählen, um zu schreiben'
 
   if (split && id !== 'admin-bereich') {
     // Nur die eigene Seite austauschen, die andere bleibt stehen
@@ -498,6 +498,8 @@ function hideAllScreens() {
   document.getElementById('reset-bereich').style.display = 'none'
   document.getElementById('list-bereich').style.display = 'none'
   document.getElementById('admin-bereich').style.display = 'none'
+  document.getElementById('admin-nav-bereich').style.display = 'none'
+  document.getElementById('admin-pane-bereich').style.display = 'none'
   document.getElementById('settings-bereich').style.display = 'none'
   document.getElementById('email-change-bereich').style.display = 'none'
   document.getElementById('password-change-bereich').style.display = 'none'
@@ -7171,26 +7173,207 @@ function deleteMessage(id) {
 // 9. Einstellungen: eigener Bildschirm. Eigenes Passwort ändern für alle,
 //    bei Admins zusätzlich die Nutzerverwaltung darunter.
 // Startseite des Admins: Verwaltung mit Überblick (Zahlen), Aufgaben, Mitgliedern, System und eigenem Konto
-// Welche Version der App läuft hier? (steht als ?v=... an script.js in index.html)
+// Welche Version der App läuft hier? (steht als ?v=... an script.js in index.html, z. B. 2.0.0)
 function appVersion() {
   const tag = Array.from(document.scripts).find(el => /script\.js/.test(el.src))
   const match = tag && tag.src.match(/[?&]v=([^&]+)/)
-  return match ? match[1] : ''
+  return match ? 'v' + match[1] : ''
+}
+
+// ===== Verwaltung (Admin) =====
+// Startseite: Zahlen oben und vier Bereiche (Mein Konto, Aufgaben, Mitglieder, System). Ein Bereich öffnet sich am PC mit einer
+// Seitenleiste links und dem Inhalt rechts (wie die Nutzerverwaltung), am Handy als Liste und dann als eigene Seite.
+let adminSection = null // 'konto' | 'aufgaben' | 'system' | null (= Startseite)
+let adminItem = null
+
+function adminSections() {
+  return {
+    konto: {
+      title: 'Mein Konto',
+      items: [
+        { id: 'email', icon: '✉️', title: 'E-Mail-Adresse ändern', open: () => openEmailChange() },
+        { id: 'password', icon: '🔑', title: 'Passwort ändern', open: () => openPasswordChange() },
+        { id: 'devices', icon: '📱', title: 'Angemeldete Geräte', open: () => openDevices() }
+      ]
+    },
+    aufgaben: {
+      title: 'Aufgaben',
+      items: [
+        { id: 'reports', icon: '🚩', title: 'Meldungen', sub: 'Gemeldete Nachrichten', count: () => openReports.length, open: () => openAdminPane('Meldungen', host => openReportsModal(host)) },
+        { id: 'feedback', icon: '💌', title: 'Rückmeldungen', sub: 'Probleme und Ideen', count: () => feedbackItems.length, open: () => openAdminPane('Rückmeldungen', host => openFeedbackListModal(host)) },
+        { id: 'requests', icon: '📩', title: 'Einladungs-Anfragen', sub: 'Wer dabei sein möchte', count: () => inviteRequests.length, open: () => openAdminPane('Einladungs-Anfragen', host => openInviteRequestsModal(host)) }
+      ]
+    },
+    system: {
+      title: 'System',
+      items: [
+        { id: 'uploads', icon: '📁', title: 'Dateien senden', sub: 'Sperren, wenn Drive nicht geht', open: () => openAdminPane('Dateien senden', renderUploadsPane) },
+        { id: 'push', icon: '🔔', title: 'Benachrichtigungen', sub: 'Meldungen, Rückmeldungen, Anfragen', open: () => openAdminPane('Benachrichtigungen', renderAdminPushPane) }
+      ]
+    }
+  }
 }
 
 function openAdminHome() {
+  adminSection = null
+  adminItem = null
   if (!desktopQuery.matches) stopListening()
   showScreen('admin-bereich')
   const sub = document.getElementById('admin-subtitle')
-  if (sub) sub.textContent = 'Angemeldet als ' + ((currentProfile && currentProfile.display_name) || 'Admin') + (appVersion() ? ' · Version ' + appVersion() : '')
+  if (sub) sub.textContent = 'Angemeldet als ' + ((currentProfile && currentProfile.display_name) || 'Admin') + (appVersion() ? ' · ' + appVersion() : '')
+  refreshAdminCounts()
+}
+
+// Die Zahlen neu holen (Meldungen, Rückmeldungen, Anfragen); updateAdminStats läuft danach von selbst
+function refreshAdminCounts() {
   updateAdminStats()
-  loadUploadsDisabled()
   updateReportsBadge()
   updateInviteRequestsBadge()
   updateFeedbackBadge()
 }
 
-// Die vier Zahlen oben in der Verwaltung
+function defaultAdminItem(section, def) {
+  if (section === 'aufgaben') return def.items.find(i => i.count && i.count() > 0) || def.items[0]
+  return def.items[0]
+}
+
+function openAdminSection(section, opts = {}) {
+  if (!isAdmin()) return
+  const def = adminSections()[section]
+  if (!def) { openAdminHome(); return }
+  adminSection = section
+  if (!desktopQuery.matches) stopListening()
+  showScreen('admin-nav-bereich')
+  document.getElementById('admin-nav-title').textContent = def.title
+  if (opts.item) adminItem = opts.item
+  else if (!opts.keep) adminItem = null
+  if (section === 'aufgaben') refreshAdminCounts()
+  renderAdminNav()
+
+  // Am PC gleich etwas rechts öffnen, damit die Fläche nicht leer bleibt
+  let wanted = opts.item ? def.items.find(i => i.id === opts.item) : null
+  if (!wanted && desktopQuery.matches && opts.auto !== false) wanted = (adminItem && def.items.find(i => i.id === adminItem)) || defaultAdminItem(section, def)
+  if (wanted) chooseAdminItem(wanted)
+}
+
+function chooseAdminItem(item) {
+  adminItem = item.id
+  renderAdminNav()
+  item.open()
+}
+
+function renderAdminNav() {
+  const list = document.getElementById('admin-nav-list')
+  const def = adminSection && adminSections()[adminSection]
+  if (!list || !def) return
+  list.innerHTML = ''
+  def.items.forEach(item => {
+    const li = document.createElement('li')
+    li.className = 'admin-nav-item' + (item.id === adminItem ? ' active' : '')
+    li.setAttribute('role', 'button')
+    li.tabIndex = 0
+    const icon = document.createElement('span')
+    icon.className = 'admin-row-icon'
+    icon.textContent = item.icon
+    const text = document.createElement('span')
+    text.className = 'admin-row-text'
+    const title = document.createElement('span')
+    title.className = 'admin-row-title'
+    title.textContent = item.title
+    text.appendChild(title)
+    if (item.sub) {
+      const sub = document.createElement('span')
+      sub.className = 'admin-row-sub'
+      sub.textContent = item.sub
+      text.appendChild(sub)
+    }
+    li.append(icon, text)
+    const count = item.count ? item.count() : 0
+    if (count > 0) {
+      const badge = document.createElement('span')
+      badge.className = 'reports-badge'
+      badge.textContent = String(count)
+      li.appendChild(badge)
+    }
+    li.addEventListener('click', () => chooseAdminItem(item))
+    li.addEventListener('keydown', e => { if (e.key === 'Enter') chooseAdminItem(item) })
+    list.appendChild(li)
+  })
+}
+
+// Inhalt rechts (am Handy eine eigene Seite). renderFn bekommt das Element, in das es zeichnet.
+function openAdminPane(title, renderFn) {
+  document.getElementById('admin-pane-title').textContent = title
+  const host = document.getElementById('admin-pane-content')
+  host.innerHTML = ''
+  host.classList.remove('admin-embedded')
+  showScreen('admin-pane-bereich')
+  renderFn(host)
+}
+
+// Zurück-Pfeil der Inhaltsseite (nur am Handy zu sehen): zurück zur Liste des Bereichs
+function adminPaneBack() {
+  if (adminSection) openAdminSection(adminSection, { keep: true, auto: false })
+  else openAdminHome()
+}
+
+function makeAdminCard(titleText, introText) {
+  const card = document.createElement('div')
+  card.className = 'admin-pane-card'
+  const title = document.createElement('h3')
+  title.className = 'admin-pane-card-title'
+  title.textContent = titleText
+  card.appendChild(title)
+  if (introText) {
+    const intro = document.createElement('p')
+    intro.className = 'admin-pane-card-text'
+    intro.textContent = introText
+    card.appendChild(intro)
+  }
+  return card
+}
+
+function makeSwitchRow(labelText, inputEl) {
+  const row = document.createElement('label')
+  row.className = 'admin-switch-row'
+  const label = document.createElement('span')
+  label.textContent = labelText
+  const sw = document.createElement('span')
+  sw.className = 'switch'
+  const slider = document.createElement('span')
+  slider.className = 'switch-slider'
+  sw.append(inputEl, slider)
+  row.append(label, sw)
+  return row
+}
+
+function renderUploadsPane(host) {
+  const card = makeAdminCard('Dateien senden', 'Für den Fall, dass Google Drive gerade nicht geht: Mit dem Haken kann niemand Fotos, Dateien oder Sprachnachrichten senden, bis du ihn wieder entfernst.')
+  const input = document.createElement('input')
+  input.type = 'checkbox'
+  input.id = 'uploads-paused-toggle'
+  input.addEventListener('change', onUploadsPausedToggle)
+  card.appendChild(makeSwitchRow('Dateien senden sperren', input))
+  host.appendChild(card)
+  loadUploadsDisabled()
+}
+
+function renderAdminPushPane(host) {
+  const card = makeAdminCard('Benachrichtigungen', 'Auf diesem Gerät eine Meldung bekommen, wenn jemand eine Rückmeldung schreibt, eine Einladung anfragt oder eine Nachricht meldet. Chat-Nachrichten kommen nie bei dir an.')
+  const input = document.createElement('input')
+  input.type = 'checkbox'
+  input.className = 'push-toggle-input'
+  input.addEventListener('change', () => onPushToggleChanged(input))
+  card.appendChild(makeSwitchRow('Auf diesem Gerät benachrichtigen', input))
+  const hint = document.createElement('p')
+  hint.className = 'settings-hint push-unsupported-hint'
+  hint.style.display = 'none'
+  card.appendChild(hint)
+  host.appendChild(card)
+  refreshPushToggleUI()
+}
+
+// Die Zahlen oben in der Verwaltung, das Abzeichen am Bereich "Aufgaben" und die Zahlen in der Seitenleiste
 function updateAdminStats() {
   const set = (id, value, alert) => {
     const el = document.getElementById(id)
@@ -7202,13 +7385,26 @@ function updateAdminStats() {
   const members = Object.values(profileCache || {}).filter(p => p.role !== 'admin')
   set('stat-members', members.filter(p => p.active !== false).length)
   set('stat-invited', members.filter(p => p.active === false).length)
-  set('stat-reports', openReports.length, true)
-  set('stat-feedback', feedbackItems.length, true)
   set('stat-requests', inviteRequests.length, true)
+  set('stat-feedback', feedbackItems.length, true)
+  set('stat-reports', openReports.length, true)
+  const tasks = openReports.length + feedbackItems.length + inviteRequests.length
+  const badge = document.getElementById('tasks-badge')
+  if (badge) {
+    badge.textContent = String(tasks)
+    badge.style.display = tasks > 0 ? '' : 'none'
+  }
+  const nav = document.getElementById('admin-nav-bereich')
+  if (nav && nav.style.display !== 'none') renderAdminNav()
 }
 
 function openSettings() {
-  if (isAdmin()) { openAdminHome(); return } // der Admin hat keine Einstellungen, nur die Verwaltung
+  if (isAdmin()) {
+    // Der Admin hat keine Einstellungen, nur die Verwaltung: zurück in den Bereich, aus dem er kam, sonst auf die Startseite
+    if (adminSection && isRightVisible()) openAdminSection(adminSection, { keep: true, auto: false })
+    else openAdminHome()
+    return
+  }
   if (!desktopQuery.matches) stopListening() // am PC bleibt der Chat rechts offen
   showScreen('settings-bereich')
   document.getElementById('push-group').style.display = ''
@@ -7219,7 +7415,7 @@ function openSettings() {
   refreshPushToggleUI()
   updateInstallMenu()
   const versionEl = document.getElementById('app-version')
-  if (versionEl) versionEl.textContent = appVersion() ? 'Version ' + appVersion() : ''
+  if (versionEl) versionEl.textContent = appVersion() ? 'Version ' + appVersion().slice(1) : ''
 }
 
 function openEmailChange() {
@@ -7481,6 +7677,8 @@ async function completePasswordReset() {
 // 10. Admin: Nutzerverwaltung - Liste A bis Z, Klick auf einen Namen öffnet rechts die Einstellungen der Person
 function openUserManagement() {
   if (!isAdmin()) return
+  adminSection = null // Zurück führt von hier auf die Startseite der Verwaltung
+  adminItem = null
   if (!desktopQuery.matches) stopListening()
   selectedUserId = null
   showScreen('users-bereich')
@@ -9731,6 +9929,7 @@ const VAPID_PUBLIC_KEY = 'BIWDoDgxglJlPAOdWtaY5e3kjw-Q2Fg0DXnM4RsPqiwbxjhhOHIjB2
 // Bleibt beim Abmelden bestehen, damit sich das Gerät beim nächsten Login selbst wieder anmeldet,
 // ohne erneut nachzufragen. Mehrere Geräte gleichzeitig sind kein Problem, jedes hat sein eigenes Abo.
 const PUSH_DEVICE_FLAG = 'pushDeviceEnabled'
+const ADMIN_PUSH_FLAG = 'adminPushEnabled' // Admin: nur dort an, wo er es selbst eingeschaltet hat (nie still auf einem fremden Gerät)
 
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
@@ -9757,7 +9956,12 @@ function pushSupported() {
 // gefragt, oder gar nichts getan wird - und fragt dabei NIE erneut, wenn für dieses Gerät schon
 // einmal eine Entscheidung getroffen wurde.
 async function initPushForDevice() {
-  if (isAdmin() || !pushSupported()) return
+  if (!pushSupported()) return
+  if (isAdmin()) {
+    // Der Admin bekommt Benachrichtigungen (Meldungen, Rückmeldungen, Anfragen) nur auf Geräten, wo er sie selbst eingeschaltet hat
+    if (localStorage.getItem(ADMIN_PUSH_FLAG) === '1' && Notification.permission === 'granted') await enablePushNotifications({ silent: true })
+    return
+  }
 
   const deviceFlag = localStorage.getItem(PUSH_DEVICE_FLAG)
 
@@ -9787,7 +9991,6 @@ async function initPushForDevice() {
 }
 
 async function enablePushNotifications({ silent = false } = {}) {
-  if (isAdmin()) return false // Admin: nirgends und nie Push
   try {
     const permission = await Notification.requestPermission()
     if (permission !== 'granted') {
@@ -9835,7 +10038,7 @@ async function enablePushNotifications({ silent = false } = {}) {
       return false
     }
 
-    localStorage.setItem(PUSH_DEVICE_FLAG, '1')
+    localStorage.setItem(isAdmin() ? ADMIN_PUSH_FLAG : PUSH_DEVICE_FLAG, '1')
     refreshPushToggleUI()
     return true
   } catch (err) {
@@ -9868,37 +10071,36 @@ async function teardownPushSubscription() {
 }
 
 // Schalter in den Einstellungen: manuelles Ein-/Ausschalten pro Gerät
-async function onPushToggleChanged() {
-  const toggle = document.getElementById('push-toggle')
-  if (isAdmin()) { toggle.checked = false; return }
+async function onPushToggleChanged(el) {
+  const toggle = el || document.getElementById('push-toggle')
+  if (!toggle) return
   if (toggle.checked) {
     const ok = await enablePushNotifications()
     toggle.checked = ok
   } else {
     await teardownPushSubscription()
-    localStorage.setItem(PUSH_DEVICE_FLAG, '0') // bewusst ausgeschaltet - hier nicht erneut fragen
+    localStorage.setItem(isAdmin() ? ADMIN_PUSH_FLAG : PUSH_DEVICE_FLAG, '0') // bewusst ausgeschaltet - hier nicht erneut fragen
   }
 }
 
 // Setzt den Schalter in den Einstellungen auf den tatsächlichen Stand dieses Geräts
 async function refreshPushToggleUI() {
-  const toggle = document.getElementById('push-toggle')
-  if (!toggle) return
+  const toggles = document.querySelectorAll('#push-toggle, .push-toggle-input')
+  if (toggles.length === 0) return
   if (!pushSupported()) {
-    toggle.checked = false
-    toggle.disabled = true
-    const hint = document.getElementById('push-unsupported-hint')
-    if (hint) {
+    toggles.forEach(toggle => { toggle.checked = false; toggle.disabled = true })
+    document.querySelectorAll('#push-unsupported-hint, .push-unsupported-hint').forEach(hint => {
       hint.textContent = isIosDevice()
         ? 'Auf iPhone und iPad gehen Benachrichtigungen nur, wenn der Chat als App auf dem Home-Bildschirm liegt: Teilen-Symbol → „Zum Home-Bildschirm“, dann von dort öffnen.'
         : 'Dieser Browser unterstützt keine Benachrichtigungen.'
       hint.style.display = ''
-    }
+    })
     return
   }
   const registration = await navigator.serviceWorker.getRegistration()
   const subscription = registration ? await registration.pushManager.getSubscription() : null
-  toggle.checked = Notification.permission === 'granted' && !!subscription
+  const on = Notification.permission === 'granted' && !!subscription
+  toggles.forEach(toggle => { toggle.checked = on })
 }
 
 // Kleiner Zahlen-Kreis auf dem App-Symbol (Homescreen/Taskleiste) - nur bei installierter App
@@ -11149,6 +11351,24 @@ async function sendInviteRequest() {
 
 let inviteRequests = []
 
+// Im Admin-Bereich erscheinen Meldungen, Rückmeldungen und Anfragen rechts im Inhalt (host) statt als Pop-up
+function makeAdminDialog(host) {
+  if (host) {
+    host.innerHTML = ''
+    host.classList.add('admin-embedded')
+    return { overlay: null, dialog: host }
+  }
+  const overlay = document.createElement('div')
+  overlay.className = 'confirm-overlay'
+  const dialog = document.createElement('div')
+  dialog.className = 'confirm-dialog reports-dialog'
+  dialog.setAttribute('role', 'dialog')
+  dialog.setAttribute('aria-modal', 'true')
+  overlay.appendChild(dialog)
+  document.body.appendChild(overlay)
+  return { overlay, dialog }
+}
+
 async function loadInviteRequests() {
   const { data, error } = await supabaseClient
     .from('invite_requests')
@@ -11175,29 +11395,21 @@ async function loadInviteRequests() {
 }
 
 async function updateInviteRequestsBadge() {
-  const badge = document.getElementById('invite-requests-badge')
-  if (!badge || !isAdmin()) return
+  if (!isAdmin()) return
   await loadInviteRequests()
-  badge.textContent = String(inviteRequests.length)
-  badge.style.display = inviteRequests.length > 0 ? '' : 'none'
   updateAdminStats()
 }
 
-async function openInviteRequestsModal() {
+async function openInviteRequestsModal(host) {
   if (!isAdmin()) return
-  const overlay = document.createElement('div')
-  overlay.className = 'confirm-overlay'
-  const dialog = document.createElement('div')
-  dialog.className = 'confirm-dialog reports-dialog'
-  dialog.setAttribute('role', 'dialog')
-  dialog.setAttribute('aria-modal', 'true')
-  overlay.appendChild(dialog)
-  document.body.appendChild(overlay)
+  const { overlay, dialog } = makeAdminDialog(host)
 
-  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); updateInviteRequestsBadge() }
-  const onKey = (e) => { if (e.key === 'Escape') close() }
-  document.addEventListener('keydown', onKey)
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  const close = () => { document.removeEventListener('keydown', onKey); if (overlay) overlay.remove(); updateInviteRequestsBadge() }
+  const onKey = (e) => { if (e.key === 'Escape' && overlay) close() }
+  if (overlay) {
+    document.addEventListener('keydown', onKey)
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  }
 
   const markHandled = async (request) => {
     const table = request.fromFeedback ? 'feedback' : 'invite_requests'
@@ -11440,29 +11652,21 @@ async function loadFeedback() {
 }
 
 async function updateFeedbackBadge() {
-  const badge = document.getElementById('feedback-badge')
-  if (!badge || !isAdmin()) return
+  if (!isAdmin()) return
   await loadFeedback()
-  badge.textContent = String(feedbackItems.length)
-  badge.style.display = feedbackItems.length > 0 ? '' : 'none'
   updateAdminStats()
 }
 
-async function openFeedbackListModal() {
+async function openFeedbackListModal(host) {
   if (!isAdmin()) return
-  const overlay = document.createElement('div')
-  overlay.className = 'confirm-overlay'
-  const dialog = document.createElement('div')
-  dialog.className = 'confirm-dialog reports-dialog'
-  dialog.setAttribute('role', 'dialog')
-  dialog.setAttribute('aria-modal', 'true')
-  overlay.appendChild(dialog)
-  document.body.appendChild(overlay)
+  const { overlay, dialog } = makeAdminDialog(host)
 
-  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); updateFeedbackBadge() }
-  const onKey = e => { if (e.key === 'Escape') close() }
-  document.addEventListener('keydown', onKey)
-  overlay.addEventListener('click', e => { if (e.target === overlay) close() })
+  const close = () => { document.removeEventListener('keydown', onKey); if (overlay) overlay.remove(); updateFeedbackBadge() }
+  const onKey = e => { if (e.key === 'Escape' && overlay) close() }
+  if (overlay) {
+    document.addEventListener('keydown', onKey)
+    overlay.addEventListener('click', e => { if (e.target === overlay) close() })
+  }
 
   const markHandled = async (item) => {
     // Erledigt: die Unterhaltung dazu wird komplett gelöscht
@@ -11550,7 +11754,7 @@ async function openFeedbackListModal() {
       chatBtn.className = 'confirm-ok'
       chatBtn.textContent = chatInfo && chatInfo.count > 0 ? 'Chat (' + chatInfo.count + ')' : 'Chat'
       chatBtn.addEventListener('click', async () => {
-        await openFeedbackThread(item)
+        await openFeedbackThread(item, host)
         await loadFeedbackThreadInfo(feedbackItems.map(f => f.id))
         render()
       })
@@ -11652,7 +11856,7 @@ async function loadFeedbackThreadInfo(ids) {
 }
 
 // Öffnet die Unterhaltung; das Versprechen ist erfüllt, sobald sie wieder zu ist
-function openFeedbackThread(item) {
+function openFeedbackThread(item, host) {
   return new Promise(resolve => {
     if (!currentUser) { resolve(); return }
     const admin = isAdmin()
@@ -11660,10 +11864,10 @@ function openFeedbackThread(item) {
     const kindInfo = FEEDBACK_KINDS[item.kind] || { tag: 'Rückmeldung' }
     openFeedbackThreadId = item.id
 
-    const overlay = document.createElement('div')
-    overlay.className = 'confirm-overlay'
+    const overlay = host ? null : document.createElement('div')
+    if (overlay) overlay.className = 'confirm-overlay'
     const dialog = document.createElement('div')
-    dialog.className = 'confirm-dialog fb-thread-dialog'
+    dialog.className = 'confirm-dialog fb-thread-dialog' + (host ? ' fb-thread-embedded' : '')
     dialog.setAttribute('role', 'dialog')
     dialog.setAttribute('aria-modal', 'true')
 
@@ -11707,11 +11911,16 @@ function openFeedbackThread(item) {
     const closeBtn = document.createElement('button')
     closeBtn.type = 'button'
     closeBtn.className = 'confirm-cancel'
-    closeBtn.textContent = 'Schließen'
+    closeBtn.textContent = host ? '‹ Zurück zur Liste' : 'Schließen'
 
     dialog.append(heading, list, form, closeBtn)
-    overlay.appendChild(dialog)
-    document.body.appendChild(overlay)
+    if (host) {
+      host.innerHTML = ''
+      host.appendChild(dialog)
+    } else {
+      overlay.appendChild(dialog)
+      document.body.appendChild(overlay)
+    }
 
     const shown = new Set()
     const addBubble = (id, senderId, text, createdAt) => {
@@ -11757,7 +11966,7 @@ function openFeedbackThread(item) {
     const close = () => {
       document.removeEventListener('keydown', onKey)
       supabaseClient.removeChannel(channel)
-      overlay.remove()
+      if (overlay) overlay.remove()
       openFeedbackThreadId = null
       fbMarkRead(item.id)
       if (admin) updateFeedbackBadge(); else updateMyFeedbackBadge()
@@ -11766,7 +11975,7 @@ function openFeedbackThread(item) {
     const onKey = e => { if (e.key === 'Escape') close() }
     document.addEventListener('keydown', onKey)
     closeBtn.addEventListener('click', close)
-    overlay.addEventListener('click', e => { if (e.target === overlay) close() })
+    if (overlay) overlay.addEventListener('click', e => { if (e.target === overlay) close() })
 
     const refresh = () => { sendBtn.disabled = input.value.trim().length === 0 }
     input.addEventListener('input', refresh)
@@ -12162,11 +12371,8 @@ async function loadOpenReports() {
 }
 
 async function updateReportsBadge() {
-  const badge = document.getElementById('reports-badge')
-  if (!badge || !isAdmin()) return
+  if (!isAdmin()) return
   await loadOpenReports()
-  badge.textContent = String(openReports.length)
-  badge.style.display = openReports.length > 0 ? '' : 'none'
   updateAdminStats()
 }
 
@@ -12218,21 +12424,16 @@ function reportContentText(report) {
   return parts.join(' ') || '(ohne Text)'
 }
 
-async function openReportsModal() {
+async function openReportsModal(host) {
   if (!isAdmin()) return
-  const overlay = document.createElement('div')
-  overlay.className = 'confirm-overlay'
-  const dialog = document.createElement('div')
-  dialog.className = 'confirm-dialog reports-dialog'
-  dialog.setAttribute('role', 'dialog')
-  dialog.setAttribute('aria-modal', 'true')
-  overlay.appendChild(dialog)
-  document.body.appendChild(overlay)
+  const { overlay, dialog } = makeAdminDialog(host)
 
-  const close = () => { document.removeEventListener('keydown', onKey); overlay.remove(); updateReportsBadge() }
-  const onKey = (e) => { if (e.key === 'Escape') close() }
-  document.addEventListener('keydown', onKey)
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  const close = () => { document.removeEventListener('keydown', onKey); if (overlay) overlay.remove(); updateReportsBadge() }
+  const onKey = (e) => { if (e.key === 'Escape' && overlay) close() }
+  if (overlay) {
+    document.addEventListener('keydown', onKey)
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  }
 
   // Die Unterhaltung vor der gemeldeten Nachricht: erst 3 Nachrichten, auf Wunsch bis zu 10 (die Datenbankfunktion
   // admin_report_context liefert sie nur für offene Meldungen). Sonst sieht der Admin keine Chats.
@@ -13461,7 +13662,12 @@ async function handlePushOpen(chatKey) {
     pendingPushOpen = { chatKey: chatKey || null }
     return
   }
-  if (isAdmin()) return
+  if (isAdmin()) {
+    // Benachrichtigung des Admins angetippt: den passenden Bereich in den Aufgaben öffnen
+    const target = { 'admin:reports': 'reports', 'admin:feedback': 'feedback', 'admin:requests': 'requests' }[chatKey]
+    if (target) openAdminSection('aufgaben', { item: target })
+    return
+  }
   if (chatKey && chatKey.startsWith('feedback:')) {
     openFeedbackFromPush(chatKey.slice('feedback:'.length))
     return
