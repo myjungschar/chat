@@ -20,15 +20,12 @@ const url = Deno.env.get('SUPABASE_URL')!
 const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
 const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
 
-// Einfache Bremse gegen Durchprobieren (pro Instanz im Speicher; reicht gegen Skripte, ersetzt aber keine Supabase-Auth-Limits)
-const hits = new Map<string, number[]>()
-function limited(key: string, max: number, windowMs: number) {
-  const now = Date.now()
-  const list = (hits.get(key) ?? []).filter((t) => now - t < windowMs)
-  list.push(now)
-  hits.set(key, list)
-  if (hits.size > 5000) for (const [k, v] of hits) if (!v.some((t) => now - t < windowMs)) hits.delete(k)
-  return list.length > max
+// Bremse gegen Durchprobieren: liegt in der Datenbank (Funktion check_rate_limit, siehe rate-limit.sql),
+// übersteht also einen Neustart oder mehrere gleichzeitig laufende Instanzen dieser Function.
+async function allowed(bucket: string, max: number, windowSeconds: number): Promise<boolean> {
+  const { data, error } = await admin.rpc('check_rate_limit', { p_bucket: bucket, p_max: max, p_window_seconds: windowSeconds })
+  if (error) { console.error('check_rate_limit:', error.message); return true } // Datenbank-Problem soll niemanden aussperren
+  return data !== false
 }
 
 async function emailFor(rawName: string): Promise<string | null> {
@@ -57,7 +54,9 @@ Deno.serve(async (req) => {
   if (!username || !password) return json({ error: NEUTRAL }, 400)
 
   const ip = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || 'unbekannt'
-  if (limited('ip:' + ip, 20, 10 * 60_000) || limited('user:' + username.toLowerCase(), 10, 10 * 60_000)) {
+  const ipOk = await allowed('login:ip:' + ip, 20, 10 * 60)
+  const userOk = await allowed('login:user:' + username.toLowerCase(), 10, 10 * 60)
+  if (!ipOk || !userOk) {
     return json({ error: 'Zu viele Versuche. Bitte warte ein paar Minuten.' }, 429)
   }
 

@@ -23,13 +23,11 @@ const anon = createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, { auth: { per
 const ALLOWED = (Deno.env.get('ALLOWED_REDIRECTS') ?? 'https://myjungschar.github.io/chat/')
   .split(',').map((s) => s.trim()).filter(Boolean)
 
-const hits = new Map<string, number[]>()
-function limited(key: string, max: number, windowMs: number) {
-  const now = Date.now()
-  const list = (hits.get(key) ?? []).filter((t) => now - t < windowMs)
-  list.push(now)
-  hits.set(key, list)
-  return list.length > max
+// Bremse gegen Durchprobieren: liegt in der Datenbank (Funktion check_rate_limit, siehe rate-limit.sql).
+async function allowed(bucket: string, max: number, windowSeconds: number): Promise<boolean> {
+  const { data, error } = await admin.rpc('check_rate_limit', { p_bucket: bucket, p_max: max, p_window_seconds: windowSeconds })
+  if (error) { console.error('check_rate_limit:', error.message); return true }
+  return data !== false
 }
 
 Deno.serve(async (req) => {
@@ -43,7 +41,9 @@ Deno.serve(async (req) => {
     if (!ALLOWED.some((a) => redirectTo === a || redirectTo.startsWith(a))) redirectTo = ALLOWED[0]
 
     const ip = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || 'unbekannt'
-    if (typed && !limited('ip:' + ip, 10, 10 * 60_000) && !limited('user:' + typed.toLowerCase(), 3, 60 * 60_000)) {
+    const ipOk = typed ? await allowed('reset:ip:' + ip, 10, 10 * 60) : false
+    const userOk = typed ? await allowed('reset:user:' + typed.toLowerCase(), 3, 60 * 60) : false
+    if (typed && ipOk && userOk) {
       const lower = typed.toLowerCase()
       let email: string | null = null
       for (const name of lower === typed ? [lower] : [lower, typed]) {
