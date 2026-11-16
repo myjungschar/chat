@@ -14157,3 +14157,18 @@ function initSettingsCollapse() {
 }
 
 initSettingsCollapse()
+// ===== Kleines Easter-Egg für die Konsole (rein zum Spaß, keine Login-Funktion) =====
+// In der Browser-Konsole eingeben: jungschar()
+window.jungschar = function jungschar() {
+  const overlay = document.createElement('div')
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;pointer-events:none;overflow:hidden'
+  document.body.appendChild(overlay)
+  startConfetti(overlay)
+  setTimeout(() => { stopConfetti(); overlay.remove() }, 3000)
+  const sprueche = [
+    '🎉 Hallo Jungschar! Schön, dass du hier reinschaust.',
+    '🙌 Kein Geheim-Zugang hier, nur gute Laune.',
+    '✨ Technik-Tipp des Tages: starke Passwörter schlagen jede Hintertür.'
+  ]
+  return sprueche[Math.floor(Math.random() * sprueche.length)]
+}
