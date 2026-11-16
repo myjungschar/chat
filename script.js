@@ -1400,19 +1400,9 @@ function showList() {
   markCurrentRoomRead().then(() => renderChatList()) // Namen und Vorschauen könnten sich zwischenzeitlich geändert haben
 }
 
-// Benutzername -> E-Mail über die Datenbankfunktion. Groß-/Kleinschreibung ist egal
-// ("Levi.Betke" funktioniert genauso wie "levi.betke"): erst klein geschrieben, zur Sicherheit danach wie getippt.
-async function lookupEmailByUsername(rawName) {
-  const typed = rawName.trim()
-  const lower = typed.toLowerCase()
-  let result = await supabaseClient.rpc('get_email_by_username', { uname: lower })
-  if ((result.error || !result.data) && typed !== lower) {
-    result = await supabaseClient.rpc('get_email_by_username', { uname: typed })
-  }
-  return result
-}
-
 // 3. Einloggen
+// Der Benutzername wird NICHT mehr im Browser in eine E-Mail übersetzt: das macht die Edge Function "login" auf dem Server.
+// So lassen sich Benutzernamen nicht erraten, und bei Fehlern kommt immer dieselbe neutrale Meldung.
 async function login() {
   const username = document.getElementById('username').value.trim()
   const password = document.getElementById('password').value
@@ -1425,33 +1415,31 @@ async function login() {
   const loginBtn = document.getElementById('login-btn')
   loginBtn.disabled = true
 
-  // Benutzername -> hinterlegte E-Mail-Adresse (über eine Datenbankfunktion,
-  // damit im Frontend nicht einfach alle E-Mails abgefragt werden können)
-  const { data: email, error: lookupError } = await lookupEmailByUsername(username)
+  try {
+    const { data, error } = await supabaseClient.functions.invoke('login', { body: { username, password } })
 
-  if (lookupError || !email) {
-    loginBtn.disabled = false
-    showToast('Nutzername nicht gefunden.')
-    return
-  }
-
-  const { data, error } = await supabaseClient.auth.signInWithPassword({
-    email: email,
-    password: password
-  })
-
-  loginBtn.disabled = false
-
-  if (error) {
-    if (error.message.includes('Email not confirmed')) {
-      showToast('Das Konto wurde noch nicht bestätigt.')
-    } else {
-      showToast('Falsches Passwort.')
+    if (error || !data || !data.access_token || !data.refresh_token) {
+      let msg = 'Benutzername oder Passwort stimmt nicht.'
+      const status = error && error.context && error.context.status
+      if (status === 429) msg = 'Zu viele Versuche. Bitte warte ein paar Minuten.'
+      else if (!status && error) msg = 'Keine Verbindung. Bitte versuche es gleich noch einmal.'
+      showToast(msg)
+      return
     }
-    return
-  }
 
-  await enterApp(data.user)
+    const { data: sessionData, error: sessionError } = await supabaseClient.auth.setSession({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token
+    })
+    if (sessionError || !sessionData || !sessionData.user) {
+      showToast('Benutzername oder Passwort stimmt nicht.')
+      return
+    }
+
+    await enterApp(sessionData.user)
+  } finally {
+    loginBtn.disabled = false
+  }
 }
 
 function showForgotScreen() {
@@ -7517,30 +7505,21 @@ async function sendPasswordReset() {
   const btn = document.getElementById('forgot-send-btn')
   btn.disabled = true
 
-  const { data: email, error: lookupError } = await lookupEmailByUsername(username)
-
-  if (lookupError || !email) {
-    btn.disabled = false
-    showToast('Dieser Benutzername ist uns nicht bekannt.')
-    return
-  }
-
-  const sendResetMail = () => supabaseClient.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.href.split('#')[0].split('?')[0]
-  })
-  let { error } = await sendResetMail()
-  if (error && (!error.status || error.status >= 500)) {
-    // Netz- oder Serverfehler beim ersten Versuch: einmal automatisch wiederholen
+  // Die E-Mail wird nur auf dem Server nachgeschlagen; die Antwort ist immer gleich (verrät nicht, ob es den Namen gibt)
+  const redirectTo = window.location.href.split('#')[0].split('?')[0]
+  let { error } = await supabaseClient.functions.invoke('request-password-reset', { body: { username, redirectTo } })
+  if (error && !(error.context && error.context.status)) {
+    // Netzfehler beim ersten Versuch: einmal automatisch wiederholen
     await new Promise(resolve => setTimeout(resolve, 1200))
-    ;({ error } = await sendResetMail())
+    ;({ error } = await supabaseClient.functions.invoke('request-password-reset', { body: { username, redirectTo } }))
   }
 
   btn.disabled = false
 
   if (error) {
-    showToast('Fehler: ' + error.message)
+    showToast('Das hat gerade nicht geklappt. Bitte versuche es gleich noch einmal.')
   } else {
-    showToast('Ein Link zum Zurücksetzen wurde an die hinterlegte E-Mail-Adresse geschickt. Bitte auch den Spam-Ordner prüfen.', 'success')
+    showToast('Falls es diesen Benutzernamen gibt, wurde ein Link an die hinterlegte E-Mail-Adresse geschickt. Bitte auch den Spam-Ordner prüfen.', 'success')
     showLogin()
   }
 }
