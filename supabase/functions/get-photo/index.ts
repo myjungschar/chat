@@ -121,6 +121,7 @@ Deno.serve(async (req) => {
       headers: {
         ...cors,
         'Content-Type': contentType,
+        'X-Content-Type-Options': 'nosniff',
         'Cache-Control': 'private, max-age=31536000, immutable'
       }
     })

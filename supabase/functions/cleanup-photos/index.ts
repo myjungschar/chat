@@ -53,6 +53,11 @@ async function stillUsed(adminDb: any, id: string): Promise<boolean> {
     const { data, error } = await adminDb.from(table).select('id').or(filter).limit(1)
     if (error || (data && data.length > 0)) return true
   }
+  // Hängt die Datei an einer noch offenen Meldung, braucht der Admin sie noch
+  const { data: rep, error: repError } = await adminDb
+    .from('message_reports').select('id').eq('resolved', false)
+    .or(`photo_id.eq.${id},photo_thumb_id.eq.${id}`).limit(1)
+  if (repError || (rep && rep.length > 0)) return true
   return false
 }
 
@@ -116,6 +121,8 @@ Deno.serve(async (req) => {
           .from(table)
           .select('photo_id, photo_thumb_id, audio_id')
           .or('photo_id.not.is.null,audio_id.not.is.null')
+          .order('id')
+          .order('id')
           .range(from, from + 999)
         if (error) return json({ error: 'Datenbank-Abfrage fehlgeschlagen: ' + error.message }, 500) // lieber nichts löschen
         for (const row of data ?? []) {
@@ -125,6 +132,17 @@ Deno.serve(async (req) => {
         }
         if (!data || data.length < 1000) break
         from += 1000
+      }
+    }
+
+    // Dateien aus noch offenen Meldungen gehören dem Admin zur Prüfung und bleiben liegen
+    {
+      const { data: reps, error: repError } = await admin
+        .from('message_reports').select('photo_id, photo_thumb_id').eq('resolved', false)
+      if (repError) return json({ error: 'Datenbank-Abfrage fehlgeschlagen: ' + repError.message }, 500)
+      for (const r of reps ?? []) {
+        if (r.photo_id) referenced.add(r.photo_id)
+        if (r.photo_thumb_id) referenced.add(r.photo_thumb_id)
       }
     }
 
@@ -139,9 +157,9 @@ Deno.serve(async (req) => {
     const kept = files.filter(f => !orphanIds.has(f.id)).sort((a, b) => a.createdTime.localeCompare(b.createdTime))
     let total = kept.reduce((sum, f) => sum + Number(f.size ?? 0), 0)
     let trimmed = 0
-    for (const f of kept) {
+    // Nur aufräumen, wenn das Limit überschritten ist; dann aber bis unter 90 % herunter
+    for (const f of total > PHOTO_LIMIT_BYTES ? kept : []) {
       if (total <= PHOTO_LIMIT_BYTES * 0.9 || deleted >= MAX_DELETES_PER_RUN) break
-      if (total <= PHOTO_LIMIT_BYTES) break
       if (await deleteFile(f.id)) { total -= Number(f.size ?? 0); trimmed++; deleted++ }
     }
 

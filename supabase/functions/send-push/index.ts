@@ -206,8 +206,15 @@ async function handleFeedbackMessage(record) {
 }
 
 Deno.serve(async (req) => {
+  // Nur die Database Webhooks dürfen aufrufen: sie schicken den Header x-webhook-secret (Secret WEBHOOK_SECRET).
+  // Ohne diese Prüfung könnte jeder mit der URL gefälschte Push-Meldungen an alle auslösen.
+  const expected = Deno.env.get("WEBHOOK_SECRET")
+  if (!expected || req.headers.get("x-webhook-secret") !== expected) {
+    return new Response("Nicht erlaubt", { status: 401 })
+  }
   try {
     const payload = await req.json()
+    if (payload.type !== "INSERT") return new Response("kein INSERT - ignoriert", { status: 200 })
     const record = payload.record
 
     if (payload.table === "feedback_messages") {
@@ -279,6 +286,13 @@ Deno.serve(async (req) => {
 
     // Chat-Schlüssel: "main", "junge", "maedchen", "grp_<id>" oder (Einzelchat) "dm:<Absender>"
     const chatKey = record.group_key || (record.recipient_id ? "dm:" + record.sender_id : "main")
+
+    // Gesperrte Personen bekommen keine Meldungen mehr
+    if (recipientIds.length > 0) {
+      const { data: blockedRows } = await supabaseAdmin.from("profiles").select("id").in("id", recipientIds).eq("is_blocked", true)
+      const blockedSet = new Set((blockedRows || []).map((b) => b.id))
+      recipientIds = recipientIds.filter((id) => !blockedSet.has(id))
+    }
 
     // Chat-Nachrichten gehen nie an den Admin (auch nicht, falls er irgendwo als Empfänger auftaucht)
     if (recipientIds.length > 0) {
