@@ -1417,7 +1417,7 @@ async function login() {
   // Klassiker unter den Rate-Versuchen: eine kleine, ungefährliche Spitze statt der normalen Meldung.
   // Ändert nichts an der Sicherheit - der Login schlägt trotzdem fehl, es wird dafür nicht einmal die Function aufgerufen.
   if (username.toLowerCase() === 'admin' && password === '123456') {
-    showToast('Hahaha, diese Seite ist sicherer gebaut als das 😄')
+    openJokeModal()
     return
   }
 
@@ -10470,6 +10470,14 @@ function closeBirthdayModal() {
   clearTimeout(birthdayXTimer)
   stopConfetti()
   document.getElementById('birthday-modal').style.display = 'none'
+}
+
+function openJokeModal() {
+  document.getElementById('joke-modal').style.display = 'flex'
+}
+
+function closeJokeModal() {
+  document.getElementById('joke-modal').style.display = 'none'
 }
 
 // Wird die App nach Mitternacht aus dem Hintergrund geholt: Markierungen neu setzen und Pop-up zeigen

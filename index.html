@@ -47,7 +47,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=2.0.1">
+  <link rel="stylesheet" href="style.css?v=2.0.2">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -222,7 +222,7 @@
           <span id="user-display-name">Nutzer</span>
         </div>
         <div class="header-actions">
-          <button id="settings-toggle-btn" class="settings-btn" onclick="openSettings()">Einstellungen<span class="reports-badge" id="settings-btn-badge" style="display: none;"></span></button>
+          <button id="settings-toggle-btn" class="settings-btn" onclick="openSettings()" aria-label="Einstellungen" title="Einstellungen"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg><span class="reports-badge" id="settings-btn-badge" style="display: none;"></span></button>
           <button class="logout-btn" onclick="logout()">Abmelden</button>
         </div>
       </header>
@@ -978,6 +978,17 @@
     </div>
   </div>
 
+  <!-- Pop-up: Scherz-Meldung bei Login-Versuch admin / 123456 -->
+  <div id="joke-modal" class="modal-overlay" style="display: none;" onclick="closeJokeModal()">
+    <div class="modal-box joke-box" onclick="event.stopPropagation()">
+      <button type="button" class="birthday-x" onclick="closeJokeModal()" aria-label="Schließen" title="Schließen">×</button>
+      <span class="joke-icon" aria-hidden="true">🕵️‍♂️</span>
+      <p class="joke-title">Netter Versuch!</p>
+      <p class="joke-text">Hahaha, diese Seite ist sicherer gebaut als das 😄</p>
+      <button type="button" class="joke-ok-btn" onclick="closeJokeModal()">Alles klar</button>
+    </div>
+  </div>
+
   <!-- Pop-up: Heute hat jemand Geburtstag (einmal pro Tag und Gerät, mit Konfetti) -->
   <div id="birthday-modal" class="modal-overlay" style="display: none;" onclick="closeBirthdayModal()">
     <div class="modal-box birthday-box" onclick="event.stopPropagation()">
@@ -1013,6 +1024,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=2.0.3"></script>
+  <script src="script.js?v=2.0.4"></script>
 </body>
 </html>
