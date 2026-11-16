@@ -7105,3 +7105,33 @@ body.split-view:not(.admin-home) .admin-cards {
 body.admin-home .admin-card {
   min-height: 112px;
 }
+/* Geburtsdatum: die drei Felder teilen sich die Kartenbreite, statt über den Rand hinauszuragen */
+#birthdate-modal .birthdate-fields {
+  gap: 4px;
+}
+
+#birthdate-modal .birthdate-fields input {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 12px 4px;
+  font-size: 18px;
+}
+
+#birthdate-modal .birthdate-fields #birthdate-year {
+  flex: 1.4 1 0;
+  width: auto;
+}
+
+#birthdate-modal .birthdate-sep {
+  flex: 0 0 auto;
+  font-size: 20px;
+}
+
+/* Versionsanzeige ganz unten in den Einstellungen: mittig, mit Abstand nach oben und unten */
+#app-version {
+  margin: 20px 0 28px;
+  text-align: center;
+  opacity: 0.7;
+}
