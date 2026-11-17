@@ -6867,14 +6867,17 @@ body.is-admin #user-list .chat-list-item.active {
   cursor: default;
 }
 
-/* Name oben links (Chatliste): bleibt in einer Zeile, lange Namen werden mit "..." abgeschnitten.
-   Der volle Name steht beim Antippen unter "Meine Daten". */
+/* Name oben links (Chatliste): wird nicht abgeschnitten, sondern bricht bei Bedarf in eine zweite Zeile um.
+   Der grüne Punkt und die Knöpfe rechts bleiben dabei immer mittig zur Namenshöhe (Flexbox zentriert
+   automatisch über die ganze Höhe, egal ob eine oder mehrere Zeilen). */
 #list-bereich .user-info {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
 }
 
 #list-bereich .header-actions {
