@@ -7215,3 +7215,87 @@ body.admin-home .admin-card {
 @media (prefers-reduced-motion: reduce) {
   .joke-icon { animation: none; }
 }
+
+/* ===== Einmalansicht beim Senden: kleiner Flammen-Knopf neben dem HD-Knopf ===== */
+.photo-once-btn {
+  position: absolute;
+  top: 6px;
+  right: 48px;
+  z-index: 1;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(60, 60, 60, 0.6);
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  filter: grayscale(1);
+  opacity: 0.75;
+}
+
+.photo-once-btn.active {
+  background: rgba(224, 97, 90, 0.9);
+  filter: none;
+  opacity: 1;
+}
+
+.photo-once-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ===== Einmalansicht-Foto in der Nachrichten-Blase ===== */
+.msg-view-once {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--bg-input);
+  border: 1.5px dashed var(--accent);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: center;
+  padding: 16px;
+}
+
+.msg-view-once .view-once-icon {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.msg-view-once .view-once-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+.msg-view-once.is-sender {
+  border-style: solid;
+  border-color: var(--border-subtle);
+  cursor: pointer;
+}
+
+.msg-view-once.loading {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.msg-view-once.vo-gone {
+  border-style: solid;
+  border-color: var(--border-subtle);
+  background: var(--bg-panel-raised);
+  cursor: default;
+  opacity: 0.75;
+}
+
+.msg-view-once.vo-gone .view-once-icon {
+  filter: grayscale(1);
+  opacity: 0.6;
+}

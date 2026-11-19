@@ -3278,6 +3278,7 @@ async function openPhotoPreview(file) {
   const results = {}      // 'normal' / 'hd' -> { blob, width, height, url }
   let thumbResult = null
   let hd = false
+  let viewOnce = false
   let busy = false
   let closed = false
 
@@ -3299,7 +3300,16 @@ async function openPhotoPreview(file) {
   hdBtn.textContent = 'HD'
   hdBtn.title = 'Volle Qualität'
   hdBtn.setAttribute('aria-pressed', 'false')
-  previewWrap.append(previewImg, hdBtn)
+
+  const onceBtn = document.createElement('button')
+  onceBtn.type = 'button'
+  onceBtn.className = 'photo-once-btn'
+  onceBtn.innerHTML = '🔥'
+  onceBtn.title = 'Einmalansicht: Danach sehen es alle nur einmal, dann ist es weg'
+  onceBtn.setAttribute('aria-pressed', 'false')
+  onceBtn.setAttribute('aria-label', 'Einmalansicht ein- oder ausschalten')
+
+  previewWrap.append(previewImg, hdBtn, onceBtn)
 
   const caption = document.createElement('input')
   caption.type = 'text'
@@ -3371,7 +3381,7 @@ async function openPhotoPreview(file) {
     try {
       const main = results[hd ? 'hd' : 'normal']
       if (!thumbResult) thumbResult = await compressImage(src, PHOTO_THUMB_EDGE, PHOTO_THUMB_QUALITY, PHOTO_THUMB_MAX_BYTES)
-      const ok = await sendPhotoMessage(main, thumbResult, caption.value.trim())
+      const ok = await sendPhotoMessage(main, thumbResult, caption.value.trim(), viewOnce)
       if (ok) { close(); return }
     } catch (e) {
       console.error('Foto senden:', e)
@@ -3390,6 +3400,13 @@ async function openPhotoPreview(file) {
     hdBtn.setAttribute('aria-pressed', hd ? 'true' : 'false')
     showVersion()
   })
+  onceBtn.addEventListener('click', () => {
+    if (busy) return
+    viewOnce = !viewOnce
+    onceBtn.classList.toggle('active', viewOnce)
+    onceBtn.setAttribute('aria-pressed', viewOnce ? 'true' : 'false')
+    showToast(viewOnce ? 'Einmalansicht an: Jede Person sieht das Foto nur einmal, danach ist es weg.' : 'Einmalansicht aus.')
+  })
   sendBtn.addEventListener('click', submit)
   caption.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit() } })
 
@@ -3397,7 +3414,7 @@ async function openPhotoPreview(file) {
 }
 
 // Lädt das Foto hoch und legt danach die Nachricht an. true = geschafft
-async function sendPhotoMessage(main, thumb, captionText) {
+async function sendPhotoMessage(main, thumb, captionText, viewOnce) {
   if (!currentUser || photoSending) return false
   photoSending = true
 
@@ -3424,7 +3441,8 @@ async function sendPhotoMessage(main, thumb, captionText) {
       photo_id: up.photo_id,
       photo_thumb_id: up.thumb_id || null,
       photo_w: main.width,
-      photo_h: main.height
+      photo_h: main.height,
+      view_once: !!viewOnce
     }
     if (room.type === 'dm') row.recipient_id = room.userId
     else row.group_key = room.groupKey || null
@@ -4518,6 +4536,142 @@ function buildPhotoElement(msg) {
   return wrap
 }
 
+// ===== Einmalansicht-Fotos =====
+// Jede Person (außer dem Absender) darf so ein Foto genau einmal anschauen, danach ist es für sie weg.
+// Erst wenn alle Berechtigten es einmal gesehen haben, löscht der Server die Datei wirklich - dann zeigt
+// die Nachricht bei allen "Foto wurde angeschaut, nicht mehr verfügbar" (kommt per Realtime-Update automatisch).
+const viewOnceSeenLocally = new Set() // message.id, damit ein zweites Antippen nicht nochmal den Server fragt
+
+function buildViewOnceElement(msg, isOwn) {
+  const gone = !msg.photo_id || msg.view_once_done
+  const alreadySeen = !isOwn && (viewOnceSeenLocally.has(msg.id))
+
+  const wrap = document.createElement('button')
+  wrap.type = 'button'
+  wrap.className = 'msg-photo msg-view-once'
+  const w = Number(msg.photo_w) || 4
+  const h = Number(msg.photo_h) || 3
+  wrap.style.aspectRatio = String(Math.min(1.8, Math.max(0.7, w / h)))
+
+  if (gone) {
+    wrap.classList.add('vo-gone')
+    wrap.disabled = true
+    wrap.innerHTML = '<span class="view-once-icon">🔥</span><span class="view-once-label">Foto wurde angeschaut<br>Nicht mehr verfügbar</span>'
+    return wrap
+  }
+
+  if (isOwn) {
+    wrap.classList.add('is-sender')
+    wrap.setAttribute('aria-label', 'Dein Einmalansicht-Foto ansehen')
+    wrap.innerHTML = '<span class="view-once-icon">🔥</span><span class="view-once-label">Einmalansicht</span>'
+    wrap.addEventListener('click', () => { if (!selectMode) openViewOnceMessage(msg) })
+    return wrap
+  }
+
+  if (alreadySeen) {
+    wrap.classList.add('vo-gone')
+    wrap.disabled = true
+    wrap.innerHTML = '<span class="view-once-icon">🔥</span><span class="view-once-label">Du hast es angeschaut<br>Nicht mehr verfügbar</span>'
+    return wrap
+  }
+
+  wrap.setAttribute('aria-label', 'Einmalansicht-Foto anschauen')
+  wrap.innerHTML = '<span class="view-once-icon">🔥</span><span class="view-once-label">Einmalansicht<br>Zum Anzeigen antippen</span>'
+  wrap.addEventListener('click', () => {
+    if (selectMode || wrap.classList.contains('loading')) return
+    openViewOnceMessage(msg, wrap)
+  })
+  return wrap
+}
+
+async function openViewOnceMessage(msg, wrapEl) {
+  if (wrapEl) wrapEl.classList.add('loading')
+  try {
+    const { data: sessionData } = await supabaseClient.auth.getSession()
+    const session = sessionData && sessionData.session
+    if (!session) throw new Error('Nicht angemeldet')
+
+    const res = await fetch(SUPABASE_URL + '/functions/v1/view-once-open', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + session.access_token,
+        apikey: SUPABASE_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ table: viewOnceTableName(msg), id: msg.id })
+    })
+
+    const contentType = res.headers.get('content-type') || ''
+    if (res.ok && contentType.startsWith('image/')) {
+      const blob = await res.blob()
+      viewOnceSeenLocally.add(msg.id)
+      openViewOnceViewer(blob)
+      if (wrapEl) { wrapEl.classList.remove('loading'); wrapEl.classList.add('vo-gone'); wrapEl.disabled = true; wrapEl.innerHTML = '<span class="view-once-icon">🔥</span><span class="view-once-label">Du hast es angeschaut<br>Nicht mehr verfügbar</span>' }
+      return
+    }
+
+    const data = await res.json().catch(() => ({}))
+    if (data && data.status === 'already_viewed') {
+      viewOnceSeenLocally.add(msg.id)
+      showToast('Das hast du dir schon angesehen.')
+    } else if (data && data.status === 'gone') {
+      showToast('Dieses Foto ist nicht mehr verfügbar.')
+    } else {
+      showToast(data && data.error ? data.error : 'Das Foto konnte nicht geöffnet werden.')
+    }
+    if (wrapEl) {
+      wrapEl.classList.remove('loading')
+      wrapEl.classList.add('vo-gone')
+      wrapEl.disabled = true
+      wrapEl.innerHTML = '<span class="view-once-icon">🔥</span><span class="view-once-label">Nicht mehr verfügbar</span>'
+    }
+  } catch (e) {
+    console.error('Einmalansicht:', e)
+    if (wrapEl) wrapEl.classList.remove('loading')
+    showToast('Keine Verbindung. Bitte versuch es gleich noch einmal.')
+  }
+}
+
+function viewOnceTableName(msg) {
+  return ('recipient_id' in msg) ? 'direct_messages' : 'messages'
+}
+
+// Eigene kleine Vollbild-Ansicht: wird NICHT im Browser-Zwischenspeicher abgelegt (anders als normale Fotos)
+// und die Objekt-URL wird beim Schließen sofort wieder freigegeben.
+function openViewOnceViewer(blob) {
+  closePhotoViewer()
+  const url = URL.createObjectURL(blob)
+  const overlay = document.createElement('div')
+  overlay.className = 'photo-viewer'
+  const img = document.createElement('img')
+  img.alt = 'Foto'
+  img.src = url
+  const closeBtn = document.createElement('button')
+  closeBtn.type = 'button'
+  closeBtn.className = 'photo-viewer-btn photo-viewer-close'
+  closeBtn.setAttribute('aria-label', 'Schließen')
+  closeBtn.title = 'Schließen'
+  closeBtn.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>'
+  const buttons = document.createElement('div')
+  buttons.className = 'photo-viewer-buttons'
+  buttons.appendChild(closeBtn)
+  const hint = document.createElement('div')
+  hint.className = 'photo-viewer-status'
+  hint.textContent = 'Einmalansicht · nicht mehr abrufbar, sobald du schließt'
+  overlay.append(img, buttons, hint)
+
+  const finish = () => {
+    overlay.remove()
+    URL.revokeObjectURL(url)
+    document.removeEventListener('keydown', onKey)
+  }
+  const onKey = e => { if (e.key === 'Escape') finish() }
+  document.addEventListener('keydown', onKey)
+  closeBtn.addEventListener('click', finish)
+  overlay.addEventListener('click', e => { if (e.target === overlay) finish() })
+  document.body.appendChild(overlay)
+}
+
 function closePhotoViewer() {
   if (photoViewerEl) { photoViewerEl.remove(); photoViewerEl = null }
   if (photoViewerUrl) { URL.revokeObjectURL(photoViewerUrl); photoViewerUrl = null }
@@ -5185,7 +5339,7 @@ function renderMessage(msg) {
   const canReply = !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   const canCopy = !!msg.text
   const canDownloadAudio = !!msg.audio_id
-  const canForward = !isAdmin() && (!!msg.text || ((!!msg.photo_id || !!msg.audio_id) && !isPhotoBlockedSelf() && !uploadsDisabled)) && (currentRoom.type === 'group' || currentRoom.type === 'dm')
+  const canForward = !isAdmin() && !msg.view_once && (!!msg.text || ((!!msg.photo_id || !!msg.audio_id) && !isPhotoBlockedSelf() && !uploadsDisabled)) && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   const canReport = !isOwn && !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
   // Info (wer hat die Nachricht gelesen/bekommen) und Häkchen: für eigene Nachrichten in Einzelchat und Gruppe.
   // Der Admin sieht sie an allen Nachrichten (Gruppe und Einblick in Einzelchats): wer hat gelesen, wer nicht, und wann
@@ -5221,7 +5375,11 @@ function renderMessage(msg) {
     msgElement.appendChild(forwardedTag)
   }
   if (msg.reply_to_id) msgElement.appendChild(buildReplyQuote(msg.reply_to_id))
-  if (msg.photo_id) {
+  if (msg.view_once) {
+    msgElement.classList.add('has-photo')
+    msgElement.appendChild(buildViewOnceElement(msg, isOwn))
+    if (!msg.text) textEl.classList.add('photo-only')
+  } else if (msg.photo_id) {
     msgElement.classList.add('has-photo')
     msgElement.appendChild(buildPhotoElement(msg))
     if (!msg.text) textEl.classList.add('photo-only')
@@ -7125,6 +7283,17 @@ function placeMessageFooter(textEl, footer) {
 function updateMessageElement(msg) {
   const row = document.querySelector(`#chat-box [data-id="${msg.id}"]`)
   if (!row) return
+
+  messagesById[msg.id] = msg
+
+  // Einmalansicht-Foto wurde inzwischen gelöscht (alle Berechtigten haben es gesehen): Blase ersetzen
+  if (msg.view_once && (msg.view_once_done || !msg.photo_id)) {
+    const oldWrap = row.querySelector('.msg-photo')
+    if (oldWrap && !oldWrap.classList.contains('vo-gone')) {
+      const isOwn = msg.sender_id === perspectiveUserId()
+      oldWrap.replaceWith(buildViewOnceElement(msg, isOwn))
+    }
+  }
 
   const textEl = row.querySelector('.msg-text')
   if (textEl && !msg.photo_id && !msg.audio_id && !parseInvitation(msg.text)) {
