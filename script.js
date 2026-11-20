@@ -2338,7 +2338,8 @@ async function toggleAttachMenu(anchorBtn, evt) {
       flyout.className = 'msg-menu attach-flyout'
       flyout.addEventListener('click', e => e.stopPropagation())
       const addSub = (label, hint, run) => addItem(label, () => { closeAttachMenu(); run() }, hint, flyout)
-      addSub('Foto', 'Bilder aus Galerie oder Kamera', () => startPhotoFlow())
+      addSub('Kamera', 'Jetzt ein Foto aufnehmen', () => startPhotoFlow(undefined, 'camera'))
+      addSub('Galerie', 'Vorhandenes Foto hochladen', () => startPhotoFlow(undefined, 'gallery'))
       addSub('Audio', 'MP3, M4A, WAV · bis 50 MB', () => startAudioFlow())
       addSub('Dokument', 'PDF, Word, Excel, PowerPoint, TXT, CSV · bis 50 MB', () => startFileFlow())
 
@@ -3093,7 +3094,8 @@ const SWISSTRANSFER_URL = 'https://www.swisstransfer.com'
 const PHOTO_CACHE_NAME = 'chat-photos'
 const PHOTO_CACHE_MAX_ENTRIES = 150
 
-let photoInputEl = null
+let photoGalleryInputEl = null
+let photoCameraInputEl = null
 let photoSending = false
 
 function messageSnippet(msg) {
@@ -3115,23 +3117,35 @@ function formatBytes(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1).replace('.', ',') + ' MB'
 }
 
-function getPhotoInput() {
-  if (!photoInputEl) {
-    photoInputEl = document.createElement('input')
-    photoInputEl.type = 'file'
-    photoInputEl.accept = 'image/*'
-    photoInputEl.style.display = 'none'
-    photoInputEl.addEventListener('change', () => {
-      const file = photoInputEl.files && photoInputEl.files[0]
-      photoInputEl.value = ''
-      if (file) openPhotoPreview(file)
-    })
-    document.body.appendChild(photoInputEl)
-  }
-  return photoInputEl
+// Zwei getrennte, unsichtbare Datei-Felder, damit "Kamera" und "Aus Galerie wählen" in der App selbst zwei
+// eigene, eindeutige Knöpfe sind, statt sich auf die (von Handy zu Handy unterschiedliche) Auswahl des
+// Browsers zu verlassen. "capture" lässt den Browser bei der Kamera-Variante direkt die Aufnahme öffnen.
+function makePhotoInput(capture) {
+  const el = document.createElement('input')
+  el.type = 'file'
+  el.accept = 'image/*'
+  if (capture) el.capture = 'environment'
+  el.style.display = 'none'
+  el.addEventListener('change', () => {
+    const file = el.files && el.files[0]
+    el.value = ''
+    if (file) openPhotoPreview(file)
+  })
+  document.body.appendChild(el)
+  return el
 }
 
-function startPhotoFlow(pastedFile) {
+function getGalleryInput() {
+  if (!photoGalleryInputEl) photoGalleryInputEl = makePhotoInput(false)
+  return photoGalleryInputEl
+}
+
+function getCameraInput() {
+  if (!photoCameraInputEl) photoCameraInputEl = makePhotoInput(true)
+  return photoCameraInputEl
+}
+
+function startPhotoFlow(pastedFile, source) {
   if (!currentUser || isAdmin() || currentRoom.type === 'dm-view') return
   if (uploadsDisabled) { showToast(UPLOADS_PAUSED_TEXT); return }
   if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos senden.'); return }
@@ -3140,7 +3154,8 @@ function startPhotoFlow(pastedFile) {
   // Der Hinweis kommt bei JEDEM Foto. Erst danach öffnet sich die Foto-Auswahl.
   showSwissTransferHint(() => {
     if (pastedFile) openPhotoPreview(pastedFile) // Foto kam aus der Zwischenablage
-    else getPhotoInput().click()
+    else if (source === 'camera') getCameraInput().click()
+    else getGalleryInput().click()
   })
 }
 
@@ -3304,7 +3319,7 @@ async function openPhotoPreview(file) {
   const onceBtn = document.createElement('button')
   onceBtn.type = 'button'
   onceBtn.className = 'photo-once-btn'
-  onceBtn.innerHTML = '🔥'
+  onceBtn.textContent = '1'
   onceBtn.title = 'Einmalansicht: Danach sehen es alle nur einmal, dann ist es weg'
   onceBtn.setAttribute('aria-pressed', 'false')
   onceBtn.setAttribute('aria-label', 'Einmalansicht ein- oder ausschalten')
@@ -4543,8 +4558,11 @@ function buildPhotoElement(msg) {
 const viewOnceSeenLocally = new Set() // message.id, damit ein zweites Antippen nicht nochmal den Server fragt
 
 function buildViewOnceElement(msg, isOwn) {
-  const gone = !msg.photo_id || msg.view_once_done
-  const alreadySeen = !isOwn && (viewOnceSeenLocally.has(msg.id))
+  // Zwei Zustände, wie bei WhatsApp: "Foto" (blau, antippbar) oder "Geöffnet" (grau, nicht mehr antippbar).
+  // Als Absender kannst du dein eigenes Einmalansicht-Foto nie (wieder) ansehen, nur verfolgen ob es schon offen ist.
+  const done = !msg.photo_id || msg.view_once_done
+  const openedByMe = !isOwn && viewOnceSeenLocally.has(msg.id)
+  const opened = done || openedByMe
 
   const wrap = document.createElement('button')
   wrap.type = 'button'
@@ -4553,30 +4571,23 @@ function buildViewOnceElement(msg, isOwn) {
   const h = Number(msg.photo_h) || 3
   wrap.style.aspectRatio = String(Math.min(1.8, Math.max(0.7, w / h)))
 
-  if (gone) {
-    wrap.classList.add('vo-gone')
+  if (opened) {
+    wrap.classList.add('opened')
     wrap.disabled = true
-    wrap.innerHTML = '<span class="view-once-icon">🔥</span><span class="view-once-label">Foto wurde angeschaut<br>Nicht mehr verfügbar</span>'
+    wrap.innerHTML = '<span class="view-once-icon">1</span><span class="view-once-label">Geöffnet</span>'
     return wrap
   }
 
   if (isOwn) {
-    wrap.classList.add('is-sender')
-    wrap.setAttribute('aria-label', 'Dein Einmalansicht-Foto ansehen')
-    wrap.innerHTML = '<span class="view-once-icon">🔥</span><span class="view-once-label">Einmalansicht</span>'
-    wrap.addEventListener('click', () => { if (!selectMode) openViewOnceMessage(msg) })
-    return wrap
-  }
-
-  if (alreadySeen) {
-    wrap.classList.add('vo-gone')
+    // Noch nicht geöffnet, aber der Absender kann sein eigenes Einmalansicht-Foto nicht ansehen
     wrap.disabled = true
-    wrap.innerHTML = '<span class="view-once-icon">🔥</span><span class="view-once-label">Du hast es angeschaut<br>Nicht mehr verfügbar</span>'
+    wrap.setAttribute('aria-label', 'Einmalansicht-Foto, noch nicht geöffnet')
+    wrap.innerHTML = '<span class="view-once-icon">1</span><span class="view-once-label">Foto</span>'
     return wrap
   }
 
   wrap.setAttribute('aria-label', 'Einmalansicht-Foto anschauen')
-  wrap.innerHTML = '<span class="view-once-icon">🔥</span><span class="view-once-label">Einmalansicht<br>Zum Anzeigen antippen</span>'
+  wrap.innerHTML = '<span class="view-once-icon">1</span><span class="view-once-label">Foto</span>'
   wrap.addEventListener('click', () => {
     if (selectMode || wrap.classList.contains('loading')) return
     openViewOnceMessage(msg, wrap)
@@ -4606,7 +4617,7 @@ async function openViewOnceMessage(msg, wrapEl) {
       const blob = await res.blob()
       viewOnceSeenLocally.add(msg.id)
       openViewOnceViewer(blob)
-      if (wrapEl) { wrapEl.classList.remove('loading'); wrapEl.classList.add('vo-gone'); wrapEl.disabled = true; wrapEl.innerHTML = '<span class="view-once-icon">🔥</span><span class="view-once-label">Du hast es angeschaut<br>Nicht mehr verfügbar</span>' }
+      setOpenedState(wrapEl)
       return
     }
 
@@ -4619,12 +4630,7 @@ async function openViewOnceMessage(msg, wrapEl) {
     } else {
       showToast(data && data.error ? data.error : 'Das Foto konnte nicht geöffnet werden.')
     }
-    if (wrapEl) {
-      wrapEl.classList.remove('loading')
-      wrapEl.classList.add('vo-gone')
-      wrapEl.disabled = true
-      wrapEl.innerHTML = '<span class="view-once-icon">🔥</span><span class="view-once-label">Nicht mehr verfügbar</span>'
-    }
+    setOpenedState(wrapEl)
   } catch (e) {
     console.error('Einmalansicht:', e)
     if (wrapEl) wrapEl.classList.remove('loading')
@@ -4634,6 +4640,14 @@ async function openViewOnceMessage(msg, wrapEl) {
 
 function viewOnceTableName(msg) {
   return ('recipient_id' in msg) ? 'direct_messages' : 'messages'
+}
+
+function setOpenedState(wrapEl) {
+  if (!wrapEl) return
+  wrapEl.classList.remove('loading')
+  wrapEl.classList.add('opened')
+  wrapEl.disabled = true
+  wrapEl.innerHTML = '<span class="view-once-icon">1</span><span class="view-once-label">Geöffnet</span>'
 }
 
 // Eigene kleine Vollbild-Ansicht: wird NICHT im Browser-Zwischenspeicher abgelegt (anders als normale Fotos)
@@ -4657,7 +4671,7 @@ function openViewOnceViewer(blob) {
   buttons.appendChild(closeBtn)
   const hint = document.createElement('div')
   hint.className = 'photo-viewer-status'
-  hint.textContent = 'Einmalansicht · nicht mehr abrufbar, sobald du schließt'
+  hint.textContent = 'Einmalansicht · kein Herunterladen möglich · nicht mehr abrufbar, sobald du schließt'
   overlay.append(img, buttons, hint)
 
   const finish = () => {
@@ -7289,7 +7303,7 @@ function updateMessageElement(msg) {
   // Einmalansicht-Foto wurde inzwischen gelöscht (alle Berechtigten haben es gesehen): Blase ersetzen
   if (msg.view_once && (msg.view_once_done || !msg.photo_id)) {
     const oldWrap = row.querySelector('.msg-photo')
-    if (oldWrap && !oldWrap.classList.contains('vo-gone')) {
+    if (oldWrap && !oldWrap.classList.contains('opened')) {
       const isOwn = msg.sender_id === perspectiveUserId()
       oldWrap.replaceWith(buildViewOnceElement(msg, isOwn))
     }

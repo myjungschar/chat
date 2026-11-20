@@ -338,7 +338,9 @@ Deno.serve(async (req) => {
           ? (record.audio_mime === "application/pdf" ? "📄 PDF" : "📎 Datei")
           : (/^Sprachnachricht \d{4}-\d{2}-\d{2} \d{2}-\d{2}(\.[a-z0-9]+)?$/i.test(String(record.audio_name || "")) ? "🎤 Sprachnachricht" : "🎵 Audio"))
       : ""
-    const bodyText = (record.text ? pushText(record.text) : (record.photo_id ? "📷 Foto" : fileHint)).slice(0, 120)
+    const bodyText = (record.text
+      ? pushText(record.text)
+      : (record.photo_id ? (record.view_once ? "Einmalansicht-Foto" : "📷 Foto") : fileHint)).slice(0, 120)
     const notificationPayload = JSON.stringify({
       title: groupName ? senderName + " · " + groupName : senderName,
       body: bodyText,

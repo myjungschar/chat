@@ -128,13 +128,9 @@ Deno.serve(async (req) => {
 
     if (msg.view_once_done || !msg.photo_id) return json({ status: 'gone' })
 
-    // Der Absender kann sein eigenes Foto normal anschauen (verbraucht keine Ansicht), solange es nicht gelöscht ist.
-    if (isSender) {
-      const bytes = await fetchDrivePhoto(msg.photo_id)
-      return new Response(bytes, {
-        headers: { ...cors, 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }
-      })
-    }
+    // Der Absender kann sein eigenes Einmalansicht-Foto nicht (wieder) ansehen - genau wie bei WhatsApp.
+    // Er sieht nur in der App, ob es schon "Geöffnet" ist, bekommt die Bilddaten aber nie über diese Function.
+    if (isSender) return json({ status: 'gone' })
 
     // ----- Ansicht eintragen (genau einmal pro Person) -----
     const { error: insertError } = await admin
