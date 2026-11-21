@@ -4634,12 +4634,11 @@ function buildViewOnceElement(msg, isOwn) {
   const openedByMe = !isOwn && viewOnceSeenLocally.has(msg.id)
   const opened = done || openedByMe
 
+  // Bewusst KEIN "msg-photo" (das würde die Blase auf Foto-Größe aufziehen) - ohne Bild zum Anzeigen
+  // soll das genauso klein bleiben wie eine normale Textnachricht.
   const wrap = document.createElement('button')
   wrap.type = 'button'
-  wrap.className = 'msg-photo msg-view-once'
-  const w = Number(msg.photo_w) || 4
-  const h = Number(msg.photo_h) || 3
-  wrap.style.aspectRatio = String(Math.min(1.8, Math.max(0.7, w / h)))
+  wrap.className = 'msg-view-once'
 
   if (opened) {
     wrap.classList.add('opened')
@@ -5460,9 +5459,8 @@ function renderMessage(msg) {
   }
   if (msg.reply_to_id) msgElement.appendChild(buildReplyQuote(msg.reply_to_id))
   if (msg.view_once) {
-    msgElement.classList.add('has-photo')
+    msgElement.classList.add('has-view-once')
     msgElement.appendChild(buildViewOnceElement(msg, isOwn))
-    if (!msg.text) textEl.classList.add('photo-only')
   } else if (msg.photo_id) {
     msgElement.classList.add('has-photo')
     msgElement.appendChild(buildPhotoElement(msg))
@@ -7374,7 +7372,7 @@ function updateMessageElement(msg) {
 
   // Einmalansicht-Foto wurde inzwischen gelöscht (alle Berechtigten haben es gesehen): Blase ersetzen
   if (msg.view_once && (msg.view_once_done || !msg.photo_id)) {
-    const oldWrap = row.querySelector('.msg-photo')
+    const oldWrap = row.querySelector('.msg-view-once')
     if (oldWrap && !oldWrap.classList.contains('opened')) {
       const isOwn = msg.sender_id === perspectiveUserId()
       oldWrap.replaceWith(buildViewOnceElement(msg, isOwn))
