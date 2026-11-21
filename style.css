@@ -4061,11 +4061,12 @@ input[type="date"]::-webkit-date-and-time-value {
 }
 
 /* Feste Größe für die Karte, egal ob gerade eine oder mehrere Personen Geburtstag haben: sonst springt das
-   Fenster je nach Inhalt mal größer, mal kleiner. Ist der Text trotzdem mal länger (viele Geburtstage an
-   einem Tag), scrollt nur er, das Kreuz oben rechts bleibt immer an seinem Platz sichtbar. */
+   Fenster je nach Inhalt mal größer, mal kleiner. An den meisten Tagen hat nur eine Person Geburtstag, darauf
+   ist die Höhe abgestimmt - deswegen bewusst nicht so hoch wie der seltene Fall mit mehreren Leuten; dann
+   scrollt stattdessen nur der Text, das Kreuz oben rechts bleibt immer an seinem Platz sichtbar. */
 .birthday-box {
   width: 340px;
-  height: 420px;
+  height: 320px;
   max-width: 100%;
   max-height: calc(100vh - 40px);
   max-height: calc(100dvh - 40px);
@@ -4084,14 +4085,10 @@ input[type="date"]::-webkit-date-and-time-value {
   justify-content: center;
   overflow-y: auto;
   overscroll-behavior: contain;
-  /* Das Emoji hüpft nach oben: ohne diesen Platz würde es oben abgeschnitten (sah aus wie "größer und kleiner").
-     Das Minus-margin gleicht den Platz wieder aus, damit sich am Aussehen nichts verschiebt. */
-  padding-top: 20px;
-  margin-top: -20px;
 }
 
 .birthday-emoji {
-  margin-bottom: 8px;
+  margin-bottom: 16px;
   font-size: 56px;
   line-height: 1;
   animation: birthday-bounce 1.3s ease-in-out infinite;
