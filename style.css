@@ -4060,23 +4060,34 @@ input[type="date"]::-webkit-date-and-time-value {
   overflow: hidden;
 }
 
-/* Haben viele Leute Geburtstag, ist der Inhalt höher als der Bildschirm: dann scrollt nur der Text im Pop-up, das Kreuz
-   oben rechts bleibt immer an seinem Platz sichtbar (früher rutschte es aus dem Bild und ließ sich nicht mehr antippen) */
+/* Feste Größe für die Karte, egal ob gerade eine oder mehrere Personen Geburtstag haben: sonst springt das
+   Fenster je nach Inhalt mal größer, mal kleiner. Ist der Text trotzdem mal länger (viele Geburtstage an
+   einem Tag), scrollt nur er, das Kreuz oben rechts bleibt immer an seinem Platz sichtbar. */
+.birthday-box {
+  width: 340px;
+  height: 420px;
+  max-width: 100%;
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+  position: relative;
+  background-image: radial-gradient(circle at 50% 0%, rgba(255, 200, 61, 0.18), transparent 62%);
+}
+
 #birthday-body {
-  max-height: calc(100vh - 90px);
-  max-height: calc(100dvh - 90px);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   overflow-y: auto;
   overscroll-behavior: contain;
   /* Das Emoji hüpft nach oben: ohne diesen Platz würde es oben abgeschnitten (sah aus wie "größer und kleiner").
      Das Minus-margin gleicht den Platz wieder aus, damit sich am Aussehen nichts verschiebt. */
   padding-top: 20px;
   margin-top: -20px;
-}
-
-.birthday-box {
-  text-align: center;
-  position: relative;
-  background-image: radial-gradient(circle at 50% 0%, rgba(255, 200, 61, 0.18), transparent 62%);
 }
 
 .birthday-emoji {
@@ -4159,6 +4170,28 @@ input[type="date"]::-webkit-date-and-time-value {
   color: #ffc83d;
   font-size: 13px;
   font-weight: 700;
+}
+
+.birthday-congrats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.birthday-congrats-btn {
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 12px;
+  background: #ffc83d;
+  color: #2a1d00;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.birthday-congrats-btn:hover {
+  background: #ffd766;
 }
 
 .confetti-piece {

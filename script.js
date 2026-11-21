@@ -2338,8 +2338,7 @@ async function toggleAttachMenu(anchorBtn, evt) {
       flyout.className = 'msg-menu attach-flyout'
       flyout.addEventListener('click', e => e.stopPropagation())
       const addSub = (label, hint, run) => addItem(label, () => { closeAttachMenu(); run() }, hint, flyout)
-      addSub('Kamera', 'Jetzt ein Foto aufnehmen', () => startPhotoFlow(undefined, 'camera'))
-      addSub('Galerie', 'Vorhandenes Foto hochladen', () => startPhotoFlow(undefined, 'gallery'))
+      addSub('Foto', 'Aufnehmen oder aus der Galerie wählen', () => startPhotoFlow(undefined))
       addSub('Audio', 'MP3, M4A, WAV · bis 50 MB', () => startAudioFlow())
       addSub('Dokument', 'PDF, Word, Excel, PowerPoint, TXT, CSV · bis 50 MB', () => startFileFlow())
 
@@ -2949,6 +2948,26 @@ function formatInviteWhen(dateStr, timeStr, endStr) {
   return dayPart || timePart
 }
 
+const GERMAN_MONTHS = ['januar', 'februar', 'märz', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'dezember']
+
+function parseInviteWhen(str) {
+  if (!str) return null
+  const m = /^[^,]+,\s*(\d{1,2})\.\s*([A-Za-zÄÖÜäöü]+)\s*(\d{4})?(?:\s+(?:um\s+(\d{1,2})(?::(\d{2}))?\s*Uhr|von\s+(\d{1,2})(?::(\d{2}))?\s*bis\s+(\d{1,2})(?::(\d{2}))?\s*Uhr))?$/.exec(str.trim())
+  if (!m) return null
+  const monthIdx = GERMAN_MONTHS.indexOf(m[2].toLowerCase())
+  if (monthIdx === -1) return null
+  const day = m[1].padStart(2, '0')
+  const month = String(monthIdx + 1).padStart(2, '0')
+  const year = m[3] || String(new Date().getFullYear())
+  let time = '', timeEnd = ''
+  if (m[4] !== undefined) time = m[4].padStart(2, '0') + ':' + (m[5] || '00')
+  else if (m[6] !== undefined) {
+    time = m[6].padStart(2, '0') + ':' + (m[7] || '00')
+    timeEnd = m[8].padStart(2, '0') + ':' + (m[9] || '00')
+  }
+  return { date: year + '-' + month + '-' + day, time, timeEnd }
+}
+
 function buildInvitationCard(inv) {
   const card = document.createElement('div')
   card.className = 'invite-card'
@@ -3009,23 +3028,51 @@ function buildInvitationCard(inv) {
 }
 
 let inviteCardSending = false
+let editingInvitationId = null // gesetzt, solange gerade eine bestehende Einladung bearbeitet wird statt eine neue erstellt
 
 function openInviteModal() {
+  editingInvitationId = null
   ;['invite-card-name', 'invite-date', 'invite-time', 'invite-time-end', 'invite-where', 'invite-note'].forEach(id => {
     document.getElementById(id).value = ''
   })
   document.getElementById('invite-error').style.display = 'none'
   document.getElementById('invite-submit-btn').disabled = false
+  document.getElementById('invite-submit-btn').textContent = 'Senden'
+  document.getElementById('invite-modal-title').textContent = 'Einladung erstellen'
+  document.getElementById('invite-modal').style.display = 'flex'
+}
+
+// Innerhalb der 15-Minuten-Bearbeitungszeit eine bereits gesendete Einladung noch einmal öffnen, falls man sich
+// vertippt hat: dieselbe Maske wie beim Erstellen, nur vorausgefüllt und mit "Speichern" statt "Senden".
+function startEditingInvitation(msg, inv) {
+  if (!withinEditWindow(msg.created_at)) {
+    editWindowExpiredToast()
+    return
+  }
+  const parsedWhen = parseInviteWhen(inv.when) || { date: '', time: '', timeEnd: '' }
+  document.getElementById('invite-card-name').value = inv.title
+  document.getElementById('invite-date').value = parsedWhen.date
+  document.getElementById('invite-time').value = parsedWhen.time
+  document.getElementById('invite-time-end').value = parsedWhen.timeEnd
+  document.getElementById('invite-where').value = inv.where
+  document.getElementById('invite-note').value = inv.note
+  document.getElementById('invite-error').style.display = 'none'
+  document.getElementById('invite-submit-btn').disabled = false
+  document.getElementById('invite-submit-btn').textContent = 'Speichern'
+  document.getElementById('invite-modal-title').textContent = 'Einladung bearbeiten'
+  editingInvitationId = msg.id
   document.getElementById('invite-modal').style.display = 'flex'
 }
 
 function closeInviteModal() {
+  editingInvitationId = null
   document.getElementById('invite-modal').style.display = 'none'
 }
 
 async function submitInvitation() {
   if (inviteCardSending || !currentUser || isAdmin()) return
-  if (currentRoom.type !== 'group' && currentRoom.type !== 'dm') return
+  const isEdit = !!editingInvitationId
+  if (!isEdit && currentRoom.type !== 'group' && currentRoom.type !== 'dm') return
 
   const title = document.getElementById('invite-card-name').value.trim()
   const date = document.getElementById('invite-date').value
@@ -3050,13 +3097,47 @@ async function submitInvitation() {
   if (note) lines.push('📝 ' + note)
   const text = lines.join('\n')
 
+  const btn = document.getElementById('invite-submit-btn')
+  inviteCardSending = true
+  btn.disabled = true
+
+  if (isEdit) {
+    // Die Zeit kann während des Bearbeitens abgelaufen sein
+    const row = document.querySelector(`#chat-box [data-id="${editingInvitationId}"]`)
+    if (row && row.dataset.createdAt && !withinEditWindow(row.dataset.createdAt)) {
+      inviteCardSending = false
+      btn.disabled = false
+      editWindowExpiredToast()
+      closeInviteModal()
+      return
+    }
+    const { data, error } = await supabaseClient
+      .from(currentTable())
+      .update({ text: text, edited_at: new Date().toISOString() })
+      .eq('id', editingInvitationId)
+      .select()
+    inviteCardSending = false
+    btn.disabled = false
+
+    if (error) {
+      return fail('Speichern fehlgeschlagen: ' + error.message)
+    }
+    if (!data || data.length === 0) {
+      return fail('Bearbeiten nicht erlaubt.')
+    }
+    closeInviteModal()
+    try {
+      updateMessageElement(data[0])
+    } catch (e) {
+      console.error('Einladung konnte nicht neu angezeigt werden:', e)
+    }
+    return
+  }
+
   const row = { sender_id: currentUser.id, text: text }
   if (currentRoom.type === 'dm') row.recipient_id = currentRoom.userId
   else row.group_key = currentRoom.groupKey || null
 
-  const btn = document.getElementById('invite-submit-btn')
-  inviteCardSending = true
-  btn.disabled = true
   const { data: inserted, error } = await supabaseClient
     .from(currentTable())
     .insert([row])
@@ -3094,8 +3175,7 @@ const SWISSTRANSFER_URL = 'https://www.swisstransfer.com'
 const PHOTO_CACHE_NAME = 'chat-photos'
 const PHOTO_CACHE_MAX_ENTRIES = 150
 
-let photoGalleryInputEl = null
-let photoCameraInputEl = null
+let photoInputEl = null
 let photoSending = false
 
 function messageSnippet(msg) {
@@ -3117,14 +3197,14 @@ function formatBytes(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1).replace('.', ',') + ' MB'
 }
 
-// Zwei getrennte, unsichtbare Datei-Felder, damit "Kamera" und "Aus Galerie wählen" in der App selbst zwei
-// eigene, eindeutige Knöpfe sind, statt sich auf die (von Handy zu Handy unterschiedliche) Auswahl des
-// Browsers zu verlassen. "capture" lässt den Browser bei der Kamera-Variante direkt die Aufnahme öffnen.
-function makePhotoInput(capture) {
+// Ein unsichtbares Datei-Feld ohne "capture"-Attribut: dadurch entscheidet jedes Gerät selbst, was es beim
+// Antippen anbietet - auf dem Handy fragt das Betriebssystem (nicht die App) erst "Kamera oder Galerie?" bzw.
+// zeigt gleich seine eigene Foto-Auswahl, auf dem PC öffnet sich ganz normal der Datei-Explorer.
+function getPhotoInput() {
+  if (photoInputEl) return photoInputEl
   const el = document.createElement('input')
   el.type = 'file'
   el.accept = 'image/*'
-  if (capture) el.capture = 'environment'
   el.style.display = 'none'
   el.addEventListener('change', () => {
     const file = el.files && el.files[0]
@@ -3132,20 +3212,11 @@ function makePhotoInput(capture) {
     if (file) openPhotoPreview(file)
   })
   document.body.appendChild(el)
+  photoInputEl = el
   return el
 }
 
-function getGalleryInput() {
-  if (!photoGalleryInputEl) photoGalleryInputEl = makePhotoInput(false)
-  return photoGalleryInputEl
-}
-
-function getCameraInput() {
-  if (!photoCameraInputEl) photoCameraInputEl = makePhotoInput(true)
-  return photoCameraInputEl
-}
-
-function startPhotoFlow(pastedFile, source) {
+function startPhotoFlow(pastedFile) {
   if (!currentUser || isAdmin() || currentRoom.type === 'dm-view') return
   if (uploadsDisabled) { showToast(UPLOADS_PAUSED_TEXT); return }
   if (isPhotoBlockedSelf()) { showToast('Du darfst im Moment keine Fotos senden.'); return }
@@ -3154,8 +3225,7 @@ function startPhotoFlow(pastedFile, source) {
   // Der Hinweis kommt bei JEDEM Foto. Erst danach öffnet sich die Foto-Auswahl.
   showSwissTransferHint(() => {
     if (pastedFile) openPhotoPreview(pastedFile) // Foto kam aus der Zwischenablage
-    else if (source === 'camera') getCameraInput().click()
-    else getGalleryInput().click()
+    else getPhotoInput().click()
   })
 }
 
@@ -5347,7 +5417,7 @@ function renderMessage(msg) {
   // Menü öffnen: nicht mehr über einen eigenen Button, sondern per Rechtsklick (PC) oder
   // langem Tippen (Handy) direkt auf der Nachricht - Kopieren geht bei jeder Nachricht,
   // der Rest hängt davon ab, wem sie gehört
-  const canEdit = isOwn && !isAdmin() && !msg.photo_id && !msg.audio_id && !parseInvitation(msg.text) // Foto- und Audio-Nachrichten lassen sich nicht bearbeiten
+  const canEdit = isOwn && !isAdmin() && !msg.photo_id && !msg.audio_id // Foto- und Audio-Nachrichten lassen sich nicht bearbeiten, Einladungen (reiner Text) schon
   const canDelete = isOwn || isAdmin()
   const canReact = !isAdmin()
   const canReply = !isAdmin() && (currentRoom.type === 'group' || currentRoom.type === 'dm')
@@ -6293,7 +6363,9 @@ function openMessageMenu(anchorEl, msg, options, { withReactions = false } = {})
       editItem.textContent = 'Bearbeiten'
       editItem.addEventListener('click', () => {
         closeMessageMenu()
-        startEditingMessage(msg.id, msg.text)
+        const inv = parseInvitation(msg.text)
+        if (inv) startEditingInvitation(msg, inv)
+        else startEditingMessage(msg.id, msg.text)
       })
       menu.appendChild(editItem)
     }
@@ -10610,6 +10682,20 @@ function showBirthdayAnnouncement(force) {
     const gender = profileCache[id] && profileCache[id].gender
     return gender === 'junge' ? 'Er' : gender === 'maedchen' ? 'Sie' : ''
   }
+  // Ein Knopf pro Geburtstagskind (außer einem selbst): öffnet direkt den Chat mit der Person zum Gratulieren.
+  const addCongratsButtons = (ids) => {
+    const wrap = document.createElement('div')
+    wrap.className = 'birthday-congrats'
+    ids.forEach(id => {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'birthday-congrats-btn'
+      btn.textContent = '🎉 ' + nameOf(id).split(/\s+/)[0] + ' gratulieren'
+      btn.addEventListener('click', () => { closeBirthdayModal(); openDirectChat(id, nameOf(id)) })
+      wrap.appendChild(btn)
+    })
+    body.appendChild(wrap)
+  }
 
   add('div', 'birthday-emoji', mine ? '🎉' : BIRTHDAY_EMOJI)
   if (mine) {
@@ -10627,6 +10713,7 @@ function showBirthdayAnnouncement(force) {
     addTitle('Heute haben ', others.map(nameOf), ' Geburtstag')
     others.forEach(id => addAgeLine(' ist jetzt ', id, '', nameOf(id), true))
   }
+  if (others.length > 0) addCongratsButtons(others)
   const modal = document.getElementById('birthday-modal')
   modal.style.display = 'flex'
   startConfetti(modal)
