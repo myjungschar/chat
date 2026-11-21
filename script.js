@@ -4643,7 +4643,7 @@ function buildViewOnceElement(msg, isOwn) {
   if (opened) {
     wrap.classList.add('opened')
     wrap.disabled = true
-    wrap.innerHTML = '<span class="view-once-icon">1</span><span class="view-once-label">Geöffnet</span>'
+    wrap.innerHTML = '<span class="view-once-icon">1</span><span class="view-once-label">' + (isOwn ? 'Foto · Geöffnet' : 'Geöffnet') + '</span>'
     return wrap
   }
 
@@ -5460,6 +5460,7 @@ function renderMessage(msg) {
   if (msg.reply_to_id) msgElement.appendChild(buildReplyQuote(msg.reply_to_id))
   if (msg.view_once) {
     msgElement.classList.add('has-view-once')
+    if (!msg.text) msgElement.classList.add('view-once-row')
     msgElement.appendChild(buildViewOnceElement(msg, isOwn))
   } else if (msg.photo_id) {
     msgElement.classList.add('has-photo')
@@ -7380,21 +7381,27 @@ function updateMessageElement(msg) {
   }
 
   const textEl = row.querySelector('.msg-text')
-  if (textEl && !msg.photo_id && !msg.audio_id && !parseInvitation(msg.text)) {
+  if (textEl && !msg.photo_id && !msg.audio_id) {
     const footer = textEl.querySelector('.msg-footer')
+    const inv = parseInvitation(msg.text)
     textEl.textContent = ''
-    appendFormattedText(textEl, msg.text || '')
+    if (inv) textEl.appendChild(buildInvitationCard(inv))
+    else appendFormattedText(textEl, msg.text || '')
     if (footer) placeMessageFooter(textEl, footer)
     applyEmojiImages(textEl)
-    markBigEmoji(textEl, msg.text)
+    markBigEmoji(textEl, inv ? '' : msg.text)
   }
 
   if (msg.edited_at && !row.querySelector('.msg-edited')) {
-    const meta = row.querySelector('.msg-meta')
-    const tag = document.createElement('span')
-    tag.className = 'msg-edited'
-    tag.textContent = '(bearbeitet)'
-    meta.appendChild(tag)
+    const footer = row.querySelector('.msg-footer')
+    if (footer) {
+      const tag = document.createElement('span')
+      tag.className = 'msg-edited'
+      tag.textContent = '(bearbeitet)'
+      const time = footer.querySelector('.msg-time')
+      if (time) time.after(tag)
+      else footer.prepend(tag)
+    }
   }
 }
 
@@ -10635,8 +10642,15 @@ function showBirthdayAnnouncement(force) {
   const mine = ids.includes(currentUser.id)
   const others = ids.filter(id => id !== currentUser.id)
 
-  const body = document.getElementById('birthday-body')
-  body.innerHTML = ''
+  const root = document.getElementById('birthday-body')
+  root.innerHTML = ''
+  const emojiSlot = document.createElement('div')
+  emojiSlot.className = 'birthday-emoji'
+  emojiSlot.textContent = mine ? '🎉' : BIRTHDAY_EMOJI
+  root.appendChild(emojiSlot)
+  const body = document.createElement('div')
+  body.className = 'birthday-text'
+  root.appendChild(body)
   const add = (tag, className, text) => {
     const el = document.createElement(tag)
     el.className = className
@@ -10695,7 +10709,6 @@ function showBirthdayAnnouncement(force) {
     body.appendChild(wrap)
   }
 
-  add('div', 'birthday-emoji', mine ? '🎉' : BIRTHDAY_EMOJI)
   if (mine) {
     addTitle('Alles Gute zum Geburtstag, ', [nameOf(currentUser.id).split(/\s+/)[0]], '!')
     addAgeLine('Du bist jetzt ', currentUser.id, ' alt\u00a0🎈')

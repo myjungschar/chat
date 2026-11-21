@@ -7336,3 +7336,24 @@ body.admin-home .admin-card {
 .msg-view-once:disabled {
   cursor: default;
 }
+/* Einmalfoto: flache, lange Zeile */
+.msg.has-view-once.view-once-row { display:flex; flex-wrap:wrap; align-items:center; column-gap:18px; min-width:170px; }
+.msg.has-view-once.view-once-row > .msg-meta,
+.msg.has-view-once.view-once-row > .msg-forwarded,
+.msg.has-view-once.view-once-row > .msg-reply-quote { flex:0 0 100%; }
+.msg.has-view-once.view-once-row > .msg-view-once { margin:0; }
+.msg.has-view-once.view-once-row > .msg-text { flex:0 0 auto; margin-left:auto; overflow:visible; }
+.msg.has-view-once.view-once-row .msg-footer { float:none; margin:0; }
+.msg-view-once { width:auto; }
+.msg-view-once:hover { background:none; }
+.msg-view-once:disabled { opacity:1; }
+.msg.other .msg-view-once:not(.opened) { color:var(--accent); }
+.msg.own .msg-view-once:not(.opened) { color:var(--bubble-own-text); }
+.msg-view-once.opened { opacity:1; color:var(--text-secondary); }
+.msg.own .msg-view-once.opened { color:rgba(234,242,250,0.6); }
+
+/* Geburtstags-Pop-up: Emoji hat festen Platz oben, Text mittig darunter */
+#birthday-body { justify-content:flex-start; }
+.birthday-emoji { flex:none; height:64px; margin:4px 0 0; display:flex; align-items:center; justify-content:center; }
+.birthday-emoji img.emoji { width:56px; height:56px; margin:0; vertical-align:baseline; }
+.birthday-text { flex:1; min-height:0; display:flex; flex-direction:column; justify-content:center; }
