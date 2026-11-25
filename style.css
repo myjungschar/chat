@@ -7357,3 +7357,38 @@ body.admin-home .admin-card {
 .birthday-emoji { flex:none; height:64px; margin:4px 0 0; display:flex; align-items:center; justify-content:center; }
 .birthday-emoji img.emoji { width:56px; height:56px; margin:0; vertical-align:baseline; }
 .birthday-text { flex:1; min-height:0; display:flex; flex-direction:column; justify-content:center; }
+
+/* ===== v2.0.11: Chatliste endet etwas höher, Hinweis "hier ist Ende", kleinerer Abstand unter der Version ===== */
+@media (max-width: 899.98px) {
+  /* Die Liste (und ihr Scrollbalken) endet über dem unteren Rand; das letzte Element sitzt direkt am Ende */
+  #list-bereich .list-scroll {
+    margin-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    position: relative;
+  }
+  #list-bereich #chat-list {
+    padding-bottom: 6px;
+  }
+  /* Weicher Schatten am unteren Rand, nur solange man noch weiter runterscrollen kann */
+  #list-bereich .list-scroll::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 28px;
+    pointer-events: none;
+    background: linear-gradient(to bottom, transparent, var(--bg-panel));
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  #list-bereich .list-scroll.has-more::after {
+    opacity: 1;
+  }
+  /* Einstellungen: unten nicht mehr so viel leerer Platz unter der Version */
+  #settings-bereich .settings-groups {
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+  #app-version {
+    margin: 16px 0 4px;
+  }
+}

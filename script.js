@@ -14454,3 +14454,63 @@ function initSettingsCollapse() {
 }
 
 initSettingsCollapse()
+// ===== Handy: Seitenhöhe messen (gegen das "unten abgeschnitten" nach dem Neuladen) =====
+// Direkt nach dem Laden meldet 100dvh bei manchen Handys eine falsche Höhe (Adressleiste noch da oder schon weg). Deshalb wird
+// die echte Höhe gemessen und als --app-height gesetzt, beim Start mehrfach nachgemessen und bei jeder Änderung neu.
+// window.innerHeight ändert sich mit der Tastatur nicht, so bleibt die Eingabezeile wie bisher.
+function updateAppHeight() {
+  const h = window.innerHeight
+  if (h > 0) document.documentElement.style.setProperty('--app-height', h + 'px')
+}
+updateAppHeight()
+;[100, 400, 1000, 2500].forEach(ms => setTimeout(updateAppHeight, ms))
+window.addEventListener('resize', updateAppHeight)
+window.addEventListener('orientationchange', () => { updateAppHeight(); setTimeout(updateAppHeight, 300) })
+window.addEventListener('pageshow', updateAppHeight)
+document.addEventListener('visibilitychange', () => { if (!document.hidden) updateAppHeight() })
+
+// ===== Chatliste: nach links/rechts wischen wechselt den Reiter (Alle Chats, Gruppen, Jungs, Mädels) =====
+;(function initChatTabSwipe() {
+  const area = document.getElementById('list-scroll')
+  if (!area) return
+  const order = ['alle', 'gruppen', 'junge', 'maedchen']
+  let startX = 0, startY = 0, startT = 0, tracking = false
+
+  area.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) { tracking = false; return }
+    startX = e.touches[0].clientX
+    startY = e.touches[0].clientY
+    startT = Date.now()
+    tracking = true
+  }, { passive: true })
+
+  area.addEventListener('touchend', (e) => {
+    if (!tracking) return
+    tracking = false
+    const t = e.changedTouches[0]
+    const dx = t.clientX - startX
+    const dy = t.clientY - startY
+    // Nur ein deutlich waagrechter, zügiger Wisch zählt (kein Scrollen, kein langes Drücken)
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5 || Date.now() - startT > 700) return
+    const idx = order.indexOf(activeChatTab)
+    const next = dx < 0 ? idx + 1 : idx - 1
+    if (next < 0 || next >= order.length) return
+    const btn = document.querySelector('.chat-tab[data-tab="' + order[next] + '"]')
+    if (btn) btn.click()
+  }, { passive: true })
+})()
+
+// ===== Chatliste: dezenter Schatten unten, solange es weiter unten noch mehr gibt; am Ende verschwindet er =====
+;(function initListEndHint() {
+  const list = document.getElementById('chat-list')
+  const wrap = document.getElementById('list-scroll')
+  if (!list || !wrap) return
+  const update = () => {
+    const more = list.scrollHeight - list.scrollTop - list.clientHeight > 4
+    wrap.classList.toggle('has-more', more)
+  }
+  list.addEventListener('scroll', update, { passive: true })
+  window.addEventListener('resize', update)
+  new MutationObserver(update).observe(list, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] })
+  update()
+})()
