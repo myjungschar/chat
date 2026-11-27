@@ -14521,34 +14521,90 @@ window.addEventListener('pageshow', updateAppHeight)
 document.addEventListener('visibilitychange', () => { if (!document.hidden) updateAppHeight() })
 
 // ===== Chatliste: nach links/rechts wischen wechselt den Reiter (Alle Chats, Gruppen, Jungs, Mädels) =====
+// Die Liste folgt dem Finger und rutscht zur Seite; lässt man los, gleitet sie ganz raus und die nächste von der anderen Seite herein.
+// Loslassen vor der Hälfte (und ohne schnellen Schwung): sie federt zurück. Am ersten/letzten Reiter gibt sie nur zäh nach.
 ;(function initChatTabSwipe() {
   const area = document.getElementById('list-scroll')
-  if (!area) return
-  const order = ['alle', 'gruppen', 'junge', 'maedchen']
-  let startX = 0, startY = 0, startT = 0, tracking = false
+  const list = document.getElementById('chat-list')
+  if (!area || !list) return
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const SLIDE_MS = reduceMotion ? 0 : 200
+  let startX = 0, startY = 0, lastX = 0, lastT = 0, velocity = 0
+  let state = 'idle' // idle | pending | drag | scroll | animating
+
+  // Reiter, die man gerade sieht (Gäste haben keinen "Gruppen"-Reiter), in der Reihenfolge der Leiste
+  const visibleTabs = () => Array.from(document.querySelectorAll('#chat-tabs .chat-tab'))
+    .filter(btn => btn.offsetParent !== null)
+    .map(btn => btn.dataset.tab)
+  const neighbourOf = (dx) => {
+    const order = visibleTabs()
+    const idx = order.indexOf(activeChatTab)
+    if (idx < 0) return null
+    const next = dx < 0 ? idx + 1 : idx - 1
+    return next >= 0 && next < order.length ? order[next] : null
+  }
+  const setX = (x, animate) => {
+    list.style.transition = animate && SLIDE_MS ? 'transform ' + SLIDE_MS + 'ms ease-out' : 'none'
+    list.style.transform = x === 0 && !animate ? '' : 'translate3d(' + x + 'px,0,0)'
+  }
+  const reset = () => { list.style.transition = ''; list.style.transform = ''; state = 'idle' }
 
   area.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1) { tracking = false; return }
-    startX = e.touches[0].clientX
+    if (state === 'animating') return
+    if (e.touches.length !== 1) { state = 'idle'; return }
+    startX = lastX = e.touches[0].clientX
     startY = e.touches[0].clientY
-    startT = Date.now()
-    tracking = true
+    lastT = Date.now()
+    velocity = 0
+    state = 'pending'
   }, { passive: true })
 
-  area.addEventListener('touchend', (e) => {
-    if (!tracking || isGuest()) return
-    tracking = false
-    const t = e.changedTouches[0]
+  area.addEventListener('touchmove', (e) => {
+    if (state !== 'pending' && state !== 'drag') return
+    const t = e.touches[0]
     const dx = t.clientX - startX
     const dy = t.clientY - startY
-    // Nur ein deutlich waagrechter, zügiger Wisch zählt (kein Scrollen, kein langes Drücken)
-    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5 || Date.now() - startT > 700) return
-    const idx = order.indexOf(activeChatTab)
-    const next = dx < 0 ? idx + 1 : idx - 1
-    if (next < 0 || next >= order.length) return
-    const btn = document.querySelector('.chat-tab[data-tab="' + order[next] + '"]')
-    if (btn) btn.click()
+    if (state === 'pending') {
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return
+      state = Math.abs(dx) > Math.abs(dy) * 1.2 ? 'drag' : 'scroll'
+      if (state === 'scroll') return
+    }
+    const now = Date.now()
+    if (now > lastT) velocity = (t.clientX - lastX) / (now - lastT)
+    lastX = t.clientX
+    lastT = now
+    // Gibt es in diese Richtung keinen Reiter mehr, gibt die Liste nur zäh nach
+    setX(neighbourOf(dx) ? dx : dx * 0.25, false)
   }, { passive: true })
+
+  const finish = (e) => {
+    if (state !== 'drag') { if (state !== 'animating') state = 'idle'; return }
+    const t = (e.changedTouches && e.changedTouches[0]) || { clientX: lastX }
+    const dx = t.clientX - startX
+    const width = list.offsetWidth || window.innerWidth
+    const target = neighbourOf(dx)
+    const commit = !!target && e.type !== 'touchcancel' && (Math.abs(dx) > width * 0.33 || (Math.abs(velocity) > 0.5 && Math.abs(dx) > 40))
+    if (!commit) {
+      state = 'animating'
+      setX(0, true)
+      setTimeout(reset, SLIDE_MS + 20)
+      return
+    }
+    const dir = dx < 0 ? -1 : 1
+    state = 'animating'
+    setX(dir * width, true) // ganz zur Seite hinausgleiten
+    setTimeout(() => {
+      const btn = document.querySelector('.chat-tab[data-tab="' + target + '"]')
+      if (btn) btn.click() // Reiter wechseln, Liste neu filtern
+      list.scrollTop = 0
+      setX(-dir * width, false) // auf der anderen Seite bereitstellen ...
+      void list.offsetWidth
+      setX(0, true) // ... und hereingleiten
+      setTimeout(reset, SLIDE_MS + 20)
+    }, SLIDE_MS)
+  }
+  area.addEventListener('touchend', finish, { passive: true })
+  area.addEventListener('touchcancel', finish, { passive: true })
 })()
 
 // ===== Chatliste: dezenter Schatten unten, solange es weiter unten noch mehr gibt; am Ende verschwindet er =====

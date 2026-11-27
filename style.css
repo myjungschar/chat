@@ -7394,7 +7394,8 @@ body.admin-home .admin-card {
 }
 
 /* ===== v2.0.12: Gast-Konto ===== */
-body.is-guest #chat-tabs { display: none; }
+/* Gäste haben keine Gruppen: der Reiter "Gruppen" fehlt, die anderen sind wie bei allen */
+body.is-guest .chat-tab[data-tab="gruppen"] { display: none; }
 .guest-suggest-entry { margin-top: 14px; text-align: center; }
 .guest-suggest-dialog { display: flex; flex-direction: column; gap: 10px; text-align: left; }
 .guest-suggest-hint { margin: 0; font-size: 14px; color: var(--text-secondary); }
@@ -7425,3 +7426,7 @@ body.is-guest #chat-tabs { display: none; }
 .modal-box .birthday-sub,
 .modal-box .birthday-age { line-height: 1.4; }
 .birthday-congrats-btn { line-height: 1.3; min-height: 40px; box-sizing: border-box; }
+
+/* Wischen zwischen den Reitern: waagrechte Bewegung gehört der App, senkrechtes Scrollen dem Browser */
+#list-scroll { touch-action: pan-y; }
+#chat-list { will-change: transform; }
