@@ -7430,3 +7430,18 @@ body.is-guest .chat-tab[data-tab="gruppen"] { display: none; }
 /* Wischen zwischen den Reitern: waagrechte Bewegung gehört der App, senkrechtes Scrollen dem Browser */
 #list-scroll { touch-action: pan-y; }
 #chat-list { will-change: transform; }
+
+/* ===== v2.0.15: Geburtstags-Karte steht still, nur der Kuchen wackelt =====
+   Ursache des Springens: Das Wackeln lief auf dem ganzen, kartenbreiten Emoji-Feld. Das gedrehte, breite Feld ragte dabei
+   immer wieder um ein, zwei Pixel über den scrollbaren Bereich hinaus; der Bereich bekam dadurch abwechselnd eine Scroll-Leiste
+   und verlor sie wieder, und der Text darunter rutschte mit. Jetzt wackelt nur das kleine Emoji selbst, und waagrecht wird nie gescrollt. */
+.birthday-emoji { animation: none; }
+.birthday-emoji-inner {
+  display: inline-block;
+  line-height: 1;
+  animation: birthday-bounce 1.3s ease-in-out infinite;
+}
+#birthday-body { overflow-x: hidden; }
+@media (prefers-reduced-motion: reduce) {
+  .birthday-emoji-inner { animation: none; }
+}

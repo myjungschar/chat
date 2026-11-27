@@ -10695,7 +10695,10 @@ function showBirthdayAnnouncement(force) {
   root.innerHTML = ''
   const emojiSlot = document.createElement('div')
   emojiSlot.className = 'birthday-emoji'
-  emojiSlot.textContent = mine ? '🎉' : BIRTHDAY_EMOJI
+  const emojiInner = document.createElement('span')
+  emojiInner.className = 'birthday-emoji-inner'
+  emojiInner.textContent = mine ? '🎉' : BIRTHDAY_EMOJI
+  emojiSlot.appendChild(emojiInner)
   root.appendChild(emojiSlot)
   const body = document.createElement('div')
   body.className = 'birthday-text'
