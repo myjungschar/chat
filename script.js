@@ -10774,6 +10774,8 @@ function showBirthdayAnnouncement(force) {
     others.forEach(id => addAgeLine(' ist jetzt ', id, '', nameOf(id), true))
   }
   if (others.length > 0) addCongratsButtons(others)
+  // Emoji im Text gleich jetzt durch Bilder ersetzen (nicht erst nach dem Anzeigen), damit sich danach nichts mehr verschiebt
+  applyEmojiImages(root)
   const modal = document.getElementById('birthday-modal')
   modal.style.display = 'flex'
   startConfetti(modal)
