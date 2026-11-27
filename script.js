@@ -60,6 +60,11 @@ function isAdmin() {
   return currentProfile && currentProfile.role === 'admin'
 }
 
+// Gast-Konto: Person, die noch nicht in der Jungschar ist. Sie sieht keine Gruppen und nur die Kontakte, die der Admin freigibt.
+function isGuest() {
+  return !!currentProfile && !!currentProfile.is_guest && currentProfile.role !== 'admin'
+}
+
 // Feste Farbpalette für Avatare (ohne Lila). Der Admin kann jeder Person eine Farbe zuweisen (profiles.color);
 // ohne gespeicherte Farbe wird sie aus der ID berechnet, damit jeder Nutzer immer dieselbe Farbe bekommt.
 // Die guten Farben von ganz am Anfang, ohne Lila: Blau, Grün, Gelb, Rot, Dunkelblau, Grau und Rosa. Rosa bekommen nur Mädchen.
@@ -727,6 +732,7 @@ async function enterApp(user) {
   currentProfile = profile
   try { localStorage.setItem('jcLastRole', profile.role === 'admin' ? 'admin' : 'user') } catch (e) { /* egal */ }
   document.body.classList.toggle('is-admin', isAdmin())
+  document.body.classList.toggle('is-guest', isGuest())
   startFeedbackListening()
 
   document.getElementById('user-display-name').innerText =
@@ -1114,6 +1120,7 @@ async function renderChatList() {
   const list = document.getElementById('chat-list')
   list.innerHTML = ''
 
+  const guestMode = isGuest()
   const groupItem = document.createElement('li')
   groupItem.className = 'chat-list-item pinned' + (isChatMuted('main') ? ' muted' : '')
   groupItem.innerHTML = chatListItemHTML(
@@ -1129,9 +1136,9 @@ async function renderChatList() {
   groupItem.dataset.tabs = 'alle gruppen'
   groupItem.dataset.name = 'JungscharChat'
   groupItem.addEventListener('click', openGroupChat)
-  list.appendChild(groupItem)
+  if (!guestMode) list.appendChild(groupItem)
 
-  if (isAdmin() || currentProfile.gender === 'junge') {
+  if (!guestMode && (isAdmin() || currentProfile.gender === 'junge')) {
     const item = document.createElement('li')
     item.className = 'chat-list-item pinned' + (isChatMuted('junge') ? ' muted' : '')
     item.innerHTML = chatListItemHTML(
@@ -1150,7 +1157,7 @@ async function renderChatList() {
     list.appendChild(item)
   }
 
-  if (isAdmin() || currentProfile.gender === 'maedchen') {
+  if (!guestMode && (isAdmin() || currentProfile.gender === 'maedchen')) {
     const item = document.createElement('li')
     item.className = 'chat-list-item pinned' + (isChatMuted('maedchen') ? ' muted' : '')
     item.innerHTML = chatListItemHTML(
@@ -1208,7 +1215,7 @@ async function renderChatList() {
     normalRows.push({ item, time: dmPreviews[id] ? new Date(dmPreviews[id].created_at).getTime() : 0 })
   })
 
-  customGroupRows().forEach(row => normalRows.push(row))
+  if (!guestMode) customGroupRows().forEach(row => normalRows.push(row))
   normalRows.sort((a, b) => b.time - a.time) // stabil: bei gleicher Zeit bleibt die Reihenfolge wie vorher
   normalRows.forEach(row => list.appendChild(row.item))
 
@@ -1232,9 +1239,13 @@ async function renderChatList() {
   } else if (others.length === 0) {
     const hint = document.createElement('p')
     hint.className = 'chat-empty'
-    hint.textContent = 'Noch keine anderen Mitglieder da.'
+    hint.textContent = guestMode
+      ? 'Du kannst noch mit niemandem schreiben. Schlage dem Admin vor, mit wem du schreiben möchtest.'
+      : 'Noch keine anderen Mitglieder da.'
     list.appendChild(hint)
   }
+
+  if (guestMode) list.appendChild(buildGuestSuggestEntry())
 
   applyEmojiImages(list)
   renderChatTabs()
@@ -1470,7 +1481,7 @@ async function loadProfileCache() {
       profileCache = {}
       data.forEach(p => {
         // active = false: eingeladen, aber Einladung noch nicht angenommen / noch kein Passwort gesetzt
-        profileCache[p.id] = { name: p.display_name, role: p.role, blocked: !!p.is_blocked, gender: p.gender, active: p.active !== false, birthdate: p.birthdate || null, color: p.color || null, invitedAt: p.invited_at || null }
+        profileCache[p.id] = { name: p.display_name, role: p.role, blocked: !!p.is_blocked, gender: p.gender, active: p.active !== false, birthdate: p.birthdate || null, color: p.color || null, invitedAt: p.invited_at || null, guest: !!p.is_guest }
       })
       profilesLoaded = true
       return true
@@ -1491,7 +1502,7 @@ async function fetchProfileName(userId) {
     .single()
 
   if (data) {
-    profileCache[userId] = { name: data.display_name, role: data.role, blocked: !!data.is_blocked, gender: data.gender, birthdate: data.birthdate || null, color: data.color || null }
+    profileCache[userId] = { name: data.display_name, role: data.role, blocked: !!data.is_blocked, gender: data.gender, birthdate: data.birthdate || null, color: data.color || null, guest: !!data.is_guest }
   }
 }
 
@@ -7457,7 +7468,8 @@ function adminSections() {
       items: [
         { id: 'reports', icon: '🚩', title: 'Meldungen', sub: 'Gemeldete Nachrichten', count: () => openReports.length, open: () => openAdminPane('Meldungen', host => openReportsModal(host)) },
         { id: 'feedback', icon: '💌', title: 'Rückmeldungen', sub: 'Probleme und Ideen', count: () => feedbackItems.length, open: () => openAdminPane('Rückmeldungen', host => openFeedbackListModal(host)) },
-        { id: 'requests', icon: '📩', title: 'Einladungs-Anfragen', sub: 'Wer dabei sein möchte', count: () => inviteRequests.length, open: () => openAdminPane('Einladungs-Anfragen', host => openInviteRequestsModal(host)) }
+        { id: 'requests', icon: '📩', title: 'Einladungs-Anfragen', sub: 'Wer dabei sein möchte', count: () => inviteRequests.length, open: () => openAdminPane('Einladungs-Anfragen', host => openInviteRequestsModal(host)) },
+        { id: 'guest-requests', icon: '🧑‍🤝‍🧑', title: 'Gast-Vorschläge', sub: 'Mit wem Gäste schreiben möchten', count: () => guestRequests.length, open: () => openAdminPane('Gast-Vorschläge', host => openGuestRequestsPane(host)) }
       ]
     },
     system: {
@@ -7486,6 +7498,7 @@ function refreshAdminCounts() {
   updateReportsBadge()
   updateInviteRequestsBadge()
   updateFeedbackBadge()
+  loadGuestRequests().then(updateAdminStats)
 }
 
 function defaultAdminItem(section, def) {
@@ -7644,7 +7657,7 @@ function updateAdminStats() {
   set('stat-requests', inviteRequests.length, true)
   set('stat-feedback', feedbackItems.length, true)
   set('stat-reports', openReports.length, true)
-  const tasks = openReports.length + feedbackItems.length + inviteRequests.length
+  const tasks = openReports.length + feedbackItems.length + inviteRequests.length + guestRequests.length
   const badge = document.getElementById('tasks-badge')
   if (badge) {
     badge.textContent = String(tasks)
@@ -7665,6 +7678,8 @@ function openSettings() {
   showScreen('settings-bereich')
   document.getElementById('push-group').style.display = ''
   document.getElementById('feedback-settings-group').style.display = ''
+  const guestGroup = document.getElementById('guest-settings-group')
+  if (guestGroup) guestGroup.style.display = isGuest() ? '' : 'none'
   updateNewGroupButton()
   updateMyFeedbackBadge()
   updatePendingInvitesEntry()
@@ -8024,6 +8039,7 @@ function renderUserList() {
       if (u.gender === 'junge') info.push('Junge')
       else if (u.gender === 'maedchen') info.push('Mädchen')
       else if (u.role !== 'admin') info.push('Geschlecht fehlt')
+      if (u.is_guest) info.push('Gast')
       if (u.is_blocked) info.push('gesperrt')
       if (u.active === false && u.invited_at) info.push(invitedAgoText(u.invited_at))
       if (info.length > 0) {
@@ -8243,6 +8259,7 @@ function renderUserDetail(u) {
   box.innerHTML =
     section('identity', 'Name und E-Mail', '', identityBody) +
     section('gender', 'Geschlecht', genderText, genderBody) +
+    section('guest', 'Gast-Konto', u.is_guest ? 'Ja' : 'Nein', '<div id="guest-box"></div>') +
     section('rights', 'Rechte', rightsText, rightsBody) +
     section('color', 'Profilfarbe', `<span class="admin-section-dot" style="background:${avatarColorOf(u.id, u)}"></span>`, colorBody) +
     section('birth', 'Geburtsdatum', '', birthBody) +
@@ -8271,6 +8288,7 @@ function renderUserDetail(u) {
   document.getElementById('user-photo-switch').addEventListener('click', () => setPhotoAllowed(u, photoBlockedIds.has(u.id)))
   document.getElementById('user-group-switch').addEventListener('click', () => setGroupCreateAllowed(u, groupCreateBlockedIds.has(u.id)))
   setupAdminIdentity(u)
+  setupGuestSection(u)
   box.querySelectorAll('.color-swatch').forEach(btn => {
     btn.addEventListener('click', () => setUserColor(u, btn.dataset.color))
   })
@@ -8868,8 +8886,19 @@ function openNewUser() {
   showScreen('new-user-bereich')
   document.getElementById('new-user-email').value = ''
   document.querySelectorAll('#new-user-gender .gender-btn').forEach(b => b.classList.remove('active'))
+  setNewUserGuest(false)
   updateInviteButton()
   document.getElementById('new-user-email').focus()
+}
+
+// Einladen: Schalter "Gast-Konto"
+function setNewUserGuest(on) {
+  const sw = document.getElementById('new-user-guest')
+  if (!sw) return
+  sw.classList.toggle('on', !!on)
+  sw.setAttribute('aria-checked', String(!!on))
+  const state = document.getElementById('new-user-guest-state')
+  if (state) state.textContent = on ? 'Ja' : 'Nein'
 }
 
 // "Einladung senden" ist ausgegraut, bis eine gültige E-Mail-Adresse eingetragen und Junge/Mädchen gewählt ist
@@ -9214,6 +9243,7 @@ async function inviteUser() {
   // Besondere Rechte werden beim Einladen nicht mehr gefragt: Neue starten ohne, der Admin kann sie jederzeit unter
   // Einstellungen > Nutzer verwalten > (Person) > Rechte geben.
   const makeVip = false
+  const makeGuest = !!document.getElementById('new-user-guest')?.classList.contains('on')
 
   // Frage: wirklich senden? Dabei gleich den Benutzernamen prüfen/ändern lassen (er wird mitgeschickt und im Profil gespeichert)
   const details = await askInviteDetails(email)
@@ -9309,6 +9339,7 @@ async function inviteUser() {
 
   input.value = ''
   document.querySelectorAll('#new-user-gender .gender-btn').forEach(b => b.classList.remove('active'))
+  setNewUserGuest(false)
 
   // Die (neue) Funktion speichert Geschlecht und Rechte selbst und meldet das zurück. Bei der alten Fassung
   // der Funktion wird das Geschlecht hier nachgetragen (mehrere Versuche, falls das Profil noch angelegt wird).
@@ -9360,13 +9391,31 @@ async function inviteUser() {
     }
   }
 
+  // Gast-Konto: erst jetzt, wenn das Profil sicher da ist
+  let guestProblem = ''
+  if (makeGuest) {
+    if (!userId) {
+      guestProblem = 'Die Funktion hat keine Nutzer-ID zurückgegeben.'
+    } else {
+      let ok = false
+      for (let attempt = 0; attempt < 6 && !ok; attempt++) {
+        if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 700))
+        const { error: guestError } = await supabaseClient.rpc('admin_set_guest', { p_user_id: userId, p_guest: true })
+        if (guestError) guestProblem = guestError.message
+        else ok = true
+      }
+      if (ok) guestProblem = ''
+    }
+  }
+
   const unsaved = []
+  if (guestProblem) unsaved.push('das Gast-Konto (' + guestProblem + ')')
   if (!genderSaved) unsaved.push('das Geschlecht (' + genderProblem + ')')
   if (!usernameSaved) unsaved.push('Name und Benutzername (' + usernameProblem + ')')
   if (unsaved.length > 0) {
     await showInfoDialog('Die E-Mail an ' + email + ' wurde gesendet, aber ' + unsaved.join(' und ') + ' konnte NICHT gespeichert werden. Bitte sofort unter „Nutzer verwalten“ nachtragen.')
   } else {
-    await showInfoDialog('Die E-Mail an ' + email + ' wurde erfolgreich gesendet!\n\nName: ' + displayName + '\nBenutzername: ' + username)
+    await showInfoDialog('Die E-Mail an ' + email + ' wurde erfolgreich gesendet!\n\nName: ' + displayName + '\nBenutzername: ' + username + (makeGuest ? '\nGast-Konto: ja. Gib ihm jetzt unter „Nutzer verwalten“ die Kontakte frei.' : ''))
   }
   loadUsers()
 }
@@ -10367,7 +10416,7 @@ let presenceSubscribed = false
 let onlineUserIds = new Set()
 
 function startPresence() {
-  if (presenceChannel || !currentUser) return
+  if (presenceChannel || !currentUser || isGuest()) return // Gäste sehen nicht, wer online ist
 
   presenceChannel = supabaseClient.channel('online-users', {
     config: { presence: { key: currentUser.id } }
@@ -10877,7 +10926,7 @@ async function loadGroupBlockedIds() {
 }
 
 function canCreateGroups() {
-  return chatGroupsAvailable && !!currentUser && (isAdmin() || !groupCreateBlockedIds.has(currentUser.id))
+  return chatGroupsAvailable && !!currentUser && !isGuest() && (isAdmin() || !groupCreateBlockedIds.has(currentUser.id))
 }
 
 // Der Eintrag "Neue Gruppe erstellen" sitzt in den Einstellungen und ist nur sichtbar, wenn man Gruppen erstellen darf
@@ -10963,7 +11012,7 @@ function customGroupRows() {
 // ----- Pop-up: Gruppe erstellen / bearbeiten -----
 function groupPickCandidates() {
   return Object.entries(profileCache)
-    .filter(([id, info]) => id !== currentUser.id && info.role !== 'admin' && !info.blocked && info.active !== false)
+    .filter(([id, info]) => id !== currentUser.id && info.role !== 'admin' && !info.guest && !info.blocked && info.active !== false)
     .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || '', 'de', { sensitivity: 'base' }))
     .map(([id]) => id)
 }
@@ -12312,7 +12361,7 @@ function updatePendingInvitesEntry() {
   if (!section) return
   const count = isAdmin() ? 0 : pendingInviteProfiles().length
   // "Mitglieder" gibt es für alle (mit der Geburtstags-Liste); "Wer ist noch eingeladen?" nur, solange es jemanden gibt
-  section.style.display = currentUser ? '' : 'none'
+  section.style.display = (currentUser && !isGuest()) ? '' : 'none'
   const entry = document.getElementById('menu-pending-invites')
   if (entry) entry.style.display = count > 0 ? '' : 'none'
   const badge = document.getElementById('pending-invites-badge')
@@ -14485,7 +14534,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) upda
   }, { passive: true })
 
   area.addEventListener('touchend', (e) => {
-    if (!tracking) return
+    if (!tracking || isGuest()) return
     tracking = false
     const t = e.changedTouches[0]
     const dx = t.clientX - startX
@@ -14514,3 +14563,251 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) upda
   new MutationObserver(update).observe(list, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] })
   update()
 })()
+
+
+// ===== Gast-Konto =====
+let guestRequests = []
+
+// Gast: Eintrag am Ende der Chatliste
+function buildGuestSuggestEntry() {
+  const wrap = document.createElement('p')
+  wrap.className = 'chat-empty guest-suggest-entry'
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'chat-retry-btn'
+  btn.textContent = 'Kontakt vorschlagen'
+  btn.addEventListener('click', openGuestSuggest)
+  wrap.appendChild(btn)
+  return wrap
+}
+
+// Gast: Pop-up, um dem Admin eine Person vorzuschlagen (auch jemand, der nicht in der Jungschar ist)
+function openGuestSuggest() {
+  if (!isGuest() || document.getElementById('guest-suggest-overlay')) return
+  const overlay = document.createElement('div')
+  overlay.className = 'confirm-overlay'
+  overlay.id = 'guest-suggest-overlay'
+  const dialog = document.createElement('div')
+  dialog.className = 'confirm-dialog guest-suggest-dialog'
+  dialog.setAttribute('role', 'dialog')
+  dialog.setAttribute('aria-modal', 'true')
+
+  const heading = document.createElement('p')
+  heading.className = 'audio-name-heading'
+  heading.textContent = 'Kontakt vorschlagen'
+  const hint = document.createElement('p')
+  hint.className = 'guest-suggest-hint'
+  hint.textContent = 'Mit wem möchtest du schreiben? Sprich bitte vorher mit der Person ab, ob das für sie in Ordnung ist. Der Admin schaltet sie danach für dich frei.'
+
+  const nameInput = document.createElement('input')
+  nameInput.type = 'text'
+  nameInput.className = 'guest-suggest-input'
+  nameInput.maxLength = 80
+  nameInput.placeholder = 'Name der Person'
+  nameInput.autocomplete = 'off'
+  const msgInput = document.createElement('textarea')
+  msgInput.className = 'guest-suggest-input'
+  msgInput.maxLength = 500
+  msgInput.rows = 3
+  msgInput.placeholder = 'Nachricht an den Admin (freiwillig)'
+
+  const buttons = document.createElement('div')
+  buttons.className = 'confirm-buttons'
+  const cancel = document.createElement('button')
+  cancel.type = 'button'
+  cancel.className = 'confirm-cancel'
+  cancel.textContent = 'Abbrechen'
+  const send = document.createElement('button')
+  send.type = 'button'
+  send.className = 'confirm-ok'
+  send.textContent = 'Senden'
+  buttons.append(cancel, send)
+
+  const close = () => overlay.remove()
+  cancel.addEventListener('click', close)
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  send.addEventListener('click', async () => {
+    const name = nameInput.value.trim()
+    if (name.length < 2) { showToast('Bitte schreib den Namen der Person auf.'); return }
+    send.disabled = true
+    const { error } = await supabaseClient.rpc('request_guest_contact', { p_name: name, p_message: msgInput.value.trim() || null })
+    send.disabled = false
+    if (error) { showToast(error.message || 'Das hat nicht geklappt.'); return }
+    close()
+    showToast('Danke! Der Admin schaut sich deinen Vorschlag an.', 'success')
+  })
+
+  dialog.append(heading, hint, nameInput, msgInput, buttons)
+  overlay.appendChild(dialog)
+  document.body.appendChild(overlay)
+  nameInput.focus()
+}
+
+// Admin: Gast-Konto ein-/ausschalten und freigegebene Kontakte wählen (im Bereich "Gast-Konto" der Nutzerseite)
+async function setupGuestSection(user) {
+  const box = document.getElementById('guest-box')
+  if (!box || !isAdmin()) return
+  box.innerHTML = ''
+
+  const switchRow = document.createElement('div')
+  switchRow.className = 'input-group'
+  switchRow.innerHTML = `
+    <div class="rights-row">
+      <div class="rights-row-text">
+        <span class="rights-row-title">Gast-Konto</span>
+        <span class="rights-row-state">${user.is_guest ? 'Ja' : 'Nein'}</span>
+      </div>
+      <button type="button" class="rights-switch${user.is_guest ? ' on' : ''}" role="switch" aria-checked="${!!user.is_guest}" aria-label="Gast-Konto"></button>
+    </div>`
+  box.appendChild(switchRow)
+  switchRow.querySelector('.rights-switch').addEventListener('click', () => setGuestMode(user, !user.is_guest))
+
+  const intro = document.createElement('p')
+  intro.className = 'settings-hint'
+  intro.textContent = user.is_guest
+    ? 'Ein Gast sieht keine Gruppen und kann nur mit den Personen schreiben, die du hier freigibst.'
+    : 'Für Personen, die noch nicht in der Jungschar sind. Zum normalen Mitglied wird die Person, wenn du das hier wieder ausschaltest.'
+  box.appendChild(intro)
+  if (!user.is_guest) return
+
+  const { data, error } = await supabaseClient.from('guest_contacts').select('contact_id').eq('guest_id', user.id)
+  if (error) { showToast('Kontakte konnten nicht geladen werden: ' + error.message); return }
+  const allowed = new Set((data || []).map(r => r.contact_id))
+
+  const title = document.createElement('p')
+  title.className = 'guest-contacts-title'
+  box.appendChild(title)
+  const filter = document.createElement('input')
+  filter.type = 'text'
+  filter.placeholder = 'Person suchen'
+  filter.className = 'guest-suggest-input'
+  box.appendChild(filter)
+  const list = document.createElement('div')
+  box.appendChild(list)
+
+  const candidates = Object.entries(profileCache)
+    .filter(([id, p]) => id !== user.id && p.role !== 'admin' && !p.guest && !p.blocked)
+    .sort((a, b) => (a[1].name || '').localeCompare(b[1].name || '', 'de', { sensitivity: 'base' }))
+
+  const render = () => {
+    title.textContent = 'Darf schreiben mit (' + allowed.size + ')'
+    list.innerHTML = ''
+    const q = filter.value.trim().toLowerCase()
+    candidates.filter(([, p]) => !q || (p.name || '').toLowerCase().includes(q)).forEach(([id, p]) => {
+      const on = allowed.has(id)
+      const row = document.createElement('div')
+      row.className = 'input-group'
+      row.innerHTML = `
+        <div class="rights-row">
+          <div class="rights-row-text"><span class="rights-row-title"></span><span class="rights-row-state">${on ? 'Ja' : 'Nein'}</span></div>
+          <button type="button" class="rights-switch${on ? ' on' : ''}" role="switch" aria-checked="${on}"></button>
+        </div>`
+      row.querySelector('.rights-row-title').textContent = p.name || 'Ohne Namen'
+      row.querySelector('.rights-switch').addEventListener('click', async () => {
+        const res = on
+          ? await supabaseClient.from('guest_contacts').delete().eq('guest_id', user.id).eq('contact_id', id)
+          : await supabaseClient.from('guest_contacts').insert({ guest_id: user.id, contact_id: id })
+        if (res.error) { showToast('Fehler: ' + res.error.message); return }
+        if (on) allowed.delete(id)
+        else allowed.add(id)
+        render()
+      })
+      list.appendChild(row)
+    })
+  }
+  filter.addEventListener('input', render)
+  render()
+}
+
+async function setGuestMode(user, on) {
+  if (!isAdmin()) return
+  const question = on
+    ? 'Diese Person zum Gast machen? Sie sieht dann keine Gruppen mehr und nur noch die Personen, die du freigibst.'
+    : 'Diese Person zum normalen Mitglied machen? Die freigegebenen Kontakte und Vorschläge werden dabei gelöscht.'
+  if (!(await askConfirm(question, { okText: on ? 'Zum Gast machen' : 'Zum Mitglied machen', cancelText: 'Abbrechen' }))) return
+  const { error } = await supabaseClient.rpc('admin_set_guest', { p_user_id: user.id, p_guest: on })
+  if (error) { showToast('Fehler: ' + error.message); return }
+  user.is_guest = on
+  if (profileCache[user.id]) profileCache[user.id].guest = on
+  renderUserDetail(user)
+  loadUsers()
+  if (!on) loadGuestRequests().then(updateAdminStats)
+}
+
+async function loadGuestRequests() {
+  if (!isAdmin()) return false
+  const { data, error } = await supabaseClient
+    .from('guest_requests')
+    .select('*')
+    .eq('handled', false)
+    .order('created_at', { ascending: false })
+    .limit(100)
+  if (error) { guestRequests = []; return false }
+  guestRequests = data || []
+  return true
+}
+
+// Admin: Vorschläge der Gäste ("Mit wem möchte ich schreiben?")
+async function openGuestRequestsPane(host) {
+  if (!isAdmin()) return
+  const { dialog } = makeAdminDialog(host)
+  await loadGuestRequests()
+
+  const render = () => {
+    dialog.innerHTML = ''
+    const heading = document.createElement('p')
+    heading.className = 'audio-name-heading'
+    heading.textContent = guestRequests.length === 0 ? 'Keine offenen Vorschläge' : 'Gast-Vorschläge (' + guestRequests.length + ')'
+    dialog.appendChild(heading)
+
+    const list = document.createElement('div')
+    list.className = 'reports-list'
+    guestRequests.forEach(request => {
+      const guest = profileCache[request.guest_id]
+      const item = document.createElement('div')
+      item.className = 'report-item'
+      const head = document.createElement('div')
+      head.className = 'report-head'
+      head.textContent = request.person_name
+      const meta = document.createElement('div')
+      meta.className = 'report-meta'
+      meta.textContent = 'Vorgeschlagen von ' + ((guest && guest.name) || 'einem Gast') + ' · ' + formatTime(request.created_at)
+      item.append(head, meta)
+      if (request.message) {
+        const note = document.createElement('div')
+        note.className = 'invite-request-message'
+        note.textContent = request.message
+        item.appendChild(note)
+      }
+      const actions = document.createElement('div')
+      actions.className = 'report-actions'
+      const doneBtn = document.createElement('button')
+      doneBtn.type = 'button'
+      doneBtn.className = 'confirm-cancel'
+      doneBtn.textContent = 'Erledigt'
+      doneBtn.addEventListener('click', async () => {
+        const { error } = await supabaseClient.from('guest_requests').update({ handled: true }).eq('id', request.id)
+        if (error) { showToast('Speichern hat nicht geklappt: ' + error.message); return }
+        guestRequests = guestRequests.filter(r => r.id !== request.id)
+        updateAdminStats()
+        render()
+      })
+      const openBtn = document.createElement('button')
+      openBtn.type = 'button'
+      openBtn.className = 'confirm-ok'
+      openBtn.textContent = 'Gast öffnen'
+      openBtn.addEventListener('click', async () => {
+        let u = allUsers.find(x => x.id === request.guest_id)
+        if (!u) { await loadUsers(); u = allUsers.find(x => x.id === request.guest_id) }
+        if (!u) { showToast('Der Gast wurde nicht gefunden.'); return }
+        userDetailOpenSections.add('guest')
+        openUserDetail(u)
+      })
+      actions.append(doneBtn, openBtn)
+      item.appendChild(actions)
+      list.appendChild(item)
+    })
+    dialog.appendChild(list)
+  }
+  render()
+}

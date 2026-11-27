@@ -47,7 +47,7 @@
   </script>
 
   <!-- CSS & Supabase -->
-  <link rel="stylesheet" href="style.css?v=2.0.11">
+  <link rel="stylesheet" href="style.css?v=2.0.13">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4"></script>
 
   <!-- Twemoji-Bibliothek: findet die Emojis im Text. Gezeichnet werden sie als Bilder (Noto Emoji 3D, siehe script.js),
@@ -363,6 +363,18 @@
           </div>
         </section>
 
+        <section class="settings-group" id="guest-settings-group" style="display: none;">
+          <h3 class="settings-group-title">Kontakte</h3>
+          <div class="settings-group-body">
+            <ul class="settings-menu">
+              <li id="menu-guest-suggest" onclick="openGuestSuggest()">
+                <span>Kontakt vorschlagen</span>
+                <span class="settings-arrow">›</span>
+              </li>
+            </ul>
+          </div>
+        </section>
+
         <section class="settings-group" id="members-group" style="display: none;">
           <h3 class="settings-group-title">Mitglieder</h3>
           <div class="settings-group-body">
@@ -544,6 +556,17 @@
           <button type="button" class="gender-btn junge" data-value="junge" onclick="selectNewUserGender('junge')">Junge</button>
           <button type="button" class="gender-btn maedchen" data-value="maedchen" onclick="selectNewUserGender('maedchen')">Mädchen</button>
         </div>
+      </div>
+
+      <div class="input-group">
+        <div class="rights-row">
+          <div class="rights-row-text">
+            <span class="rights-row-title">Gast-Konto?</span>
+            <span class="rights-row-state" id="new-user-guest-state">Nein</span>
+          </div>
+          <button type="button" class="rights-switch" id="new-user-guest" role="switch" aria-checked="false" aria-label="Gast-Konto" onclick="setNewUserGuest(!this.classList.contains('on'))"></button>
+        </div>
+        <p class="settings-hint">Für Personen, die noch nicht in der Jungschar sind. Ein Gast sieht keine Gruppen und kann nur mit Personen schreiben, die du freigibst.</p>
       </div>
 
       <button id="invite-user-btn" onclick="inviteUser()" disabled>Einladung senden</button>
@@ -1024,6 +1047,6 @@
   </div>
 
   <!-- Die eigene JavaScript-Logik ganz unten -->
-  <script src="script.js?v=2.0.11"></script>
+  <script src="script.js?v=2.0.13"></script>
 </body>
 </html>

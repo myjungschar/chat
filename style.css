@@ -7392,3 +7392,21 @@ body.admin-home .admin-card {
     margin: 16px 0 4px;
   }
 }
+
+/* ===== v2.0.12: Gast-Konto ===== */
+body.is-guest #chat-tabs { display: none; }
+.guest-suggest-entry { margin-top: 14px; text-align: center; }
+.guest-suggest-dialog { display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.guest-suggest-hint { margin: 0; font-size: 14px; color: var(--text-secondary); }
+.guest-suggest-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  resize: vertical;
+}
+.guest-contacts-title { margin: 14px 0 6px; font-weight: 600; }
